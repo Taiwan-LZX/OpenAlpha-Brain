@@ -18,8 +18,9 @@ OpenAlpha-Quant runs as a fully autonomous agent that:
 2. **Validates locally** — syntax, fingerprint anti-crowding, estimated metrics via exact IQC formulas
 3. **Submits to WorldQuant BRAIN** — real simulation via the BRAIN REST API
 4. **Reads real BRAIN results** — actual Sharpe, Fitness, Turnover + every gate check (`LOW_SHARPE`, `LOW_FITNESS`, `LOW_SUB_UNIVERSE_SHARPE`, `SELF_CORRELATION`, etc.)
-5. **Mutates surgically** — each failing BRAIN check triggers a specific ELM mutation injected back into the LLM
-6. **Loops** until all BRAIN checks pass — the alpha appears in your "My Alphas" account
+5. **Mutates surgically** — each failing BRAIN check triggers a specific ELM mutation injected back into the LLM up to 20 times per alpha
+6. **Live Dashboard UI** — watch the closed-loop optimization, view live metrics, exact WorldQuant gate failure text, and expression patches
+7. **Dockerized Deployment** — easily run the background service and UI in an isolated environment
 
 ---
 
@@ -61,57 +62,59 @@ OpenAlpha-Quant runs as a fully autonomous agent that:
 
 ## Quick Start
 
-### 1. Clone & Install
+### Option 1: Docker (Recommended)
+1. Clone the repository:
+   ```bash
+   git clone git@github.com:hitendras510/OpenAlpha-Brain.git
+   cd OpenAlpha-Brain
+   ```
+2. Configure your credentials in `.env` (WorldQuant + LLM).
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
+3. Start the application:
+   ```bash
+   docker-compose up -d --build
+   ```
+4. Open the UI Dashboard: **http://localhost:8000/static/index.html**
 
-```bash
-git clone https://github.com/hitendras510/OpenAlpha-Brain.git
-cd OpenAlpha-Brain
-pip install -r requirements.txt
-```
+### Option 2: Local Python Execution
 
-### 2. Configure `.env`
+1. **Install dependencies:**
+   ```bash
+   git clone git@github.com:hitendras510/OpenAlpha-Brain.git
+   cd OpenAlpha-Brain
+   pip install -r requirements.txt
+   ```
 
-```bash
-cp .env.example .env
-```
+2. **Configure `.env`:**
+   ```bash
+   cp .env.example .env
+   ```
 
-Edit `.env`:
+   Edit `.env`:
 
-| Variable | Required | Description |
-|---|---|---|
-| `LLM_PROVIDER` | ✅ | `groq` / `gemini` / `openai` / `anthropic` |
-| `LLM_MODEL` | ✅ | e.g. `llama-3.3-70b-versatile` (Groq), `gemini-1.5-flash` |
-| `LLM_API_KEY` | ✅ | Your LLM provider API key |
-| `BRAIN_EMAIL` | ✅ | Your worldquantbrain.com account email |
-| `BRAIN_PASSWORD` | ✅ | Your worldquantbrain.com account password |
-| `BRAIN_SUBMIT_ENABLED` | ✅ | `true` to enable auto-submission to BRAIN |
-| `BRAIN_POLL_TIMEOUT` | ❌ | Seconds to wait for simulation (default: 300) |
-| `MAX_CYCLES` | ❌ | Max research cycles per session (default: 50) |
+   | Variable | Required | Description |
+   |---|---|---|
+   | `LLM_PROVIDER` | ✅ | `groq` / `gemini` / `openai` / `anthropic` |
+   | `LLM_MODEL` | ✅ | e.g. `llama-3.3-70b-versatile` (Groq), `gemini-1.5-flash` |
+   | `LLM_API_KEY` | ✅ | Your LLM provider API key |
+   | `BRAIN_EMAIL` | ✅ | Your worldquantbrain.com account email |
+   | `BRAIN_PASSWORD` | ✅ | Your worldquantbrain.com account password |
+   | `BRAIN_SUBMIT_ENABLED` | ✅ | `true` to enable auto-submission to BRAIN |
 
-> **Free LLM Keys**  
-> - Groq (30 RPM free): [console.groq.com](https://console.groq.com)  
-> - Gemini (generous free tier, recommended): [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+   > **Free LLM Keys**  
+   > - Groq (30 RPM free): [console.groq.com](https://console.groq.com)  
+   > - Gemini (generous free tier, recommended): [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 
-### 3. Run
+3. **Run the Backend:**
+   ```bash
+   uvicorn main:app --port 8000
+   ```
 
-```bash
-uvicorn main:app --port 8000
-```
-
-### 4. Start a Research Session
-
-```bash
-# Start a session
-SESSION=$(curl -s -X POST http://localhost:8000/session/start \
-  -H "Content-Type: application/json" \
-  -d '{"focus_area":"price volume momentum"}' | \
-  python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
-
-# Watch until BRAIN submission passes
-python3 watch_session.py $SESSION
-```
-
-Or open the dashboard: **http://localhost:8000/static/index.html**
+4. **Launch Dashboard:**
+   Navigate to **http://localhost:8000/static/index.html** and click **Start**.
 
 ---
 
