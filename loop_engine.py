@@ -400,20 +400,28 @@ async def run_loop(session_id: str) -> None:
 
             if brain_result.status == BrainSimStatus.PASS:
                 state.status = SessionStatus.PASS
+                s = f"{brain_result.real_sharpe:.3f}" if brain_result.real_sharpe is not None else "N/A"
+                f = f"{brain_result.real_fitness:.3f}" if brain_result.real_fitness is not None else "N/A"
                 _log(state, "PASS",
                      f"Alpha {alpha_id} PASSED all BRAIN checks! "
-                     f"Sharpe={brain_result.real_sharpe:.3f} "
-                     f"Fitness={brain_result.real_fitness:.3f}",
+                     f"Sharpe={s} "
+                     f"Fitness={f}",
                      {"brain_id": brain_result.alpha_id})
             else:
                 state.status = SessionStatus.ITERATING
-                _log(state, "ABANDON",
-                     f"Alpha {alpha_id} exhausted {state.brain_mutation_count} mutations — "
-                     "starting fresh ideation.",
-                     {"failures": brain_result.gate_failures})
+                if brain_result.status == BrainSimStatus.ERROR:
+                    _log(state, "ABANDON",
+                         f"Alpha {alpha_id} abandoned due to API error: {brain_result.error_message}",
+                         {"failures": brain_result.gate_failures})
+                else:
+                    _log(state, "ABANDON",
+                         f"Alpha {alpha_id} exhausted {state.brain_mutation_count} mutations — "
+                         "starting fresh ideation.",
+                         {"failures": brain_result.gate_failures})
+
                 state.failure_catalog.append({
                     "fingerprint": fingerprint_dict,
-                    "failure_type": "BRAIN_EXHAUSTED",
+                    "failure_type": "API_ERROR" if brain_result.status == BrainSimStatus.ERROR else "BRAIN_EXHAUSTED",
                     "mutations_tried": state.brain_mutation_count,
                 })
                 state.conversation_history.append({
@@ -573,9 +581,11 @@ def _log_brain_result(state, result, expression: str, attempt: int) -> None:
     err_msg  = getattr(result, "gate_failures", [])
 
     if result.status.value == "PASS":
+        s = f"{result.real_sharpe:.3f}" if result.real_sharpe is not None else "N/A"
+        f = f"{result.real_fitness:.3f}" if result.real_fitness is not None else "N/A"
+        t = f"{result.real_turnover:.1f}%" if result.real_turnover is not None else "N/A"
         _log(state, "BRAIN_PASS",
-             f"BRAIN PASS — Sharpe={result.real_sharpe:.3f} "
-             f"Fitness={result.real_fitness:.3f} TO={result.real_turnover:.1f}%",
+             f"BRAIN PASS — Sharpe={s} Fitness={f} TO={t}",
              {"brain_id": result.alpha_id, "attempt": attempt})
         return
 
