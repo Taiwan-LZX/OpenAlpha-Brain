@@ -460,7 +460,6 @@ function updateChecksPanel(logs) {
       checkMap[l.detail.check] = {result:'FAIL', value: l.detail.value, limit: l.detail.limit};
     }
     if (l.type === 'BRAIN_PASS') {
-      // clear fails on pass
       Object.keys(checkMap).forEach(k => { checkMap[k] = {result:'PASS'}; });
     }
   });
@@ -471,13 +470,25 @@ function updateChecksPanel(logs) {
     return;
   }
 
+  // Translates API names to WorldQuant UI exact text
+  const formatText = (name, v, l) => {
+    if (name === 'LOW_SHARPE') return `Sharpe of ${v} is below cutoff of ${l}.`;
+    if (name === 'LOW_FITNESS') return `Fitness of ${v} is below cutoff of ${l}.`;
+    if (name === 'LOW_SUB_UNIVERSE_SHARPE') return `Sub-universe Sharpe of ${v} is below cutoff of ${l}.`;
+    if (name === 'HIGH_TURNOVER') return `Turnover of ${v}% is above cutoff of ${l}%.`;
+    if (name === 'LOW_TURNOVER') return `Turnover of ${v}% is below cutoff of ${l}%.`;
+    if (name === 'CONCENTRATED_WEIGHT') return `Weight is not well distributed over instruments.`;
+    if (name === 'SELF_CORRELATION') return `Self-correlation check pending or failed.`;
+    return `${name} check failed (value=${v}, limit=${l})`;
+  };
+
   panel.innerHTML = Object.entries(checkMap).map(([name, chk]) => {
-    const icon = chk.result === 'PASS' ? '✅' : chk.result === 'FAIL' ? '❌' : '⏳';
-    const vals = chk.value != null ? `${chk.value} / ${chk.limit}` : '';
-    return `<div class="check-row">
+    const icon = chk.result === 'PASS' ? '✅' : '❌';
+    const text = formatText(name, chk.value, chk.limit);
+    const color = chk.result === 'PASS' ? 'var(--green)' : 'var(--red)';
+    return `<div class="check-row" style="color: ${color};">
       <span class="check-icon">${icon}</span>
-      <span class="check-name">${name}</span>
-      <span class="check-vals">${vals}</span>
+      <span class="check-name" style="color: inherit; font-family: 'Inter', sans-serif;">${text}</span>
     </div>`;
   }).join('');
 }
