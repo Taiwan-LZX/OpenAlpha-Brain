@@ -508,3 +508,49 @@ class MarketStateInferencer:
         Useful for analysing regime shifts and long-term strategy performance trends.
         """
         return dict(self._yearly_states)
+
+    def infer_current_regime(self) -> str:
+        """Infer the current market regime based on accumulated state data.
+
+        Returns one of: 'high_volatility', 'trending', 'low_volatility',
+        'crash_risk', or 'unknown'.
+
+        The inference uses a rule-based heuristic over recent direction Sharpes:
+          - high_volatility: volatility Sharpe > 0.6 OR mean_reversion dominant
+          - trending: momentum Sharpe > 1.0 AND rising trend
+          - low_volatility: all Sharpes < 0.5 AND quality/value dominant
+          - crash_risk: momentum collapsing (< 0.2) with high vol dominance
+          - unknown: insufficient data or unclear signal
+        """
+        avg_sharpes: dict[str, float] = {}
+        for d, sharpes in self._direction_sharpes.items():
+            if sharpes:
+                avg_sharpes[d] = sum(sharpes) / len(sharpes)
+
+        if not avg_sharpes:
+            return "unknown"
+
+        vol_sharpe = avg_sharpes.get("volatility", 0.0)
+        mom_sharpe = avg_sharpes.get("momentum", 0.0)
+        mr_sharpe = avg_sharpes.get("mean_reversion", 0.0)
+        qual_sharpe = avg_sharpes.get("quality", 0.0)
+        val_sharpe = avg_sharpes.get("value", 0.0)
+
+        # Crash risk: momentum very weak + volatility elevated
+        if mom_sharpe < 0.2 and vol_sharpe > 0.5:
+            return "crash_risk"
+
+        # High volatility regime
+        if vol_sharpe > 0.6 or mr_sharpe > 0.8:
+            return "high_volatility"
+
+        # Trending regime: strong momentum
+        if mom_sharpe > 1.0:
+            return "trending"
+
+        # Low volatility: modest Sharpes across board, quality/value lead
+        max_sharpe = max(avg_sharpes.values()) if avg_sharpes else 0.0
+        if max_sharpe < 0.7 and (qual_sharpe >= val_sharpe >= mr_sharpe):
+            return "low_volatility"
+
+        return "unknown"

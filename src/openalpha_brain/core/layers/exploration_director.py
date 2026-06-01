@@ -319,6 +319,57 @@ class ExplorationDirector:
                     exc,
                 )
 
+        # ── Regime-Aware Template Selection (AI-3) ──
+        _regime_weights: dict[str, dict[str, float]] = {
+            "high_volatility": {
+                "reversal": 1.8, "mean_reversion": 1.6, "low_beta": 1.4,
+                "momentum": 0.3, "growth": 0.5, "value": 1.2,
+            },
+            "trending": {
+                "momentum": 1.7, "trend_following": 1.5, "breakout": 1.4,
+                "reversal": 0.3, "mean_reversion": 0.4,
+            },
+            "low_volatility": {
+                "carry": 1.5, "quality": 1.4, "value": 1.3,
+                "momentum": 0.8, "reversal": 0.9,
+            },
+            "crash_risk": {
+                "hedge": 2.0, "low_beta": 1.8, "volatility_targeting": 1.6,
+                "leverage": 0.2, "momentum": 0.2,
+            },
+            "unknown": {},
+        }
+
+        try:
+            from openalpha_brain.core import loop_state as _ls
+            from openalpha_brain.utils.market_state import MarketStateInferencer
+
+            _inferencer = getattr(_ls, "_market_state_inferencer", None)
+            if _inferencer is None:
+                _inferencer = MarketStateInferencer()
+                _ls._market_state_inferencer = _inferencer
+
+            regime = _inferencer.infer_current_regime()
+            regime_adjustments = _regime_weights.get(regime, {})
+
+            if regime_adjustments:
+                boost = regime_adjustments.get(exploration_direction, 1.0)
+                adjusted_confidence = mab_out.confidence * boost
+                mab_out.confidence = max(_EPSILON, min(1.0, adjusted_confidence))
+                logger.info(
+                    "[DEFENSIVE_LOG] EXPLORATION_DIRECTOR::REGIME_AWARE "
+                    "regime=%s direction=%s boost=%.2f confidence_before=%.3f confidence_after=%.3f "
+                    "adjustments=%s",
+                    regime,
+                    exploration_direction,
+                    boost,
+                    result.confidence if hasattr(result, 'confidence') else mab_out.confidence / boost,
+                    mab_out.confidence,
+                    {k: f"{v:.2f}" for k, v in sorted(regime_adjustments.items(), key=lambda x: -x[1])[:5]},
+                )
+        except (OSError, ImportError, ValueError, RuntimeError) as _regime_exc:
+            logger.debug("EXPLORATION_DIRECTOR: Regime-aware selection unavailable: %s", _regime_exc)
+
         result.direction = exploration_direction
         result.confidence = mab_out.confidence
         result.method = method

@@ -394,6 +394,13 @@ class ExperienceDistiller:
             logger.warning("[DEFENSIVE_LOG] ExperienceDistiller::save_cards 保存失败: %s", exc)
             return False
 
+    def get_top_cards(self, n: int = 5) -> list[dict]:
+        """Return top-N cards by confidence score as dicts for prompt injection."""
+        if not self._cards:
+            return []
+        sorted_cards = sorted(self._cards, key=lambda c: c.confidence, reverse=True)
+        return [asdict(c) for c in sorted_cards[:n]]
+
     def load_cards(self, path: str | Path | None = None) -> int:
         """从磁盘加载经验卡片（公开接口）
 

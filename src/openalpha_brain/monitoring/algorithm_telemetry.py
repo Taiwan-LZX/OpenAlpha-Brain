@@ -270,6 +270,63 @@ class AlgorithmTelemetryCollector:
     def set_current_cycle(self, cycle_id: str) -> None:
         self._current_cycle = cycle_id
 
+    def record_cycle_metrics(
+        self,
+        generation_compliance_repairs: int = 0,
+        ensemble_variant_selected: str = "",
+        tot_triggered: bool = False,
+        regime_detected: str = "",
+        experience_cards_loaded: int = 0,
+        error_patterns_active: int = 0,
+        **kwargs: Any,
+    ) -> None:
+        """Record cycle-level cross-layer metrics for comprehensive observability.
+
+        These metrics provide a holistic view of the entire evolution cycle,
+        capturing key events from all 6 layers of the architecture.
+
+        Args:
+            generation_compliance_repairs: Number of compliance repairs in Layer 2
+            ensemble_variant_selected: Which variant won the ensemble selection (Layer 4)
+            tot_triggered: Whether Tree-of-Thoughts deep reasoning was triggered (Layer 4)
+            regime_detected: Market regime detected by market state module (Layer 1/6)
+            experience_cards_loaded: Number of experience cards loaded from distiller (Layer 4)
+            error_patterns_active: Number of active error patterns from reflection (Layer 4)
+            **kwargs: Additional custom metrics for extensibility
+        """
+        try:
+            event = ModuleTelemetryEvent(
+                timestamp=time.time(),
+                module_name="CycleSummary",
+                event_type="data",
+                cycle_id=self._current_cycle or "unknown",
+                expression_id=None,
+                metrics={
+                    "label": "cycle_metrics",
+                    "value": {
+                        "generation_compliance_repairs": generation_compliance_repairs,
+                        "ensemble_variant_selected": ensemble_variant_selected,
+                        "tot_triggered": tot_triggered,
+                        "regime_detected": regime_detected,
+                        "experience_cards_loaded": experience_cards_loaded,
+                        "error_patterns_active": error_patterns_active,
+                        **kwargs,
+                    },
+                },
+                duration_ms=None,
+                metadata={},
+            )
+            self._pending_events.append(event)
+            self._event_count_since_flush += 1
+            self._log(
+                f"CYCLE_METRICS compliance_repairs={generation_compliance_repairs} "
+                f"variant={ensemble_variant_selected} tot={tot_triggered} "
+                f"regime={regime_detected} cards={experience_cards_loaded} "
+                f"errors={error_patterns_active}"
+            )
+        except (OSError, ValueError, RuntimeError) as e:
+            self._log(f"record_cycle_metrics FAILED: {e}", logging.WARNING)
+
     async def flush_to_disk(self) -> int:
         try:
             async with self._lock:
@@ -312,7 +369,17 @@ class AlgorithmTelemetryCollector:
         try:
             all_ev = [e for e in self._all_events() if e.cycle_id == cycle_id]
             if not all_ev:
-                return {"cycle_id": cycle_id, "total_events": 0, "modules": {}}
+                return {
+                    "cycle_id": cycle_id,
+                    "total_events": 0,
+                    "modules": {},
+                    "generation_compliance_repairs": 0,
+                    "ensemble_variant_selected": "",
+                    "tot_triggered": False,
+                    "regime_detected": "",
+                    "experience_cards_loaded": 0,
+                    "error_patterns_active": 0,
+                }
 
             modules: dict[str, list[ModuleTelemetryEvent]] = {}
             for ev in all_ev:
@@ -326,6 +393,12 @@ class AlgorithmTelemetryCollector:
                     "end": max(e.timestamp for e in all_ev),
                 },
                 "modules": {},
+                "generation_compliance_repairs": 0,
+                "ensemble_variant_selected": "",
+                "tot_triggered": False,
+                "regime_detected": "",
+                "experience_cards_loaded": 0,
+                "error_patterns_active": 0,
             }
             for mod_name, evts in modules.items():
                 enters = [e for e in evts if e.event_type == "enter"]

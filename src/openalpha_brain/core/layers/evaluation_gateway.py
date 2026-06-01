@@ -89,6 +89,8 @@ class EvaluationResult:
     error_message: str = ""
     duration_sec: float = 0.0
     metadata: dict = field(default_factory=dict)
+    failure_reason: str = ""
+    failure_category: str = ""
 
     def to_log_dict(self) -> dict:
         """转换为可日志记录的字典"""
@@ -300,6 +302,8 @@ class EvaluationGateway:
             result.status = self.classify_status(result)
             self._update_stats(result.status)
 
+            result.failure_reason, result.failure_category = self._classify_failure(result)
+
         except Exception as gateway_exc:
             logger.error("[GATEWAY] ❌ GATEWAY_ERROR | session=%s error=%s", session_id, gateway_exc, exc_info=True)
             result.status = "ERROR"
@@ -377,6 +381,47 @@ class EvaluationGateway:
         """更新内部统计计数器"""
         key = status.lower() if status.lower() in self._stats else "fail"
         self._stats[key] = self._stats.get(key, 0) + 1
+
+    @staticmethod
+    def _classify_failure(evaluation: EvaluationResult) -> tuple[str, str]:
+        """将评估结果分类为结构化失败原因
+
+        Returns:
+            (failure_reason, failure_category) 元组
+            failure_category 取值:
+              "syntax_error" | "unknown_field" | "low_sharpe" | "high_turnover"
+              | "correlation_high" | "timeout" | "accepted"
+        """
+        if evaluation.status == "TIMEOUT":
+            return "Evaluation timeout exceeded", "timeout"
+
+        if evaluation.status == "PASS":
+            return "", "accepted"
+
+        if evaluation.status == "ERROR":
+            msg = evaluation.error_message or "Unknown error"
+            if "unknown" in msg.lower() or "variable" in msg.lower():
+                return msg[:200], "unknown_field"
+            if "syntax" in msg.lower() or "parse" in msg.lower():
+                return msg[:200], "syntax_error"
+            return msg[:200], "syntax_error"
+
+        sharpe = evaluation.sharpe or 0.0
+        turnover = evaluation.turnover or 0.0
+
+        if sharpe < 0.5:
+            return f"Low Sharpe ratio ({sharpe:.3f})", "low_sharpe"
+
+        if turnover > 0.7:
+            return f"High turnover ({turnover:.2f})", "high_turnover"
+
+        parsed = evaluation.parsed_result
+        if parsed is not None:
+            corr = getattr(parsed, "correlation", None)
+            if corr is not None and corr > 0.95:
+                return f"High correlation with existing alpha ({corr:.3f})", "correlation_high"
+
+        return f"Evaluation failed with status={evaluation.status} sharpe={sharpe:.3f}", "low_sharpe"
 
     def reset_stats(self) -> None:
         """重置统计计数器"""

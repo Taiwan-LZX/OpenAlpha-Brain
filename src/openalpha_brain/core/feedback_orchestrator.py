@@ -48,6 +48,7 @@ from openalpha_brain.generation.prompts import (
     build_start_trigger,
 )
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
+from openalpha_brain.optimization.parameter_sweeper import ParameterSweeper
 from openalpha_brain.optimization.turnover_optimizer import TurnoverOptimizer
 from openalpha_brain.services import llm_client
 from openalpha_brain.services.brain_submitter import (
@@ -270,6 +271,13 @@ class FeedbackLoopOrchestrator:
         except (ImportError, AttributeError, RuntimeError, OSError) as exc:
             logger.warning("[ORCH] ⚠ TurnoverOptimizer init failed (graceful degradation): %s", exc)
             self._turnover_optimizer = None
+
+        try:
+            self._parameter_sweeper = ParameterSweeper()
+            logger.info("[ORCH] ✓ ParameterSweeper initialized")
+        except (ImportError, AttributeError, RuntimeError, OSError) as exc:
+            logger.warning("[ORCH] ⚠ ParameterSweeper init failed (graceful degradation): %s", exc)
+            self._parameter_sweeper = None
 
         try:
             from openalpha_brain.validation.stability_guard import StabilityGuard
@@ -1817,6 +1825,32 @@ class FeedbackLoopOrchestrator:
                     result.turnover_analysis.get("severity", ""),
                     result.turnover_analysis.get("potential_gain", 0),
                 )
+            except (OSError, ValueError, RuntimeError):
+                pass
+
+        if self._parameter_sweeper is not None and sharpe < 1.0:
+            try:
+                params = self._parameter_sweeper.parse_numeric_literals(expression)
+                if params:
+                    logger.info(
+                        "[FO-ANALYZE] [PARAM-SWEEP] Low Sharpe (%.3f) with %d numeric params → launching sweep",
+                        sharpe,
+                        len(params),
+                    )
+                    variants = self._parameter_sweeper.generate_variants(expression)
+
+                    if variants:
+                        for variant in variants[:8]:
+                            pf_ps = self.prefilter.prefilter(variant)
+                            if pf_ps.passed:
+                                result.improved_expressions.append(variant)
+                                result.improvement_sources.append("param_sweep")
+
+                        logger.info(
+                            "[FO-ANALYZE] [PARAM-SWEEP] Generated %d variants, %d passed prefilter",
+                            len(variants),
+                            sum(1 for s in result.improvement_sources if s == "param_sweep"),
+                        )
             except (OSError, ValueError, RuntimeError):
                 pass
 

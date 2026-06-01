@@ -13,6 +13,105 @@ from openalpha_brain.utils import extract_json_from_llm
 logger = logging.getLogger(__name__)
 
 
+def _build_structural_patterns_block() -> str:
+    return """
+╔══════════════════════════════════════════════════════════════╗
+║  SUCCESSFUL STRUCTURAL PATTERNS (research-validated)          ║
+║  Source: AlphaSAGE(PKU'25) + AutoAlpha(Tsinghua) + WQ Official ║
+╚══════════════════════════════════════════════════════════════╝
+
+  PATTERN-A: Cross-Family Interaction (observed Sharpe 1.35-1.77)
+    Structure: time_series(fundamental) ⊗ cross_sectional(price)
+    Skeleton: ts_{op}({FUND_FIELD}, {W}) ± rank({PRICE_FIELD})
+    Key rule: MUST mix ≥2 field families (price + fundamental/sentiment)
+    Example skeleton: ts_decay_linear(rank({FF}) * zscore({PRICE}), {3..10})
+    Why it works: Price momentum anchored by fundamental value = persistent edge
+
+  PATTERN-B: Liquidity-Adjusted Reversal (observed Sharpe 1.60-1.69)
+    Structure: signed_power(reversal_signal, liquidity_normalizer)
+    Skeleton: sign({SIGNAL}) * power(|{SIGNAL}| / {VOL_FIELD}, {0.3..0.7})
+    Key rule: Use volume/adv20/adv50 as liquidity gate, NOT raw volume
+    Example skeleton: -1 * power(rank(ts_delta(close,5)) / adv20, 0.5)
+    Why it works: Reversal only trades when liquidity supports execution
+
+  PATTERN-C: Volatility-Decay Momentum (observed Sharpe 1.40-1.55)
+    Structure: decay(momentum_proxy, volatility_adjustment)
+    Skeleton: ts_decay_linear(rank({RET}) * (1 - ts_std_dev({RET}, {W})), d)
+    Key rule: Momentum signal MUST be normalized by its own volatility
+    Example skeleton: ts_decay_linear(rank(returns) * (1 - ts_std_dev(returns, 20)), 5)
+    Why it works: Volatility scaling prevents blowup in high-vol regimes
+
+  ⚠️  NOVELTY CONSTRAINT (mandatory for WQ submission):
+    ├── Your output correlation with WorldQuant 101 Alphas MUST be <0.5
+    ├── AVOID: Pure price momentum (rank(close)-rank(delay(close,N)))
+    ├── AVOID: Simple mean reversion (close-ts_mean(close,N))
+    ├── AVOID: Single-field expressions (only close/volume/returns)
+    ├── ENCOURAGE: Nonlinear nesting (ts_op(ts_op(x)))
+    ├── ENCOURAGE: Conditional operations (where/if_else logic)
+    ├── ENCOURAGE: Cross-family field interaction (price × fundamental)
+    └── ENCOURAGE: Asymmetric operators (signed_power, log, abs)
+
+  🔬 STRUCTURAL COMPLEXITY REQUIREMENTS:
+    ├── Minimum 4 operators per expression (excluding group_neutralize/ts_decay wrapper)
+    ├── At least 1 time-series operator (ts_*) AND 1 cross-sectional operator (rank/group/zscore)
+    ├── Prefer nested composition over flat linear chains
+    └── ThreeBlockTemplate will be auto-applied: your output = Block A only
+"""
+
+
+def _build_experience_cards_block() -> str:
+    """Build few-shot block from successful experience cards.
+
+    Uses OWN historical success data (no overlap risk with public alphas).
+    Source: ExperienceDistiller.save_cards() persistence.
+    """
+    try:
+        from openalpha_brain.core import loop_state as _ls
+
+        distiller = getattr(_ls, "_experience_distiller", None)
+        if distiller is None:
+            return ""
+
+        cards = distiller.get_top_cards(n=3)
+        if not cards:
+            return ""
+
+        lines = [
+            "",
+            "╔══════════════════════════════════════════════════════════════╗",
+            "║  HISTORICAL SUCCESS PATTERNS (your own data, zero overlap risk) ║",
+            "╚══════════════════════════════════════════════════════════════╝",
+            "",
+            "  These patterns worked well in YOUR previous cycles:",
+            "",
+        ]
+
+        for i, card in enumerate(cards, 1):
+            pattern = card.get("failure_pattern", "N/A")[:60]
+            fix_strategy = card.get("fix_strategy", "N/A")[:70]
+            confidence = card.get("confidence", 0.0)
+            applicable_cond = card.get("applicable_conditions", "")[:80]
+
+            lines.extend([
+                f"  ▶ Success #{i} (confidence={confidence:.2f}):",
+                f"     Pattern: {pattern}...",
+                f"     Fix strategy: {fix_strategy}...",
+            ])
+            if applicable_cond:
+                lines.append(f"     When to apply: {applicable_cond}...")
+            lines.append("")
+
+        lines.extend([
+            "  💡 NOTE: These are YOUR unique discoveries — adapt the STRATEGY,",
+            "     don't copy exact expressions (to avoid self-correlation).",
+            "",
+        ])
+        return "\n".join(lines)
+
+    except (OSError, ImportError, ValueError, RuntimeError):
+        return ""
+
+
 def _load_operator_list() -> str:
     schema_path = get_data_path("brain_operators.json")
     fallback = (
@@ -1110,6 +1209,18 @@ def _get_crossover_context_injection() -> str:
         return ""
 
 
+def _get_error_pattern_injection() -> str:
+    try:
+        from openalpha_brain.core import loop_state as _ls
+
+        error_db = getattr(_ls, "_error_pattern_db", None)
+        if error_db is not None:
+            return error_db.build_negative_constraints(top_n=5)
+    except (OSError, ValueError, AttributeError, RuntimeError):
+        pass
+    return ""
+
+
 def _build_field_family_map(field_ids: list[str]) -> dict[str, tuple[str, str]] | None:
     """
     Build a mapping from field names to (family_id, crowd_level) tuples.
@@ -1280,6 +1391,9 @@ def build_dynamic_context(
                 if high_crowd_fields:
                     lines.append(f"  AVOID overusing HIGH CROWDING fields: {', '.join(high_crowd_fields)}")
 
+        lines.append(_build_structural_patterns_block())
+        lines.append(_build_experience_cards_block())
+
         finlogic_ids = rag_context.get("financial_logic_ids", [])
         if finlogic_ids:
             lines.append(f"\n▶ RELEVANT FINANCIAL LOGIC: {', '.join(finlogic_ids)}")
@@ -1303,6 +1417,10 @@ def build_dynamic_context(
             if cond:
                 lines.append(f"    Condition: {cond}")
             lines.append(f"    Confidence: {conf:.2f}")
+
+    error_constraints = _get_error_pattern_injection()
+    if error_constraints:
+        lines.append(error_constraints)
 
     decay_injection = _get_decay_context_injection()
     if decay_injection:

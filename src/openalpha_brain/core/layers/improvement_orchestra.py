@@ -79,6 +79,7 @@ class ImprovementResult:
     reflection_diagnosis: dict | None = None
     near_pass_analysis: dict | None = None
     turnover_analysis: dict | None = None
+    sweeper_result: dict | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -111,7 +112,16 @@ class ImprovementOrchestra:
             "ed_success": 0,
             "sm_success": 0,
             "qd_success": 0,
+            "tot_success": 0,
         }
+        try:
+            from openalpha_brain.evolution.tot_search import ToTSearchStrategy
+
+            self._tot_engine = ToTSearchStrategy()
+            logger.info("[ORCH] ✓ ToTSearchEngine initialized")
+        except (ImportError, AttributeError, RuntimeError) as exc:
+            logger.warning("[ORCH] ⚠ TOT init failed: %s", exc)
+            self._tot_engine = None
 
     async def analyze_and_improve(
         self,
@@ -352,6 +362,61 @@ class ImprovementOrchestra:
             except (OSError, ValueError, RuntimeError, AttributeError) as exc:
                 logger.warning("[IO] QualityDiversity failed: %s", exc)
 
+        try:
+            from openalpha_brain.optimization.parameter_sweeper import ParameterSweeper
+
+            sweeper = ParameterSweeper(config=self.config.get("sweeper", {}))
+            sweep_result = await sweeper.sweep(
+                expression=expression,
+                brain_result=brain_result,
+                session_id=session_id,
+            )
+            if sweep_result:
+                result.sweeper_result = {
+                    "best_expression": sweep_result.get("best_expression", ""),
+                    "original_sharpe": float(sharpe or 0.0),
+                    "best_sharpe": sweep_result.get("best_sharpe", 0.0),
+                    "improvement": sweep_result.get("improvement", 0.0),
+                    "parameters_tested": sweep_result.get("parameters_tested", 0),
+                }
+                if result.sweeper_result["best_expression"]:
+                    result.improved_expressions.append(result.sweeper_result["best_expression"])
+                    result.improvement_sources.append("parameter_sweeper")
+                logger.info("[IO] ParameterSweeper | improvement=%.3f", result.sweeper_result["improvement"])
+        except (ImportError, OSError, ValueError, RuntimeError, AttributeError) as exc:
+            logger.debug("[IO] ParameterSweeper unavailable: %s", exc)
+
+        # ── TOT (Tree-of-Thoughts) deep reasoning for low-Sharpe complex factors ──
+        if self._tot_engine is not None and sharpe < 0.5 and expression.count("(") > 3:
+            try:
+                tot_result = await asyncio.wait_for(
+                    self._tot_engine.search(
+                        seed_expression=expression,
+                        target_fitness=max(float(fitness or 0) * 1.5, 1.25),
+                        initial_fitness=float(fitness or 0),
+                        context={"session_id": session_id, "cycle_num": cycle_num},
+                    ),
+                    timeout=self.config.get("tot_timeout_seconds", 60),
+                )
+                if tot_result and tot_result.get_best_expression():
+                    best_expr = tot_result.get_best_expression()
+                    if best_expr != expression:
+                        result.improved_expressions.append(best_expr)
+                        result.improvement_sources.append("tot_deep_reasoning")
+                        self._stats["tot_success"] += 1
+                        logger.info(
+                            "[IO] TOT deep reasoning | best_fit=%.4f expr='%s…' nodes=%d depth=%d time=%.1fs",
+                            tot_result.get_best_fitness(),
+                            best_expr[:60],
+                            tot_result.total_nodes_explored,
+                            tot_result.total_depth_reached,
+                            tot_result.search_duration_sec,
+                        )
+            except (TimeoutError, asyncio.TimeoutError):
+                logger.warning("[IO] TOT deep reasoning timed out (%ds)", self.config.get("tot_timeout_seconds", 60))
+            except (OSError, ValueError, RuntimeError, AttributeError) as _tot_exc:
+                logger.debug("[IO] TOT search failed: %s", _tot_exc)
+
         # ── Consume TrajectoryMutation insights (from periodic_tasks background) ──
         try:
             from openalpha_brain.core import loop_state as _ls_mod
@@ -389,7 +454,7 @@ class ImprovementOrchestra:
         logger.info(
             "[IO] COMPLETE | session=%s cycle=%d | elapsed=%.2fs | "
             "action=%s variants=%d improvers_active=%d | "
-            "fo=%s ea=%s ed=%s sm=%s qd=%s",
+            "fo=%s ea=%s ed=%s sm=%s qd=%s tot=%s",
             session_id,
             cycle_num,
             elapsed,
@@ -401,6 +466,7 @@ class ImprovementOrchestra:
             self._stats.get("ed_success", 0),
             self._stats.get("sm_success", 0),
             self._stats.get("qd_success", 0),
+            self._stats.get("tot_success", 0),
         )
         return result
 
@@ -418,6 +484,9 @@ class ImprovementOrchestra:
 
     def set_quality_diversity(self, qd: Any) -> None:
         self._quality_diversity = qd
+
+    def set_tot_engine(self, tot: Any) -> None:
+        self._tot_engine = tot
 
     @property
     def stats(self) -> dict[str, int]:

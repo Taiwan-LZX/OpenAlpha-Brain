@@ -307,6 +307,16 @@ async def run_loop(session_id: str) -> None:
         except (OSError, ValueError, RuntimeError) as _decay_init_exc:
             logger.warning("[%s] DecayDetector instrument registration failed: %s", session_id, _decay_init_exc)
 
+    if getattr(_ls, "_error_pattern_db", None) is None:
+        try:
+            from openalpha_brain.learning.error_pattern_db import ErrorPatternDB
+
+            _ls._error_pattern_db = ErrorPatternDB()
+            logger.info("[%s] ErrorPatternDB initialized (standard loop)", session_id)
+        except (OSError, ValueError, RuntimeError) as _epdb_exc:
+            logger.warning("[%s] ErrorPatternDB initialization failed: %s", session_id, _epdb_exc)
+            _ls._error_pattern_db = None
+
     if not hasattr(_ls, "_generation_gates") or _ls._generation_gates is None:
         _hyp_aligner = HypothesisAligner()
         _ls._hypothesis_aligner = _hyp_aligner
@@ -1927,6 +1937,34 @@ async def run_loop(session_id: str) -> None:
                 except (OSError, ValueError, RuntimeError):
                     logger.debug("[%s] HierarchicalMAB.update failed", session_id, exc_info=True)
 
+            if brain_result.status != BrainSimStatus.PASS:
+                try:
+                    _error_db = getattr(_ls, "_error_pattern_db", None)
+                    if _error_db is not None:
+                        _ls._algo_tick("error_pattern_learning")
+                        error_msg = "; ".join(brain_result.gate_failures) if brain_result.gate_failures else (
+                            "BRAIN_FAIL" if brain_result.status == BrainSimStatus.FAIL else "BRAIN_ERROR"
+                        )
+                        pattern = _error_db.extract_error_pattern(
+                            expression=expression or "",
+                            error_msg=error_msg,
+                            brain_result={
+                                "status": brain_result.status.value if brain_result.status else "ERROR",
+                                "gate_failures": brain_result.gate_failures[:5] if brain_result.gate_failures else [],
+                                "sharpe": brain_result.real_sharpe,
+                            },
+                        )
+                        if _error_db.store(pattern):
+                            logger.info(
+                                "[%s] ERROR_PATTERN: type=%s content=%s count=%d",
+                                session_id,
+                                pattern.get("type"),
+                                pattern.get("content"),
+                                pattern.get("count"),
+                            )
+                except (OSError, ValueError, RuntimeError):
+                    logger.debug("[%s] ErrorPatternDB learning failed", session_id, exc_info=True)
+
             _tot_inst = getattr(_ls, "_tot_search", None)
             _is_near_pass = (
                 _tot_inst is not None
@@ -2860,6 +2898,16 @@ async def run_loop(session_id: str) -> None:
         _ls._save_intelligent_search_state()
     except (OSError, ValueError, RuntimeError):
         logger.warning("[%s] Final MAB state save failed", session_id)
+    try:
+        from openalpha_brain.knowledge.field_proxy_map import get_field_proxy_map
+
+        fpm = get_field_proxy_map()
+        if fpm.is_ready and state:
+            evaluated_alphas = getattr(state, "evaluated_alphas", []) or []
+            fpm.update_crowding_from_results(evaluated_alphas)
+            logger.debug("[%s] FPM crowding updated with %d evaluated alphas", session_id, len(evaluated_alphas))
+    except Exception:
+        pass
     if _ls._experience_distiller is not None:
         try:
             _ls._experience_distiller.save_cards()

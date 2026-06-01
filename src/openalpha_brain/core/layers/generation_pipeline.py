@@ -55,6 +55,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -77,6 +78,16 @@ _SAFE_FIELDS_BASE: set[str] = {
     "market_cap", "shares_outstanding", "dividend_yield",
 }
 
+_ENSEMBLE_VARIANTS: dict[str, str] = {
+    "conservative": "\n\n[ENSEMBLE MODE: Conservative] Generate a SAFE, PROVEN alpha pattern. "
+        "Prefer simple cross-sectional rank with single time-series decay. "
+        "Avoid nesting >2 levels. Prioritize stability over novelty.",
+    "aggressive": "\n\n[ENSEMBLE MODE: Aggressive] Push boundaries! Generate NOVEL, COMPLEX alpha. "
+        "REQUIRE: ≥3 operator types, cross-family field interaction (price×fundamental), "
+        "nonlinear nesting encouraged. Novel structural patterns rewarded.",
+    # "balanced" = no suffix (use original prompt as-is)
+}
+
 
 @dataclass
 class GenerationResult:
@@ -91,6 +102,8 @@ class GenerationResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     crossover_insights_used: list[dict] = field(default_factory=list)
     raw_llm_output: str | None = None
+    compliance_result: dict | None = None
+    mab_stats: dict | None = None
 
     @property
     def is_valid(self) -> bool:
@@ -216,6 +229,13 @@ class GenerationPipeline:
                     top_fields = sorted(field_stats.items(), key=lambda x: x[1].get("expectation", 0), reverse=True)[:5]
                     mab_top_fields_raw = [(f, stats.get("expectation", 0)) for f, stats in top_fields]
 
+                    result.mab_stats = {
+                        "top_operators": [(op, stats.get("expectation", 0)) for op, stats in top_ops],
+                        "top_fields": mab_top_fields_raw,
+                        "total_operators": len(op_stats),
+                        "total_fields": len(field_stats),
+                    }
+
                     if top_ops or top_fields:
                         op_str = ", ".join(f"{op}({stats['expectation']:.2f})" for op, stats in top_ops)
                         field_str = ", ".join(f"{f}({stats['expectation']:.2f})" for f, stats in top_fields)
@@ -275,6 +295,15 @@ class GenerationPipeline:
                     from openalpha_brain.validation.wq_format_repair import enforce_compliance
 
                     compliance_result = enforce_compliance(expression)
+
+                    result.compliance_result = {
+                        "valid": compliance_result.valid,
+                        "repairs_applied": compliance_result.repairs_applied,
+                        "errors": compliance_result.errors,
+                        "warnings": compliance_result.warnings,
+                        "original": expression[:100],
+                        "repaired": (compliance_result.repaired or "")[:100],
+                    }
 
                     if compliance_result.repairs_applied:
                         logger.info(
@@ -469,16 +498,13 @@ class GenerationPipeline:
             return _expr, _src, _conf, _raw, None
 
         if llm_client is not None and user_msg:
-            _expr, _src, _conf, _raw = await self._generate_via_llm_direct(
+            _expr, _src, _conf, _raw = await self._ensemble_generate(
                 direction=direction,
                 session_id=session_id,
                 cycle_num=cycle_num,
                 llm_client=llm_client,
-                user_msg=user_msg,
+                base_user_msg=user_msg,
                 effective_history=effective_history,
-                rag_context=rag_context,
-                operators=operators,
-                fields=fields,
                 mab_recommendation=mab_recommendation,
                 mab_top_fields=mab_top_fields,
             )
@@ -755,6 +781,218 @@ class GenerationPipeline:
                 exc_info=True,
             )
             raise
+
+    async def _ensemble_generate(
+        self,
+        direction: str,
+        session_id: str,
+        cycle_num: int,
+        llm_client=None,
+        base_user_msg: str = "",
+        effective_history: list | None = None,
+        mab_recommendation: str = "",
+        mab_top_fields: list[tuple[str, float]] | None = None,
+        n_variants: int = 3,
+    ) -> tuple[str, str, float, str | None]:
+        """Ensemble Generation — 多 Prompt 变体并行生成
+
+        并发生成 N 个不同风格的 alpha 表达式变体，选择最佳结果。
+
+        变体策略:
+          - conservative (保守型): 强调安全、已知模式、低复杂度
+          - aggressive (激进型): 强调创新、高复杂度、跨族交互
+          - balanced (平衡型): 原始 prompt + MAB 推荐 + 字段白名单
+
+        Args:
+            direction: 探索方向
+            session_id: 会话 ID
+            cycle_num: 循环编号
+            llm_client: LLM 客户端实例
+            base_user_msg: 基础用户消息
+            effective_history: 对话历史
+            mab_recommendation: MAB 推荐信息
+            mab_top_fields: MAB top 字段列表
+            n_variants: 并发生成的变体数量 (默认 3)
+
+        Returns:
+            tuple: (expression, source_label, confidence, raw_output)
+        """
+        variant_names = ["conservative", "aggressive", "balanced"][:n_variants]
+
+        async def _generate_variant(variant_name: str) -> tuple[str, float, str | None, bool]:
+            """单个变体的异步生成任务"""
+            try:
+                enhanced_msg = base_user_msg or f"Generate an alpha factor for direction: {direction}"
+
+                if mab_recommendation:
+                    enhanced_msg = f"{enhanced_msg}\n\n{mab_recommendation}"
+
+                fw = self._build_field_whitelist(
+                    direction=direction,
+                    mab_top_fields=mab_top_fields,
+                )
+                if fw["formatted_block"]:
+                    enhanced_msg = f"{enhanced_msg}\n\n{fw['formatted_block']}"
+
+                if variant_name in _ENSEMBLE_VARIANTS:
+                    enhanced_msg = f"{enhanced_msg}{_ENSEMBLE_VARIANTS[variant_name]}"
+
+                single_timeout = 60
+                raw_response = await asyncio.wait_for(
+                    llm_client.generate(
+                        system_prompt="",
+                        history=effective_history or [],
+                        user_msg=enhanced_msg,
+                        session_id=session_id,
+                        cycle=cycle_num,
+                    ),
+                    timeout=single_timeout,
+                )
+
+                expression = self._extract_expression_from_raw(raw_response)
+                if not expression:
+                    logger.warning(
+                        "[%s] ENSEMBLE_GENERATE: variant=%s failed to extract expression",
+                        session_id,
+                        variant_name,
+                    )
+                    return "", 0.0, raw_response, False
+
+                try:
+                    from openalpha_brain.validation.wq_format_repair import enforce_compliance
+
+                    compliance_result = enforce_compliance(expression)
+                    if compliance_result.repairs_applied:
+                        logger.info(
+                            "[DEFENSIVE_LOG] ENSEMBLE_GENERATE::COMPLIANCE_REPAIR "
+                            "session=%s cycle=%d variant=%s original='%s' repaired='%s'",
+                            session_id,
+                            cycle_num,
+                            variant_name,
+                            expression[:50],
+                            compliance_result.repaired[:50],
+                        )
+                        expression = compliance_result.repaired
+
+                    is_valid = compliance_result.valid
+                    confidence = 0.7 if is_valid else 0.3
+                    return expression, confidence, raw_response, is_valid
+                except (ImportError, OSError, ValueError, RuntimeError):
+                    return expression, 0.5, raw_response, True
+
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[%s] ENSEMBLE_GENERATE: variant=%s timed out after %ds",
+                    session_id,
+                    variant_name,
+                    60,
+                )
+                return "", 0.0, None, False
+            except Exception as exc:
+                logger.warning(
+                    "[%s] ENSEMBLE_GENERATE: variant=%s failed with error: %s",
+                    session_id,
+                    variant_name,
+                    exc,
+                )
+                return "", 0.0, None, False
+
+        try:
+            total_timeout = 120
+            results = await asyncio.wait_for(
+                asyncio.gather(*[_generate_variant(v) for v in variant_names], return_exceptions=False),
+                timeout=total_timeout,
+            )
+
+            valid_results = [
+                (expr, conf, raw, vname)
+                for (expr, conf, raw, is_valid), vname in zip(results, variant_names)
+                if expr and is_valid
+            ]
+
+            if valid_results:
+                best_expr, best_conf, best_raw, best_variant = max(valid_results, key=lambda x: x[1])
+                logger.info(
+                    "[%s] ENSEMBLE_GENERATE: SUCCESS variant=%s won (conf=%.2f) | "
+                    "variants_tested=%d valid_count=%d expr=%s…",
+                    session_id,
+                    best_variant,
+                    best_conf,
+                    len(variant_names),
+                    len(valid_results),
+                    best_expr[:60],
+                )
+                return best_expr, f"ensemble_{best_variant}", best_conf, best_raw
+
+            all_results = [
+                (expr, conf, raw, vname)
+                for (expr, conf, raw, _), vname in zip(results, variant_names)
+                if expr
+            ]
+            if all_results:
+                fallback_expr, fallback_conf, fallback_raw, fallback_variant = max(
+                    all_results, key=lambda x: x[1]
+                )
+                logger.warning(
+                    "[%s] ENSEMBLE_GENERATE: FALLBACK (no valid variants) using %s (conf=%.2f) | "
+                    "variants_tested=%d expr=%s…",
+                    session_id,
+                    fallback_variant,
+                    fallback_conf,
+                    len(variant_names),
+                    fallback_expr[:60],
+                )
+                return fallback_expr, f"ensemble_{fallback_variant}_fallback", fallback_conf, fallback_raw
+
+            logger.error(
+                "[%s] ENSEMBLE_GENERATE: ALL_VARIANTS_FAILED variants=%s — falling back to single-call",
+                session_id,
+                variant_names,
+            )
+            return await self._generate_via_llm_direct(
+                direction=direction,
+                session_id=session_id,
+                cycle_num=cycle_num,
+                llm_client=llm_client,
+                user_msg=base_user_msg,
+                effective_history=effective_history,
+                mab_recommendation=mab_recommendation,
+                mab_top_fields=mab_top_fields,
+            )
+
+        except asyncio.TimeoutError:
+            logger.error(
+                "[%s] ENSEMBLE_GENERATE: TOTAL_TIMEOUT (%ds exceeded) — falling back to single-call",
+                session_id,
+                total_timeout,
+            )
+            return await self._generate_via_llm_direct(
+                direction=direction,
+                session_id=session_id,
+                cycle_num=cycle_num,
+                llm_client=llm_client,
+                user_msg=base_user_msg,
+                effective_history=effective_history,
+                mab_recommendation=mab_recommendation,
+                mab_top_fields=mab_top_fields,
+            )
+        except Exception as exc:
+            logger.error(
+                "[%s] ENSEMBLE_GENERATE: UNEXPECTED_ERROR %s — falling back to single-call",
+                session_id,
+                exc,
+                exc_info=True,
+            )
+            return await self._generate_via_llm_direct(
+                direction=direction,
+                session_id=session_id,
+                cycle_num=cycle_num,
+                llm_client=llm_client,
+                user_msg=base_user_msg,
+                effective_history=effective_history,
+                mab_recommendation=mab_recommendation,
+                mab_top_fields=mab_top_fields,
+            )
 
     async def _generate_via_template(
         self,
