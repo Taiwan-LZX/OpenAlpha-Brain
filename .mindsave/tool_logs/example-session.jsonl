@@ -1,0 +1,5 @@
+{"timestamp":"2026-05-09T21:50:00+08:00","action":"read","target":"src/middleware/auth.ts","summary":"Read existing auth middleware to understand token verification logic"}
+{"timestamp":"2026-05-09T21:51:00+08:00","action":"write","target":"src/lib/token.ts","summary":"Created JWT utility with sign, verify, and rotate functions"}
+{"timestamp":"2026-05-09T21:52:30+08:00","action":"edit","target":"src/hooks/useAuth.ts","summary":"Added automatic token refresh on 401 response"}
+{"timestamp":"2026-05-09T21:53:00+08:00","action":"bash","target":"npx prisma db push","summary":"Updated database schema with refresh token model"}
+{"timestamp":"2026-05-09T21:54:00+08:00","action":"bash","target":"npm test -- --grep auth","summary":"Ran auth tests — 8 of 12 passing, 4 need token expiry fix"}
