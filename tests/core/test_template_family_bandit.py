@@ -1,6 +1,4 @@
-import pytest
-
-from openalpha_brain.learning.mab import TemplateFamilyBandit, _TEMPLATE_DIRECTION_MAP
+from openalpha_brain.learning.mab import _TEMPLATE_DIRECTION_MAP, TemplateFamilyBandit
 
 
 def _make_bandit_with_arms() -> TemplateFamilyBandit:

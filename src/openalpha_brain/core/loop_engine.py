@@ -37,12 +37,21 @@ from openalpha_brain.core.events import (
     EVENT_MINING_COMPLETE,
     get_event_bus,
 )
+from openalpha_brain.core.feedback_orchestrator import FeedbackLoopOrchestrator
 from openalpha_brain.core.generator import (
     _apply_generation_gates,
     _build_continuation_msg,
     _filter_variants_by_field_overlap,
     _generate_llm_variants,
     _generate_one_and_enqueue,
+)
+from openalpha_brain.core.layers import (
+    EvaluationGateway,
+    ExplorationDirector,
+    GenerationPipeline,
+    ImprovementOrchestra,
+    PersistenceLayer,
+    RobustnessGate,
 )
 from openalpha_brain.core.models import (
     AlphaFingerprint,
@@ -51,6 +60,12 @@ from openalpha_brain.core.models import (
     BrainSimStatus,
     PipelineStatus,
     SessionStatus,
+)
+from openalpha_brain.core.navigation_fusion import (
+    AlignerOutput,
+    ClassifierOutput,
+    MABOutput,
+    NavigationFusion,
 )
 from openalpha_brain.core.periodic_tasks import _periodic_decay_check, _periodic_trajectory_crossover
 from openalpha_brain.core.pipeline import AlphaCachePool
@@ -63,6 +78,8 @@ from openalpha_brain.evolution.generation_gates import (
     GenerationGates,
 )
 from openalpha_brain.evolution.hypothesis_aligner import HypothesisAligner
+from openalpha_brain.evolution.near_pass_improver import NEAR_PASS_SHARPE_THRESHOLD
+from openalpha_brain.evolution.tot_search import ToTSearchStrategy
 from openalpha_brain.generation import alpha_parser as parser
 from openalpha_brain.generation.alpha_generator import (
     _apply_economic_rationale_verification,
@@ -95,6 +112,7 @@ from openalpha_brain.learning.mab import (
     PENALTY_BRAIN_ERROR,
     PENALTY_BRAIN_FAIL,
     REWARD_VALIDATOR_PASS,
+    HierarchicalMAB,
 )
 from openalpha_brain.learning.param_optimizer import expression_hash
 from openalpha_brain.learning.reward_updater import (
@@ -299,6 +317,45 @@ async def run_loop(session_id: str) -> None:
         _ls._generation_gates = _gen_gates
         logger.info("[%s] GenerationGates initialized (standard loop)", session_id)
 
+    if not hasattr(_ls, "_nav_fusion") or _ls._nav_fusion is None:
+        _ls._nav_fusion = NavigationFusion(
+            config={
+                "mab_weight": 0.4,
+                "classifier_weight": 0.3,
+                "aligner_weight": 0.3,
+            }
+        )
+        logger.info("[%s] NavigationFusion initialized (standard loop)", session_id)
+
+    if not hasattr(_ls, "_hmab") or _ls._hmab is None:
+        _ls._hmab = HierarchicalMAB()
+        logger.info("[%s] HierarchicalMAB initialized (standard loop)", session_id)
+
+    if not hasattr(_ls, "_tot_search") or _ls._tot_search is None:
+        _ls._tot_search = ToTSearchStrategy.from_config(
+            {
+                "max_depth": 3,
+                "branch_factor": 4,
+                "top_k_survivors": 2,
+                "timeout_seconds": 120,
+                "max_total_nodes": 40,
+            }
+        )
+        logger.info("[%s] ToTSearchStrategy initialized (standard loop)", session_id)
+
+    if not hasattr(_ls, "_feedback_orch") or _ls._feedback_orch is None:
+        _ls._feedback_orch = FeedbackLoopOrchestrator.create_for_loop()
+        logger.info("[%s] FeedbackOrchestrator initialized (standard loop)", session_id)
+
+    if not hasattr(_ls, "_layer_l1") or _ls._layer_l1 is None:
+        _ls._layer_l1 = ExplorationDirector()
+        _ls._layer_l2 = GenerationPipeline()
+        _ls._layer_l3 = EvaluationGateway()
+        _ls._layer_l4 = ImprovementOrchestra()
+        _ls._layer_l5 = RobustnessGate()
+        _ls._layer_l6 = PersistenceLayer()
+        logger.info("[%s] All 6 Layers initialized (standard loop)", session_id)
+
     _consecutive_errors = 0
     _max_consecutive_errors = 3
     pool = AlphaCachePool()
@@ -347,76 +404,44 @@ async def run_loop(session_id: str) -> None:
         state.status = SessionStatus.GENERATING
         await sm.save_session(state)
 
-        exploration_direction: str = (
-            _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
-        )
-        _sched_template_id: str = ""
-        _sched_family_id: str = ""
-        _sched_recommended_fields: list[str] = []
-        if settings.MAB_ENABLED and _ls._scheduler:
+        # ── L1 ExplorationDirector: 方向选择（替代原 70 行内联逻辑） ────
+        _l1_inst = getattr(_ls, "_layer_l1", None)
+        if _l1_inst is not None:
             try:
-                _ls._algo_tick("mab_select")
-                _sched_result = _ls._scheduler.select_exploration_arm(
-                    focus_area=_resolve_effective_focus(state.focus_area),
-                    explore_mode=False,
+                _l1_result = await _l1_inst.select_direction(
+                    feature_map=_ls._feature_map,
+                    scheduler=_ls._scheduler,
+                    hmab=getattr(_ls, "_hmab", None),
+                    nav_fusion=getattr(_ls, "_nav_fusion", None),
+                    tot_search=getattr(_ls, "_tot_search", None),
+                    session_id=session_id,
+                    cycle_num=global_cycle,
+                    focus_area=state.focus_area,
                 )
-                if _sched_result:
-                    exploration_direction = _sched_result["direction"]
-                    _sched_template_id = _sched_result.get("template_id", "")
-                    _sched_family_id = _sched_result.get("family_id", "")
-                    _sched_recommended_fields = _sched_result.get("recommended_fields", [])
+                exploration_direction: str = _l1_result.direction
+                _sched_template_id: str = _l1_result.template_id
+                _sched_family_id: str = _l1_result.family_id
+                _sched_recommended_fields: list[str] = _l1_result.recommended_fields
+                logger.info(
+                    "[%s] cycle=%d L1 direction=%s method=%s confidence=%.2f",
+                    session_id, global_cycle, exploration_direction,
+                    _l1_result.method, _l1_result.confidence,
+                )
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.debug("[%s] cycle=%d scheduler select_exploration_arm failed: %s", session_id, global_cycle, exc)
-            _schedule = _ls._feature_map.get_explore_exploit_schedule()
-            _map_strategy = _schedule["strategy"]
-            _explore_weight = _schedule["explore_weight"]
-            if _map_strategy == "explore":
-                _unexplored = _ls._feature_map.get_unexplored_directions()
-                if _unexplored and random.random() < _explore_weight:
-                    exploration_direction = random.choice(_unexplored)
-                    logger.info(
-                        "[%s] MAP-Elites EXPLORE: pivoting to unexplored direction=%s (weight=%.2f coverage=%.1f%%)",
-                        session_id,
-                        exploration_direction,
-                        _explore_weight,
-                        _schedule["coverage"] * 100,
-                    )
-                _explore_targets = _ls._feature_map.get_explore_targets(top_k=3)
-                if _explore_targets:
-                    _target = random.choice(_explore_targets)
-                    _target_dir = _target.get("direction", "")
-                    if _target_dir:
-                        exploration_direction = _target_dir
-                    logger.info(
-                        "[%s] MAP-Elites EXPLORE_TARGET: cell=%s "
-                        "direction=%s horizon=%s mechanism=%s (coverage=%.1f%%)",
-                        session_id,
-                        _target.get("key", ""),
-                        _target_dir,
-                        _target.get("time_horizon", ""),
-                        _target.get("mechanism", ""),
-                        _schedule["coverage"] * 100,
-                    )
-            else:
-                _exploit_cell = _ls._feature_map.get_cell(
-                    exploration_direction,
-                    "medium",
-                    "signal",
+                logger.debug("[%s] L1 ExplorationDirector failed, using fallback: %s", session_id, exc)
+                exploration_direction: str = (
+                    _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
                 )
-                if _exploit_cell is not None and _exploit_cell.elites:
-                    _cell_elites = _ls._feature_map.get_cell_elites(
-                        exploration_direction,
-                        "medium",
-                        "signal",
-                    )
-                    logger.info(
-                        "[%s] MAP-Elites EXPLOIT: direction=%s (coverage=%.1f%% elite_density=%.2f cell_elites=%d)",
-                        session_id,
-                        exploration_direction,
-                        _schedule["coverage"] * 100,
-                        _schedule["elite_density"],
-                        len(_cell_elites),
-                    )
+                _sched_template_id = ""
+                _sched_family_id = ""
+                _sched_recommended_fields = []
+        else:
+            exploration_direction: str = (
+                _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+            )
+            _sched_template_id = ""
+            _sched_family_id = ""
+            _sched_recommended_fields = []
 
         # ── 1. Build user message ───────────────────────────────────────────
         if global_cycle == 1:
@@ -728,6 +753,36 @@ async def run_loop(session_id: str) -> None:
                     global_cycle,
                     _gate_report.overall_score,
                 )
+
+                # ── L2 GenerationPipeline: 信号质量预筛选 ──────────────
+                _l2_inst = getattr(_ls, "_layer_l2", None)
+                if _l2_inst is not None and expression:
+                    try:
+                        _ls._algo_tick("layer2_generate")
+                        _l2_result = await _l2_inst.generate(
+                            direction=exploration_direction,
+                            feature_map=_ls._feature_map,
+                            generator=getattr(_ls, "_generator", None),
+                            llm_client=getattr(_ls, "_llm_client", None),
+                            template_manager=getattr(_ls, "_template_manager", None),
+                            crossover_engine=getattr(_ls, "_crossover_engine", None),
+                            semantic_mutator=getattr(_ls, "_semantic_mutator", None),
+                            session_id=session_id,
+                            cycle_num=global_cycle,
+                            focus_area=state.focus_area,
+                            current_expression=expression,
+                        )
+                        if _l2_result.is_valid and _l2_result.expression:
+                            expression = _l2_result.expression
+                            logger.info(
+                                "[%s] L2 GENERATE: method=%s valid=%s quality=%.2f",
+                                session_id, _l2_result.method,
+                                _l2_result.is_valid, _l2_result.signal_quality,
+                            )
+                        elif not _l2_result.is_valid:
+                            logger.info("[%s] L2 GATE REJECTED: reason=%s", session_id, _l2_result.gate_reason)
+                    except Exception:
+                        logger.debug("[%s] L2 GenerationPipeline failed, using raw expression", session_id)
 
                 syntax_result = val.validate_syntax(expression)
                 if not syntax_result.passed:
@@ -1736,6 +1791,31 @@ async def run_loop(session_id: str) -> None:
 
             brain_result = await _submit_to_brain(alpha, session_id, global_cycle)
 
+            # ── L3 EvaluationGateway: BRAIN 提交/评估包装 ────────────────────
+            _l3_inst = getattr(_ls, "_layer_l3", None)
+            if _l3_inst is not None:
+                try:
+                    _ls._algo_tick("layer3_evaluate")
+                    _l3_eval = await _l3_inst.submit_and_evaluate(
+                        expression=expression,
+                        session_id=session_id,
+                        brain_submitter=_ls._brain_submitter if hasattr(_ls, "_brain_submitter") else None,
+                        result_router=getattr(_ls, "_result_router", None),
+                        decision_engine=getattr(_ls, "_decision_engine", None),
+                        semaphore=getattr(_ls, "_semaphore", None),
+                    )
+                    if _l3_eval.brain_result is not None:
+                        brain_result = _l3_eval.brain_result
+                    logger.info(
+                        "[%s] L3 EVAL status=%s decision=%s sharpe=%.3f",
+                        session_id,
+                        _l3_eval.status,
+                        _l3_eval.decision,
+                        _l3_eval.sharpe,
+                    )
+                except Exception:
+                    logger.warning("[%s] L3 EvaluationGateway failed, using inline logic", session_id)
+
             logger.info(
                 "[%s] MONITOR: brain_submit: status=%s sharpe=%s fitness=%s turnover=%s direction=%s alpha_id=%s",
                 session_id,
@@ -1819,6 +1899,246 @@ async def run_loop(session_id: str) -> None:
                             "direction": exploration_direction,
                         },
                     )
+
+            _hmab_inst = getattr(_ls, "_hmab", None)
+            if _hmab_inst is not None:
+                try:
+                    _ls._algo_tick("hierarchical_mab_update")
+                    _hmab_reward = brain_result.real_sharpe or 0.0
+                    _hmab_penalty = PENALTY_BRAIN_FAIL if brain_result.status != BrainSimStatus.PASS else 0.0
+                    if brain_result.status == BrainSimStatus.ERROR:
+                        _hmab_penalty = PENALTY_BRAIN_ERROR
+                    _hmab_ops = _get_operators_from_context({"expression": expression}) if expression else []
+                    _hmab_fields = _get_fields_from_context({"expression": expression}) if expression else []
+                    _hmab_inst.update(
+                        direction=exploration_direction,
+                        operators=_hmab_ops,
+                        fields=_hmab_fields,
+                        reward=_hmab_reward,
+                        penalty=_hmab_penalty,
+                    )
+                    logger.info(
+                        "[%s] MAB-HIER-UPDATE: direction=%s reward=%.3f penalty=%.3f",
+                        session_id,
+                        exploration_direction,
+                        _hmab_reward,
+                        _hmab_penalty,
+                    )
+                except (OSError, ValueError, RuntimeError):
+                    logger.debug("[%s] HierarchicalMAB.update failed", session_id, exc_info=True)
+
+            _tot_inst = getattr(_ls, "_tot_search", None)
+            _is_near_pass = (
+                _tot_inst is not None
+                and brain_result.status != BrainSimStatus.PASS
+                and brain_result.status != BrainSimStatus.ERROR
+                and (brain_result.real_sharpe or 0.0) >= NEAR_PASS_SHARPE_THRESHOLD
+            )
+            if _is_near_pass:
+                try:
+                    _ls._algo_tick("tot_search")
+                    logger.info(
+                        "[%s] TOT-TRIGGER: near-pass detected (sharpe=%.3f) starting tree search",
+                        session_id,
+                        brain_result.real_sharpe,
+                    )
+                    _tot_result = await _tot_inst.search(
+                        seed_expression=expression or "",
+                        target_fitness=1.25,
+                        initial_fitness=brain_result.real_fitness or 0.0,
+                        context={"session_id": session_id, "cycle": global_cycle},
+                    )
+                    if _tot_result.best_node is not None and (_tot_result.best_fitness or 0.0) > (
+                        brain_result.real_fitness or 0.0
+                    ):
+                        expression = _tot_result.best_node.expression or expression
+                        logger.info(
+                            "[%s] TOT-IMPROVED: fitness %.3f→%.3f nodes=%d depth=%d",
+                            session_id,
+                            brain_result.real_fitness or 0.0,
+                            _tot_result.best_fitness or 0.0,
+                            _tot_result.total_nodes_explored,
+                            _tot_result.total_depth_reached,
+                        )
+                    else:
+                        logger.info(
+                            "[%s] TOT-NO-IMPROVEMENT: best_fitness=%.3f nodes=%d duration=%.1fs",
+                            session_id,
+                            _tot_result.best_fitness or 0.0,
+                            _tot_result.total_nodes_explored,
+                            _tot_result.search_duration_sec,
+                        )
+                except (OSError, ValueError, RuntimeError, TimeoutError):
+                    logger.warning("[%s] TOT search failed, using original expression", session_id, exc_info=True)
+
+            # ── L5 RobustnessGate: 稳健性检查（PASS/near-pass 后） ─────────────
+            _l5_inst = getattr(_ls, "_layer_l5", None)
+            if _l5_inst is not None and brain_result is not None:
+                try:
+                    _ls._algo_tick("layer5_robustness")
+                    _l5_verdict = await _l5_inst.run_gauntlet(
+                        expression=expression or "",
+                        brain_result=brain_result,
+                        session_id=session_id,
+                        cycle_num=global_cycle,
+                    )
+                    logger.info(
+                        "[%s] L5 ROBUSTNESS verdict=%s confidence=%.2f scores=%s",
+                        session_id,
+                        _l5_verdict.verdict.name,
+                        _l5_verdict.confidence,
+                        {k: round(v, 3) for k, v in _l5_verdict.scores.items()},
+                    )
+                    if _l5_verdict.verdict == _l5_inst.Verdict.REJECTED:
+                        logger.warning("[%s] L5 REJECTED alpha — robustness gauntlet failed", session_id)
+                except Exception:
+                    logger.debug("[%s] L5 RobustnessGate failed", session_id)
+
+            _nav_fusion = getattr(_ls, "_nav_fusion", None)
+            _classifier = getattr(_ls, "_strategy_classifier", None)
+            _aligner = getattr(_ls, "_hypothesis_aligner", None)
+            if _nav_fusion is not None:
+                try:
+                    _ls._algo_tick("nav_fusion")
+                    _mab_out = MABOutput(
+                        selected_family=exploration_direction,
+                        confidence=0.5,
+                        exploration_rate=0.3,
+                    )
+                    _classifier_out = None
+                    _aligner_out = None
+                    if _classifier is not None and brain_result.status == BrainSimStatus.PASS:
+                        try:
+                            _brain_dict = {
+                                "sharpe": brain_result.real_sharpe,
+                                "fitness": brain_result.real_fitness,
+                                "turnover": brain_result.real_turnover,
+                            }
+                            _profile = await _classifier.classify(expression, brain_result=_brain_dict)
+                            _classifier_out = ClassifierOutput(
+                                direction=_profile.direction,
+                                confidence=_profile.direction_confidence,
+                                market_state="",
+                                is_ambiguous=False,
+                                is_tied=False,
+                            )
+                        except (OSError, ValueError, RuntimeError):
+                            pass
+                    if _aligner is not None:
+                        try:
+                            _alignment = _aligner.align(expression, exploration_direction)
+                            _aligner_out = AlignerOutput(
+                                alignment_level=_alignment.get("alignment_level", ""),
+                                r2_score=_alignment.get("r2_score", 0.0),
+                                offset_magnitude=_alignment.get("offset_magnitude", 0.0),
+                                suggested_adjustment=_alignment.get("suggested_direction", ""),
+                                diagnosis=_alignment.get("diagnosis", ""),
+                            )
+                        except (OSError, ValueError, RuntimeError):
+                            pass
+                    _fusion_result = _nav_fusion.fuse(
+                        mab_output=_mab_out,
+                        classifier_output=_classifier_out,
+                        aligner_output=_aligner_out,
+                        cycle_num=global_cycle,
+                    )
+                    logger.info(
+                        "[%s] NAV_FUSION: direction=%s confidence=%.2f strategy=%s disagreement=%.2f",
+                        session_id,
+                        _fusion_result.final_direction,
+                        _fusion_result.confidence,
+                        _fusion_result.strategy.value,
+                        _fusion_result.disagreement_score,
+                    )
+                    if (
+                        _fusion_result.confidence > 0.7
+                        and _fusion_result.final_direction
+                        and _fusion_result.final_direction != exploration_direction
+                    ):
+                        logger.info(
+                            "[%s] NAV_FUSION OVERRIDE: %s → %s (confidence=%.2f)",
+                            session_id,
+                            exploration_direction,
+                            _fusion_result.final_direction,
+                            _fusion_result.confidence,
+                        )
+                        exploration_direction = _fusion_result.final_direction
+                except (OSError, ValueError, RuntimeError):
+                    logger.warning("[%s] NavigationFusion failed", session_id, exc_info=True)
+
+            # ── L4 ImprovementOrchestra: 统一改进调度（FO+EA+ExpDist+SemMut+QD） ────
+            _l4_inst = getattr(_ls, "_layer_l4", None)
+            _fo = getattr(_ls, "_feedback_orch", None)
+            if _l4_inst is not None:
+                try:
+                    _ls._algo_tick("layer4_analyze")
+                    _l4_result = await _l4_inst.analyze_and_improve(
+                        brain_result=brain_result,
+                        expression=expression or "",
+                        session_id=session_id,
+                        cycle_num=global_cycle,
+                        exploration_direction=exploration_direction,
+                        feedback_orch=_fo,
+                        ea_search=getattr(_ls, "_ea_search", None),
+                        experience_distiller=getattr(_ls, "_experience_distiller", None),
+                        semantic_mutator=getattr(_ls, "_semantic_mutator", None),
+                        quality_diversity=_ls._feature_map,
+                    )
+                    logger.info(
+                        "[%s] L4 IMPROVE: action=%s sharpe=%.3f variants=%d sources=%s ea=%s ed=%s sm=%s qd=%s",
+                        session_id,
+                        getattr(_l4_result.action, "value", str(_l4_result.action)) if hasattr(_l4_result.action, "value") else str(_l4_result.action),
+                        _l4_result.sharpe,
+                        len(_l4_result.improved_expressions),
+                        _l4_result.improvement_sources,
+                        "Y" if _l4_result.ea_recommendation else "N",
+                        "Y" if _l4_result.distilled_patterns else "N",
+                        "Y" if _l4_result.semantic_variants else "N",
+                        "Y" if _l4_result.qd_suggestions else "N",
+                    )
+                    if _l4_result.improved_expressions:
+                        for _idx, (_fo_expr, _fo_src) in enumerate(
+                            zip(_l4_result.improved_expressions, _l4_result.improvement_sources, strict=True)
+                        ):
+                            logger.info(
+                                "[%s] L4-VARIANT #%d [%s] %s",
+                                session_id,
+                                _idx + 1,
+                                _fo_src,
+                                _fo_expr[:80],
+                            )
+                except (OSError, ValueError, RuntimeError):
+                    logger.warning("[%s] L4 ImprovementOrchestra failed", session_id, exc_info=True)
+            elif _fo is not None:
+                try:
+                    _ls._algo_tick("feedback_orch_analyze")
+                    _fo_result = await _fo.analyze_and_improve(
+                        brain_result=brain_result,
+                        expression=expression or "",
+                        session_id=session_id,
+                        cycle_num=global_cycle,
+                    )
+                    logger.info(
+                        "[%s] FEEDBACK_ORCH: action=%s sharpe=%.3f variants=%d sources=%s",
+                        session_id,
+                        _fo_result.action.value if hasattr(_fo_result.action, "value") else str(_fo_result.action),
+                        _fo_result.sharpe,
+                        len(_fo_result.improved_expressions),
+                        _fo_result.improvement_sources,
+                    )
+                    if _fo_result.improved_expressions:
+                        for _idx, (_fo_expr, _fo_src) in enumerate(
+                            zip(_fo_result.improved_expressions, _fo_result.improvement_sources, strict=True)
+                        ):
+                            logger.info(
+                                "[%s] FO-VARIANT #%d [%s] %s",
+                                session_id,
+                                _idx + 1,
+                                _fo_src,
+                                _fo_expr[:80],
+                            )
+                except (OSError, ValueError, RuntimeError):
+                    logger.warning("[%s] FeedbackOrchestrator analyze failed", session_id, exc_info=True)
 
             if _ls._alpha_channel is not None and brain_result is not None and brain_result.real_sharpe is not None:
                 try:
@@ -2322,6 +2642,29 @@ async def run_loop(session_id: str) -> None:
                     logger.warning("[%s] Refill eliminated fields failed", session_id, exc_info=True)
 
         _ls._evolution_cycle_count = await _run_logic_evolution(_ls._evolution_cycle_count, session_id, global_cycle)
+
+        # ── L6 PersistenceLayer: 记录/持久化 cycle 结果 ───────────────────
+        _l6_inst = getattr(_ls, "_layer_l6", None)
+        if _l6_inst is not None:
+            try:
+                _ls._algo_tick("layer6_persist")
+                await _l6_inst.record_cycle_outcome(
+                    session_id=session_id,
+                    cycle_num=global_cycle,
+                    expression=expression or "",
+                    brain_result=brain_result,
+                    exploration_direction=exploration_direction,
+                    improvement_result=getattr(_ls, "_l4_result", None),
+                    layer_stats={
+                        "l1_method": getattr(_l1_result, "method", None) if "_l1_result" in dir() else None,
+                        "l3_status": getattr("_l3_eval", "status", None) if "_l3_eval" in dir() else None,
+                        "l4_sources": getattr(_l4_result, "improvement_sources", None) if "_l4_result" in dir() else None,
+                        "l5_verdict": str(getattr("_l5_verdict", "verdict", None)) if "_l5_verdict" in dir() else None,
+                    },
+                )
+                logger.debug("[%s] L6 PERSIST cycle=%d recorded", session_id, global_cycle)
+            except Exception:
+                logger.debug("[%s] L6 PersistenceLayer failed", session_id)
 
         if _ls._evolution_cycle_count % 50 == 0:
             _ls._rebuild_successful_expressions()
@@ -3360,6 +3703,45 @@ async def run_loop_pipeline(session_id: str) -> None:
         llm_generate_fn=llm_client.generate,
     )
     _ls._generation_gates = _gen_gates
+
+    if not hasattr(_ls, "_nav_fusion") or _ls._nav_fusion is None:
+        _ls._nav_fusion = NavigationFusion(
+            config={
+                "mab_weight": 0.4,
+                "classifier_weight": 0.3,
+                "aligner_weight": 0.3,
+            }
+        )
+        logger.info("[%s] NavigationFusion initialized (pipeline loop)", session_id)
+
+    if not hasattr(_ls, "_hmab") or _ls._hmab is None:
+        _ls._hmab = HierarchicalMAB()
+        logger.info("[%s] HierarchicalMAB initialized (pipeline loop)", session_id)
+
+    if not hasattr(_ls, "_tot_search") or _ls._tot_search is None:
+        _ls._tot_search = ToTSearchStrategy.from_config(
+            {
+                "max_depth": 3,
+                "branch_factor": 4,
+                "top_k_survivors": 2,
+                "timeout_seconds": 120,
+                "max_total_nodes": 40,
+            }
+        )
+        logger.info("[%s] ToTSearchStrategy initialized (pipeline loop)", session_id)
+
+    if not hasattr(_ls, "_feedback_orch") or _ls._feedback_orch is None:
+        _ls._feedback_orch = FeedbackLoopOrchestrator.create_for_loop()
+        logger.info("[%s] FeedbackOrchestrator initialized (pipeline loop)", session_id)
+
+    if not hasattr(_ls, "_layer_l1") or _ls._layer_l1 is None:
+        _ls._layer_l1 = ExplorationDirector()
+        _ls._layer_l2 = GenerationPipeline()
+        _ls._layer_l3 = EvaluationGateway()
+        _ls._layer_l4 = ImprovementOrchestra()
+        _ls._layer_l5 = RobustnessGate()
+        _ls._layer_l6 = PersistenceLayer()
+        logger.info("[%s] All 6 Layers initialized (pipeline loop)", session_id)
 
     try:
         from openalpha_brain.services.brain_data_client import get_brain_data_client

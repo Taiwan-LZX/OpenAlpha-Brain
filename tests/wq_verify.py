@@ -6,18 +6,19 @@ Purpose: Submit N factors to real WQ platform, record actual metrics,
 Uses: Real credentials from .env, real brain_client API
 Output: Detailed metrics table + Sharpe distribution analysis
 """
+
 import asyncio
-import sys
-import os
-import time
 import json
 import logging
-import traceback
+import os
+import sys
+import time
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from dataclasses import dataclass, field, asdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 logging.basicConfig(
@@ -113,12 +114,14 @@ async def run_verification(max_submissions=8, poll_timeout=180):
     # ── Phase 1: Auth ───────────────────────────────────────
     try:
         from openalpha_brain.config.config import settings
-        email = getattr(settings, 'BRAIN_EMAIL', '') or ''
-        password = getattr(settings, 'BRAIN_PASSWORD', '') or ''
+
+        email = getattr(settings, "BRAIN_EMAIL", "") or ""
+        password = getattr(settings, "BRAIN_PASSWORD", "") or ""
         if not email or not password:
             raise ValueError("Missing BRAIN_EMAIL/BRAIN_PASSWORD in .env")
 
         from openalpha_brain.services import brain_client
+
         cookies = await brain_client.authenticate(email, password)
         logger.info("[Auth] SUCCESS — logged in as %s***", email[:3])
     except Exception as e:
@@ -172,10 +175,18 @@ async def run_verification(max_submissions=8, poll_timeout=180):
             to_str = f"{result.turnover:.2f}%%" if result.turnover is not None else "N/A"
             ret_str = f"{result.returns:.2f}%%" if result.returns is not None else "N/A"
 
-            status_icon = "✅ PASS" if result.passed else ("⚠️ FAIL" if result.status == "COMPLETE" else f"❌ {result.status}")
+            status_icon = (
+                "✅ PASS" if result.passed else ("⚠️ FAIL" if result.status == "COMPLETE" else f"❌ {result.status}")
+            )
 
-            logger.info("  Result: %s | Sharpe=%s Fitness=%s TO=%s Ret=%s",
-                        status_icon, sharpe_str, fitness_str, to_str, ret_str)
+            logger.info(
+                "  Result: %s | Sharpe=%s Fitness=%s TO=%s Ret=%s",
+                status_icon,
+                sharpe_str,
+                fitness_str,
+                to_str,
+                ret_str,
+            )
 
             if result.failures:
                 for f in result.failures:
@@ -217,8 +228,7 @@ def print_analysis_report(results: list[SubmissionResult]):
     errored = sum(1 for r in results if r.error)
     valid_sharpes = [r.sharpe for r in results if r.sharpe is not None]
 
-    logger.info("Total: %d | Passed: %d | Failed: %d | Errors: %d",
-                total, passed, failed, errored)
+    logger.info("Total: %d | Passed: %d | Failed: %d | Errors: %d", total, passed, failed, errored)
 
     if valid_sharpes:
         avg_sharpe = sum(valid_sharpes) / len(valid_sharpes)
@@ -241,8 +251,17 @@ def print_analysis_report(results: list[SubmissionResult]):
 
     logger.info("")
     logger.info("--- Detailed Results ---")
-    logger.info("  %-4s %-28s %-12s %8s %8s %8s %6s  %s",
-                "#", "Name", "Strategy", "Sharpe", "Fitness", "Turnover", "Status", "Failures")
+    logger.info(
+        "  %-4s %-28s %-12s %8s %8s %8s %6s  %s",
+        "#",
+        "Name",
+        "Strategy",
+        "Sharpe",
+        "Fitness",
+        "Turnover",
+        "Status",
+        "Failures",
+    )
     logger.info("  " + "-" * 90)
 
     for r in results:
@@ -252,16 +271,17 @@ def print_analysis_report(results: list[SubmissionResult]):
         st = "✅PASS" if r.passed else ("FAIL" if r.status else "ERR")
         fl = "; ".join(r.failures[:2]) if r.failures else ""
         if len(r.failures) > 2:
-            fl += f"(+{len(r.failures)-2})"
+            fl += f"(+{len(r.failures) - 2})"
 
-        logger.info("  %-4d %-28s %-12s %8s %8s %8s %6s  %s",
-                    r.index, r.name[:26], r.strategy, sp, ft, to, st, fl)
+        logger.info("  %-4d %-28s %-12s %8s %8s %8s %6s  %s", r.index, r.name[:26], r.strategy, sp, ft, to, st, fl)
 
     logger.info("")
     logger.info("=" * 70)
 
     # Save JSON report
-    report_path = os.path.join(os.path.dirname(__file__), "logs", f"wq_verify_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    report_path = os.path.join(
+        os.path.dirname(__file__), "logs", f"wq_verify_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump([asdict(r) for r in results], f, indent=2, ensure_ascii=False, default=str)

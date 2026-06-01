@@ -1,7 +1,5 @@
-import pytest
-
 from openalpha_brain.core.scheduler import ExplorationScheduler
-from openalpha_brain.learning.mab import TemplateFamilyBandit, _TEMPLATE_DIRECTION_MAP
+from openalpha_brain.learning.mab import _TEMPLATE_DIRECTION_MAP, TemplateFamilyBandit
 
 
 def _make_scheduler_with_arms() -> ExplorationScheduler:
@@ -70,7 +68,9 @@ class TestSchedulerRecordDirectionResult:
         sched.record_direction_result("momentum", reward=1.0)
         dir_stats_after = sched.get_direction_stats()
         if "momentum" in dir_stats_after:
-            assert dir_stats_after["momentum"]["total_visits"] >= dir_stats_before.get("momentum", {}).get("total_visits", 0)
+            assert dir_stats_after["momentum"]["total_visits"] >= dir_stats_before.get("momentum", {}).get(
+                "total_visits", 0
+            )
 
 
 class TestSchedulerGetDirectionStats:

@@ -3,14 +3,13 @@ WQExpressionValidator 单元测试
 
 覆盖所有 6 个子检查方法以及边界情况
 """
+
 import pytest
+
 from openalpha_brain.validation.wq_expression_validator import (
-    WQExpressionValidator,
-    CheckResult,
-    ValidationResult,
-    OPERATOR_WHITELIST,
     DEFAULT_MAX_DEPTH,
     DEFAULT_MAX_EXPRESSION_LENGTH,
+    WQExpressionValidator,
 )
 
 

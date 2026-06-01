@@ -50,7 +50,13 @@ src/openalpha_brain/
 
 ## Default Skill
 
-When working on this project, **always invoke the grill-build-loop skill first**:
+When working on this project as the **main orchestrator agent**, invoke the grill-build-loop skill:
 - Multi-expert reasoning (SE Architect + Alpha Expert + Quant Researcher + Domain Guardian)
 - Continuous loop: research → debate → cards → build → verify → ask again
 - Proactive issue discovery — don't wait for user to find problems
+
+**Sub-agent / Task agent behavior**: Do NOT invoke grill-build-loop. You are a focused task executor.
+- Only read files that are directly relevant to your assigned task
+- Do NOT re-read CLAUDE.md, 00-project-core.md, or SKILL.md unless explicitly asked
+- Receive context via task parameters (task description, file paths, code snippets) — do NOT rebuild context from scratch
+- If you need project conventions, request them from the parent agent rather than re-reading

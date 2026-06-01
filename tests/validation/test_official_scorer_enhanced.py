@@ -11,19 +11,18 @@
 """
 
 import pytest
-import math
 
 from openalpha_brain.validation.official_scorer import (
+    ENHANCED_SCORE_WEIGHTS,
+    AdvancedMetrics,
     OfficialScoringAdapter,
     ScoreReport,
-    AdvancedMetrics,
-    ENHANCED_SCORE_WEIGHTS,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════
 # Test Fixtures
 # ══════════════════════════════════════════════════════════════════════
+
 
 @pytest.fixture
 def scorer():
@@ -101,6 +100,7 @@ def overfit_metrics():
 # ══════════════════════════════════════════════════════════════════════
 # Test Class 1: AdvancedMetrics Inference
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestAdvancedMetricsInference:
     """测试高级指标推断功能"""
@@ -202,6 +202,7 @@ class TestAdvancedMetricsInference:
 # Test Class 2: Multi-Layer Evaluation
 # ══════════════════════════════════════════════════════════════════════
 
+
 class TestMultiLayerEvaluation:
     """测试三层评估决策"""
 
@@ -301,6 +302,7 @@ class TestMultiLayerEvaluation:
 # Test Class 3: Factor Profile Classification
 # ══════════════════════════════════════════════════════════════════════
 
+
 class TestFactorProfileClassification:
     """测试因子画像分类"""
 
@@ -386,6 +388,7 @@ class TestFactorProfileClassification:
 # Test Class 4: Integration & Backward Compatibility
 # ══════════════════════════════════════════════════════════════════════
 
+
 class TestIntegrationAndBackwardCompatibility:
     """集成测试和向后兼容性验证"""
 
@@ -402,12 +405,12 @@ class TestIntegrationAndBackwardCompatibility:
         """原有字段应保持不变"""
         report = scorer.compute_score(perfect_metrics)
 
-        assert hasattr(report, 'overall_score')
-        assert hasattr(report, 'grade')
-        assert hasattr(report, 'breakdown')
-        assert hasattr(report, 'passed')
-        assert hasattr(report, 'details')
-        assert hasattr(report, 'improvement_hints')
+        assert hasattr(report, "overall_score")
+        assert hasattr(report, "grade")
+        assert hasattr(report, "breakdown")
+        assert hasattr(report, "passed")
+        assert hasattr(report, "details")
+        assert hasattr(report, "improvement_hints")
 
     def test_score_range_unchanged(self, scorer, perfect_metrics):
         """总分范围应保持 0-100"""
@@ -498,6 +501,7 @@ class TestIntegrationAndBackwardCompatibility:
 # ══════════════════════════════════════════════════════════════════════
 # Test Class 5: Edge Cases & Error Handling
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestEdgeCasesAndErrorHandling:
     """边界情况和错误处理测试"""

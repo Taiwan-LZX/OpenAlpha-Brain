@@ -1,5 +1,3 @@
-import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,19 +19,23 @@ class TestReflectionEngineInitialization:
 
     def test_reflection_engine_initialized_successfully(self):
         """Test that ReflectionEngine is initialized when import succeeds."""
-        with patch.dict("sys.modules", {
-            "openalpha_brain.learning.reflection_engine": MagicMock(
-                ReflectionEngine=MagicMock(return_value=MagicMock())
-            ),
-            "openalpha_brain.knowledge.field_proxy_map": MagicMock(),
-            "openalpha_brain.evolution.fitness_boost": MagicMock(),
-            "openalpha_brain.validation.stability_guard": MagicMock(),
-            "openalpha_brain.core.official_scoring_adapter": MagicMock(),
-            "openalpha_brain.evolution.turnover_optimizer": MagicMock(),
-            "openalpha_brain.generation.template_reasoning_generator": MagicMock(),
-            "openalpha_brain.generation.alpha_logics": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openalpha_brain.learning.reflection_engine": MagicMock(
+                    ReflectionEngine=MagicMock(return_value=MagicMock())
+                ),
+                "openalpha_brain.knowledge.field_proxy_map": MagicMock(),
+                "openalpha_brain.evolution.fitness_boost": MagicMock(),
+                "openalpha_brain.validation.stability_guard": MagicMock(),
+                "openalpha_brain.core.official_scoring_adapter": MagicMock(),
+                "openalpha_brain.evolution.turnover_optimizer": MagicMock(),
+                "openalpha_brain.generation.template_reasoning_generator": MagicMock(),
+                "openalpha_brain.generation.alpha_logics": MagicMock(),
+            },
+        ):
             import sys
+
             original_modules = sys.modules.copy()
 
             mock_re_module = MagicMock()
@@ -64,15 +66,18 @@ class TestReflectionEngineInitialization:
         mock_re_module.ReflectionEngine.side_effect = failing_import
         sys.modules["openalpha_brain.learning.reflection_engine"] = mock_re_module
 
-        with patch.dict("sys.modules", {
-            "openalpha_brain.knowledge.field_proxy_map": MagicMock(),
-            "openalpha_brain.evolution.fitness_boost": MagicMock(),
-            "openalpha_brain.validation.stability_guard": MagicMock(),
-            "openalpha_brain.core.official_scoring_adapter": MagicMock(),
-            "openalpha_brain.evolution.turnover_optimizer": MagicMock(),
-            "openalpha_brain.generation.template_reasoning_generator": MagicMock(),
-            "openalpha_brain.generation.alpha_logics": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openalpha_brain.knowledge.field_proxy_map": MagicMock(),
+                "openalpha_brain.evolution.fitness_boost": MagicMock(),
+                "openalpha_brain.validation.stability_guard": MagicMock(),
+                "openalpha_brain.core.official_scoring_adapter": MagicMock(),
+                "openalpha_brain.evolution.turnover_optimizer": MagicMock(),
+                "openalpha_brain.generation.template_reasoning_generator": MagicMock(),
+                "openalpha_brain.generation.alpha_logics": MagicMock(),
+            },
+        ):
             try:
                 orchestrator = FeedbackLoopOrchestrator(
                     cookies=MagicMock(),
@@ -86,18 +91,21 @@ class TestReflectionEngineInitialization:
 
     def test_reflection_engine_attribute_exists(self):
         """Test _reflection_engine attribute exists after initialization."""
-        with patch.dict("sys.modules", {
-            "openalpha_brain.learning.reflection_engine": MagicMock(
-                ReflectionEngine=MagicMock(return_value=MagicMock())
-            ),
-            "openalpha_brain.knowledge.field_proxy_map": MagicMock(),
-            "openalpha_brain.evolution.fitness_boost": MagicMock(),
-            "openalpha_brain.validation.stability_guard": MagicMock(),
-            "openalpha_brain.core.official_scoring_adapter": MagicMock(),
-            "openalpha_brain.evolution.turnover_optimizer": MagicMock(),
-            "openalpha_brain.generation.template_reasoning_generator": MagicMock(),
-            "openalpha_brain.generation.alpha_logics": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openalpha_brain.learning.reflection_engine": MagicMock(
+                    ReflectionEngine=MagicMock(return_value=MagicMock())
+                ),
+                "openalpha_brain.knowledge.field_proxy_map": MagicMock(),
+                "openalpha_brain.evolution.fitness_boost": MagicMock(),
+                "openalpha_brain.validation.stability_guard": MagicMock(),
+                "openalpha_brain.core.official_scoring_adapter": MagicMock(),
+                "openalpha_brain.evolution.turnover_optimizer": MagicMock(),
+                "openalpha_brain.generation.template_reasoning_generator": MagicMock(),
+                "openalpha_brain.generation.alpha_logics": MagicMock(),
+            },
+        ):
             orchestrator = FeedbackLoopOrchestrator(
                 cookies=MagicMock(),
                 slot_manager=MagicMock(),
@@ -133,12 +141,14 @@ class TestReflectionEngineIntegrationInHandleImprovement:
     async def test_reflect_on_failure_called(self, setup_orchestrator_with_mock):
         """Test that reflect_on_failure is called with correct parameters."""
         orch = setup_orchestrator_with_mock
-        orch._reflection_engine.reflect_on_failure = AsyncMock(return_value=ReflectionResult(
-            failure_stage="parameters",
-            failure_reason="Weak signal",
-            suggested_fix="Add normalization",
-            confidence=0.7,
-        ))
+        orch._reflection_engine.reflect_on_failure = AsyncMock(
+            return_value=ReflectionResult(
+                failure_stage="parameters",
+                failure_reason="Weak signal",
+                suggested_fix="Add normalization",
+                confidence=0.7,
+            )
+        )
 
         brain_result = MagicMock()
         brain_result.sharpe = 0.9
@@ -171,16 +181,20 @@ class TestReflectionEngineIntegrationInHandleImprovement:
                 ),
             ]
         )
-        orch._reflection_engine.get_recent_reflections = MagicMock(return_value=[
-            {"failure_stage": "turnover", "failure_reason": "test"},
-        ])
+        orch._reflection_engine.get_recent_reflections = MagicMock(
+            return_value=[
+                {"failure_stage": "turnover", "failure_reason": "test"},
+            ]
+        )
         orch._reflection_engine.get_failure_patterns = MagicMock(return_value={"turnover": 5})
-        orch._reflection_engine.self_critique = AsyncMock(return_value=CritiqueResult(
-            consistency_score=0.8,
-            issues=["issue1"],
-            suggestions=["suggestion1"],
-            critique_available=True,
-        ))
+        orch._reflection_engine.self_critique = AsyncMock(
+            return_value=CritiqueResult(
+                consistency_score=0.8,
+                issues=["issue1"],
+                suggestions=["suggestion1"],
+                critique_available=True,
+            )
+        )
         orch.config["llm_improve_fn"].return_value = "group_neutralize(ts_decay_linear(rank(close), 10), industry)"
 
         brain_result = MagicMock()
@@ -212,15 +226,19 @@ class TestReflectionEngineIntegrationInHandleImprovement:
                 ),
             ]
         )
-        orch._reflection_engine.self_critique = AsyncMock(return_value=CritiqueResult(
-            consistency_score=0.9,
-            issues=["High turnover detected"],
-            suggestions=["Apply ts_decay_linear"],
-            critique_available=True,
-        ))
+        orch._reflection_engine.self_critique = AsyncMock(
+            return_value=CritiqueResult(
+                consistency_score=0.9,
+                issues=["High turnover detected"],
+                suggestions=["Apply ts_decay_linear"],
+                critique_available=True,
+            )
+        )
         orch._reflection_engine.get_recent_reflections = MagicMock(return_value=[])
         orch._reflection_engine.get_failure_patterns = MagicMock(return_value={})
-        orch.config["llm_improve_fn"].return_value = "group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 15), industry)"
+        orch.config[
+            "llm_improve_fn"
+        ].return_value = "group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 15), industry)"
 
         brain_result = MagicMock()
         brain_result.sharpe = 1.1
@@ -252,12 +270,14 @@ class TestReflectionEngineIntegrationInHandleImprovement:
                 ),
             ]
         )
-        orch._reflection_engine.self_critique = AsyncMock(return_value=CritiqueResult(
-            consistency_score=0.75,
-            issues=[],
-            suggestions=[],
-            critique_available=True,
-        ))
+        orch._reflection_engine.self_critique = AsyncMock(
+            return_value=CritiqueResult(
+                consistency_score=0.75,
+                issues=[],
+                suggestions=[],
+                critique_available=True,
+            )
+        )
         orch._reflection_engine.get_recent_reflections = MagicMock(return_value=[])
         orch._reflection_engine.get_failure_patterns = MagicMock(return_value={})
         orch.config["llm_improve_fn"].return_value = "group_neutralize(tanh(rank(ts_zscore(close, 20))), industry)"
@@ -279,12 +299,14 @@ class TestReflectionEngineIntegrationInHandleImprovement:
     async def test_reflection_skipped_when_confidence_low(self, setup_orchestrator_with_mock):
         """Test that reflection-enhanced LLM is skipped when confidence < 0.6."""
         orch = setup_orchestrator_with_mock
-        orch._reflection_engine.reflect_on_failure = AsyncMock(return_value=ReflectionResult(
-            failure_stage="unknown",
-            failure_reason="Unknown issue",
-            suggested_fix="Try different approach",
-            confidence=0.3,
-        ))
+        orch._reflection_engine.reflect_on_failure = AsyncMock(
+            return_value=ReflectionResult(
+                failure_stage="unknown",
+                failure_reason="Unknown issue",
+                suggested_fix="Try different approach",
+                confidence=0.3,
+            )
+        )
 
         brain_result = MagicMock()
         brain_result.sharpe = 0.5
@@ -564,8 +586,7 @@ class TestReflectionIntegrationEdgeCases:
         with patch.object(orch, "_improve_and_resubmit", new_callable=AsyncMock) as mock_improve:
             mock_improve.return_value = "improved"
             await orch._handle_improvement(
-                MagicMock(), brain_result,
-                "group_neutralize(rank(close), industry)", "task_1"
+                MagicMock(), brain_result, "group_neutralize(rank(close), industry)", "task_1"
             )
             mock_improve.assert_called_once()
 
@@ -573,9 +594,7 @@ class TestReflectionIntegrationEdgeCases:
     async def test_reflect_on_failure_exception_fallback(self, setup_orchestrator):
         """Test exception in reflect_on_failure falls back gracefully."""
         orch = setup_orchestrator
-        orch._reflection_engine.reflect_on_failure = AsyncMock(
-            side_effect=Exception("Reflection failed")
-        )
+        orch._reflection_engine.reflect_on_failure = AsyncMock(side_effect=Exception("Reflection failed"))
 
         brain_result = MagicMock()
         brain_result.sharpe = 0.9
@@ -586,8 +605,7 @@ class TestReflectionIntegrationEdgeCases:
         with patch.object(orch, "_improve_and_resubmit", new_callable=AsyncMock) as mock_improve:
             mock_improve.return_value = "improved"
             await orch._handle_improvement(
-                MagicMock(), brain_result,
-                "group_neutralize(rank(close), industry)", "task_1"
+                MagicMock(), brain_result, "group_neutralize(rank(close), industry)", "task_1"
             )
             mock_improve.assert_called_once()
 
@@ -610,9 +628,7 @@ class TestReflectionIntegrationEdgeCases:
         brain_result.turnover = 0.25
         brain_result.brain_checks = []
 
-        await orch._handle_improvement(
-            MagicMock(), brain_result, "expr", "task_1"
-        )
+        await orch._handle_improvement(MagicMock(), brain_result, "expr", "task_1")
 
         assert chain.current_generation == 1
 
@@ -620,16 +636,20 @@ class TestReflectionIntegrationEdgeCases:
     async def test_improvement_chain_tracking(self, setup_orchestrator):
         """Test that improvements are properly tracked in chain."""
         orch = setup_orchestrator
-        orch._reflection_engine.reflect_on_failure = AsyncMock(return_value=ReflectionResult(
-            failure_stage="parameters",
-            failure_reason="Weak signal",
-            suggested_fix="Enhance",
-            confidence=0.7,
-        ))
-        orch._reflection_engine.self_critique = AsyncMock(return_value=CritiqueResult(
-            consistency_score=0.8,
-            critique_available=True,
-        ))
+        orch._reflection_engine.reflect_on_failure = AsyncMock(
+            return_value=ReflectionResult(
+                failure_stage="parameters",
+                failure_reason="Weak signal",
+                suggested_fix="Enhance",
+                confidence=0.7,
+            )
+        )
+        orch._reflection_engine.self_critique = AsyncMock(
+            return_value=CritiqueResult(
+                consistency_score=0.8,
+                critique_available=True,
+            )
+        )
         orch._reflection_engine.get_recent_reflections = MagicMock(return_value=[])
         orch._reflection_engine.get_failure_patterns = MagicMock(return_value={})
         orch.config["llm_improve_fn"].return_value = "improved_expression"
@@ -640,10 +660,7 @@ class TestReflectionIntegrationEdgeCases:
         brain_result.turnover = 0.25
         brain_result.brain_checks = []
 
-        await orch._handle_improvement(
-            MagicMock(), brain_result,
-            "original_expr", "task_chain_test"
-        )
+        await orch._handle_improvement(MagicMock(), brain_result, "original_expr", "task_chain_test")
 
         assert "task_chain_test" in orch._improvement_chains
         chain = orch._improvement_chains["task_chain_test"]

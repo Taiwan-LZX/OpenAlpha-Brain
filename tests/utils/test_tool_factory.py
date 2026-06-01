@@ -1,5 +1,6 @@
 import pytest
-from openalpha_brain.utils.tool_factory import ToolFactory, AlphaTool
+
+from openalpha_brain.utils.tool_factory import AlphaTool, ToolFactory
 
 
 async def _stub_embed_fn(text):

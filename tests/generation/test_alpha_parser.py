@@ -1,6 +1,5 @@
 from openalpha_brain.generation import alpha_parser as parser
 
-
 _V1_TEMPLATE = (
     "[1] ECONOMIC RATIONALE\n{rationale}\n"
     "[2] ALPHA EXPRESSION\n{expression}\n"
@@ -14,12 +13,7 @@ _V1_TEMPLATE = (
 
 class TestParseRange:
     def test_plain_number(self):
-        metrics = (
-            "Sharpe: 1.35-1.60\n"
-            "Fitness: 1.00-1.50\n"
-            "Turnover: 15%-25%\n"
-            "Returns: 19%"
-        )
+        metrics = "Sharpe: 1.35-1.60\nFitness: 1.00-1.50\nTurnover: 15%-25%\nReturns: 19%"
         raw = _V1_TEMPLATE.format(
             rationale="Test rationale",
             expression="group_neutralize(rank(close), industry)",
@@ -30,12 +24,7 @@ class TestParseRange:
         assert result["metrics"]["sharpe_min"] == 1.35
 
     def test_tilde_prefix(self):
-        metrics = (
-            "Sharpe: ~1.35-~1.60\n"
-            "Fitness: ~1.00-~1.50\n"
-            "Turnover: ~15%-~25%\n"
-            "Returns: ~19%"
-        )
+        metrics = "Sharpe: ~1.35-~1.60\nFitness: ~1.00-~1.50\nTurnover: ~15%-~25%\nReturns: ~19%"
         raw = _V1_TEMPLATE.format(
             rationale="Test rationale",
             expression="group_neutralize(rank(close), industry)",
@@ -46,12 +35,7 @@ class TestParseRange:
         assert result["metrics"]["sharpe_min"] == 1.35, f"Got sharpe_min={result['metrics'].get('sharpe_min')}"
 
     def test_approx_symbol(self):
-        metrics = (
-            "Sharpe: ≈1.35\n"
-            "Fitness: ≈1.00\n"
-            "Turnover: ≈15%\n"
-            "Returns: ≈19%"
-        )
+        metrics = "Sharpe: ≈1.35\nFitness: ≈1.00\nTurnover: ≈15%\nReturns: ≈19%"
         raw = _V1_TEMPLATE.format(
             rationale="Test rationale",
             expression="group_neutralize(rank(close), industry)",

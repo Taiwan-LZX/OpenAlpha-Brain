@@ -9,21 +9,22 @@ Tests cover:
   6. Full optimization pipeline
   7. Edge cases and error handling
 """
+
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from openalpha_brain.optimization.turnover_optimizer import (
-    TurnoverOptimizer,
-    TurnoverAnalysisResult,
+    TO_FLOOR,
+    TO_OPTIMAL_MAX,
+    TO_OPTIMAL_MIN,
     TurnoverOptimizationResult,
+    TurnoverOptimizer,
     TurnoverSeverity,
     Variant,
     get_turnover_optimizer,
-    TO_FLOOR,
-    TO_OPTIMAL_MIN,
-    TO_OPTIMAL_MAX,
 )
 
 
@@ -70,51 +71,34 @@ class TestFitnessComputation:
         self.engine = TurnoverOptimizer()
 
     def test_basic_fitness_calculation(self):
-        fitness = self.engine.compute_fitness(
-            sharpe=1.30, returns_abs=0.028, to=0.314
-        )
+        fitness = self.engine.compute_fitness(sharpe=1.30, returns_abs=0.028, to=0.314)
         expected = 1.30 * math.sqrt(0.028 / max(0.314, TO_FLOOR))
         assert fitness == pytest.approx(expected, rel=1e-9)
 
     def test_fitness_with_low_turnover(self):
-        fitness = self.engine.compute_fitness(
-            sharpe=1.30, returns_abs=0.028, to=0.15
-        )
+        fitness = self.engine.compute_fitness(sharpe=1.30, returns_abs=0.028, to=0.15)
         expected = 1.30 * math.sqrt(0.028 / 0.15)
         assert fitness == pytest.approx(expected, rel=1e-9)
 
     def test_fitness_with_very_high_turnover(self):
-        fitness = self.engine.compute_fitness(
-            sharpe=1.30, returns_abs=0.028, to=0.70
-        )
-        expected = 1.30 * math.sqrt(0.028 / 0.70)
+        fitness = self.engine.compute_fitness(sharpe=1.30, returns_abs=0.028, to=0.70)
         assert fitness > 0
 
     def test_fitness_to_floor_applied(self):
-        fitness_low = self.engine.compute_fitness(
-            sharpe=1.0, returns_abs=0.02, to=0.05
-        )
-        fitness_floor = self.engine.compute_fitness(
-            sharpe=1.0, returns_abs=0.02, to=TO_FLOOR
-        )
+        fitness_low = self.engine.compute_fitness(sharpe=1.0, returns_abs=0.02, to=0.05)
+        fitness_floor = self.engine.compute_fitness(sharpe=1.0, returns_abs=0.02, to=TO_FLOOR)
         assert fitness_low == fitness_floor
 
     def test_fitness_zero_sharpe(self):
-        fitness = self.engine.compute_fitness(
-            sharpe=0.0, returns_abs=0.028, to=0.314
-        )
+        fitness = self.engine.compute_fitness(sharpe=0.0, returns_abs=0.028, to=0.314)
         assert fitness == 0.0
 
     def test_fitness_zero_returns(self):
-        fitness = self.engine.compute_fitness(
-            sharpe=1.30, returns_abs=0.0, to=0.314
-        )
+        fitness = self.engine.compute_fitness(sharpe=1.30, returns_abs=0.0, to=0.314)
         assert fitness == 0.0
 
     def test_fitness_negative_turnover_treated_as_positive(self):
-        fitness = self.engine.compute_fitness(
-            sharpe=1.30, returns_abs=0.028, to=-0.10
-        )
+        fitness = self.engine.compute_fitness(sharpe=1.30, returns_abs=0.028, to=-0.10)
         assert fitness == 0.0
 
     def test_fitness_higher_sharpe_increases_fitness(self):
@@ -309,7 +293,7 @@ class TestHumpVariants:
         variants = self.engine._generate_hump_variants("rank(close)", turnover=0.40)
         sizes_used = set()
         for v in variants:
-            size_match = __import__('re').search(r'hump\([^,]+,\s*([\d.]+)\)', v.expression)
+            size_match = __import__("re").search(r"hump\([^,]+,\s*([\d.]+)\)", v.expression)
             if size_match:
                 sizes_used.add(float(size_match.group(1)))
         assert len(sizes_used) == 4
@@ -351,7 +335,7 @@ class TestTradeWhenVariants:
         variants = self.engine._generate_trade_when_variants("rank(close)", turnover=0.45)
         patterns = set()
         for v in variants:
-            match = __import__('re').search(r'trade_when\([^,]+,\s*([^,]+),\s*([^)]+)\)', v.expression)
+            match = __import__("re").search(r"trade_when\([^,]+,\s*([^,]+),\s*([^)]+)\)", v.expression)
             if match:
                 patterns.add((match.group(1), match.group(2)))
         assert len(patterns) >= 3
@@ -419,7 +403,7 @@ class TestMeanVariants:
         )
         windows = set()
         for v in variants:
-            match = __import__('re').search(r'ts_mean\([^,]+,\s*(\d+)\)', v.expression)
+            match = __import__("re").search(r"ts_mean\([^,]+,\s*(\d+)\)", v.expression)
             if match:
                 windows.add(int(match.group(1)))
         assert len(windows) >= 2
@@ -462,7 +446,7 @@ class TestDoubleSmoothingVariants:
         variants = self.engine._generate_double_smoothing_variants("rank(close)", turnover=0.20)
         outer_windows = set()
         for v in variants:
-            match = __import__('re').search(r'ts_decay_linear\([^,]+,\s*(\d+)\)\)$', v.expression)
+            match = __import__("re").search(r"ts_decay_linear\([^,]+,\s*(\d+)\)\)$", v.expression)
             if match:
                 outer_windows.add(int(match.group(1)))
         assert len(outer_windows) <= 3
@@ -561,9 +545,7 @@ class TestEstimateFitnessGain:
         assert gain_large > gain_small
 
     def test_gain_independent_of_sharpe_direction(self):
-        gain_pos = self.engine.estimate_fitness_gain(
-            current_to=0.50, target_to=0.20, sharpe=1.5, returns_estimate=0.03
-        )
+        _gain_pos = self.engine.estimate_fitness_gain(current_to=0.50, target_to=0.20, sharpe=1.5, returns_estimate=0.03)
         gain_neg = self.engine.estimate_fitness_gain(
             current_to=0.50, target_to=0.20, sharpe=-1.5, returns_estimate=0.03
         )
@@ -684,21 +666,15 @@ class TestEdgeCasesAndErrorHandling:
         self.engine = TurnoverOptimizer()
 
     def test_empty_expression(self):
-        result = self.engine.analyze_turnover_bottleneck(
-            expr="", sharpe=1.0, fitness=0.5, turnover=0.30
-        )
+        result = self.engine.analyze_turnover_bottleneck(expr="", sharpe=1.0, fitness=0.5, turnover=0.30)
         assert "current_penalty" in result
 
     def test_none_turnover_in_analysis(self):
-        result = self.engine.analyze_turnover_bottleneck(
-            expr="rank(close)", sharpe=1.3, fitness=0.8, turnover=None
-        )
+        result = self.engine.analyze_turnover_bottleneck(expr="rank(close)", sharpe=1.3, fitness=0.8, turnover=None)
         assert result is not None
 
     def test_negative_sharpe(self):
-        result = self.engine.analyze_turnover_bottleneck(
-            expr="-rank(close)", sharpe=-0.5, fitness=-0.2, turnover=0.25
-        )
+        result = self.engine.analyze_turnover_bottleneck(expr="-rank(close)", sharpe=-0.5, fitness=-0.2, turnover=0.25)
         assert "severity" in result
 
     def test_extremely_low_fitness(self):

@@ -1,12 +1,11 @@
-from openalpha_brain.generation.alpha_generator import (
-    _extract_expression_from_llm,
-    _extract_hallucinations_from_failures,
-    _extract_brain_hallucinations,
-    _record_hallucination,
-    _summarise_rejected,
-)
 from openalpha_brain.core.loop_engine import _family_locked
 from openalpha_brain.core.models import SessionState
+from openalpha_brain.generation.alpha_generator import (
+    _extract_brain_hallucinations,
+    _extract_expression_from_llm,
+    _extract_hallucinations_from_failures,
+    _record_hallucination,
+)
 from openalpha_brain.validation.validator import validate_syntax
 
 
@@ -43,9 +42,7 @@ class TestHallucinationRecording:
 
     def test_extract_brain_hallucinations(self):
         state = SessionState(id="test", focus_area="test")
-        _extract_brain_hallucinations(state, [
-            "Attempted to use unknown variable 'short_ratio'"
-        ])
+        _extract_brain_hallucinations(state, ["Attempted to use unknown variable 'short_ratio'"])
         assert len(state.hallucination_log) == 1
         assert state.hallucination_log[0]["error_type"] == "BRAIN_UNKNOWN_VAR"
 

@@ -1,8 +1,5 @@
-import json
-
-import pytest
-from openalpha_brain.utils.market_state import MarketState, MarketStateInferencer
 from openalpha_brain.learning.mab import HierarchicalMAB
+from openalpha_brain.utils.market_state import MarketState, MarketStateInferencer
 
 
 class TestInferFromBrainResults:
@@ -95,8 +92,20 @@ class TestGetMarketStateSummary:
             "volatility": [0.5],
         }
         inferencer._yearly_states = {
-            2023: MarketState(year=2023, momentum_sharpe=1.5, mean_reversion_sharpe=0.8, volatility_sharpe=0.3, dominant_strategy="momentum"),
-            2024: MarketState(year=2024, momentum_sharpe=0.5, mean_reversion_sharpe=1.2, volatility_sharpe=0.4, dominant_strategy="mean_reversion"),
+            2023: MarketState(
+                year=2023,
+                momentum_sharpe=1.5,
+                mean_reversion_sharpe=0.8,
+                volatility_sharpe=0.3,
+                dominant_strategy="momentum",
+            ),
+            2024: MarketState(
+                year=2024,
+                momentum_sharpe=0.5,
+                mean_reversion_sharpe=1.2,
+                volatility_sharpe=0.4,
+                dominant_strategy="mean_reversion",
+            ),
         }
 
         summary = inferencer.get_market_state_summary()
@@ -112,7 +121,13 @@ class TestMarketStatePersistence:
         path = str(tmp_path / "state.json")
         inferencer = MarketStateInferencer(path=path)
         inferencer._yearly_states = {
-            2023: MarketState(year=2023, momentum_sharpe=1.5, mean_reversion_sharpe=0.8, volatility_sharpe=0.3, dominant_strategy="momentum"),
+            2023: MarketState(
+                year=2023,
+                momentum_sharpe=1.5,
+                mean_reversion_sharpe=0.8,
+                volatility_sharpe=0.3,
+                dominant_strategy="momentum",
+            ),
         }
         inferencer._direction_sharpes = {"momentum": [1.5, 1.2], "mean_reversion": [0.8]}
         inferencer._save()
@@ -127,7 +142,13 @@ class TestMarketStatePersistence:
 
 class TestMarketStateDataclass:
     def test_to_dict(self):
-        ms = MarketState(year=2023, momentum_sharpe=1.5, mean_reversion_sharpe=0.8, volatility_sharpe=0.3, dominant_strategy="momentum")
+        ms = MarketState(
+            year=2023,
+            momentum_sharpe=1.5,
+            mean_reversion_sharpe=0.8,
+            volatility_sharpe=0.3,
+            dominant_strategy="momentum",
+        )
         d = ms.to_dict()
 
         assert d["year"] == 2023
@@ -135,7 +156,13 @@ class TestMarketStateDataclass:
         assert d["dominant_strategy"] == "momentum"
 
     def test_from_dict(self):
-        d = {"year": 2024, "momentum_sharpe": 2.0, "mean_reversion_sharpe": 1.0, "volatility_sharpe": 0.5, "dominant_strategy": "momentum"}
+        d = {
+            "year": 2024,
+            "momentum_sharpe": 2.0,
+            "mean_reversion_sharpe": 1.0,
+            "volatility_sharpe": 0.5,
+            "dominant_strategy": "momentum",
+        }
         ms = MarketState.from_dict(d)
 
         assert ms.year == 2024
@@ -150,7 +177,13 @@ class TestMarketStateDataclass:
         assert ms.dominant_strategy == ""
 
     def test_roundtrip_to_dict_from_dict(self):
-        original = MarketState(year=2023, momentum_sharpe=1.5, mean_reversion_sharpe=0.8, volatility_sharpe=0.3, dominant_strategy="momentum")
+        original = MarketState(
+            year=2023,
+            momentum_sharpe=1.5,
+            mean_reversion_sharpe=0.8,
+            volatility_sharpe=0.3,
+            dominant_strategy="momentum",
+        )
         restored = MarketState.from_dict(original.to_dict())
 
         assert restored.year == original.year

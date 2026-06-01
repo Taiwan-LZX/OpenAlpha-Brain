@@ -17,9 +17,11 @@ Variant Generation Strategies:
   4. Replace ts_decay_linear with ts_mean (smoother)
   5. Nested ts_decay_linear (double smoothing)
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -34,7 +36,6 @@ import aiohttp
 
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 from openalpha_brain.utils.algo_logger import algo_log
-import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class TurnoverSeverity(Enum):
 @dataclass
 class Variant:
     """Low-turnover variant candidate."""
+
     expression: str
     strategy: str
     description: str
@@ -73,6 +75,7 @@ class Variant:
 @dataclass
 class TurnoverAnalysisResult:
     """Result of turnover bottleneck analysis."""
+
     current_to: float
     current_penalty: float
     optimal_to: float
@@ -86,6 +89,7 @@ class TurnoverAnalysisResult:
 @dataclass
 class TurnoverOptimizationResult:
     """Complete optimization result with variants."""
+
     original_expression: str
     original_to: float
     analysis: TurnoverAnalysisResult
@@ -205,7 +209,9 @@ class TurnoverOptimizer:
         current_penalty = self._compute_to_penalty(turnover, inferred_returns)
 
         optimal_to, max_fitness = self._find_optimal_turnover(
-            sharpe, inferred_returns, turnover,
+            sharpe,
+            inferred_returns,
+            turnover,
         )
 
         potential_gain = 0.0
@@ -231,7 +237,7 @@ class TurnoverOptimizer:
                 "optimal_fitness": max_fitness,
                 "fitness_gain_absolute": max_fitness - fitness,
                 "expression_length": len(expr),
-                "operator_count": len(re.findall(r'ts_\w+|rank|zscore|group_\w+', expr)),
+                "operator_count": len(re.findall(r"ts_\w+|rank|zscore|group_\w+", expr)),
             },
         )
 
@@ -247,7 +253,7 @@ class TurnoverOptimizer:
             "optimal_fitness": max_fitness,
             "fitness_gain_absolute": max_fitness - fitness,
             "expression_length": len(expr),
-            "operator_count": len(re.findall(r'ts_\w+|rank|zscore|group_\w+', expr)),
+            "operator_count": len(re.findall(r"ts_\w+|rank|zscore|group_\w+", expr)),
             "details": result.details,
         }
 
@@ -286,7 +292,9 @@ class TurnoverOptimizer:
             result = variants[:max_variants]
             ms = (time.perf_counter() - t0) * 1000
             with contextlib.suppress(OSError, ValueError, RuntimeError):
-                self._tel.record_exit_sync("TurnoverOptimizer", eid, metrics={"strategy_used": "multi_strategy"}, duration_ms=ms)
+                self._tel.record_exit_sync(
+                    "TurnoverOptimizer", eid, metrics={"strategy_used": "multi_strategy"}, duration_ms=ms
+                )
             return result
         except Exception as e:
             if eid:
@@ -302,7 +310,9 @@ class TurnoverOptimizer:
     ) -> list[Variant]:
         eid = None
         try:
-            eid = await self._tel.record_enter("TurnoverOptimizer", cycle_id="unknown", expr_id=hash(original_expression) % 10000)
+            eid = await self._tel.record_enter(
+                "TurnoverOptimizer", cycle_id="unknown", expr_id=hash(original_expression) % 10000
+            )
             t0 = time.perf_counter()
             llm_called = False
 
@@ -310,7 +320,12 @@ class TurnoverOptimizer:
                 logger.info("[TO-OPT-LLM] No LLM available or empty variants, returning original order")
                 ms = (time.perf_counter() - t0) * 1000
                 with contextlib.suppress(OSError, ValueError, RuntimeError):
-                    await self._tel.record_exit("TurnoverOptimizer", eid, metrics={"llm_called": llm_called, "reranked_count": 0}, duration_ms=ms)
+                    await self._tel.record_exit(
+                        "TurnoverOptimizer",
+                        eid,
+                        metrics={"llm_called": llm_called, "reranked_count": 0},
+                        duration_ms=ms,
+                    )
                 return variants
 
             expr_truncated = original_expression[:300] + ("..." if len(original_expression) > 300 else "")
@@ -323,8 +338,7 @@ class TurnoverOptimizer:
             prompt = (
                 "You are a quantitative factor optimization expert reviewing turnover-reduction variants.\n\n"
                 f"Original expression: {expr_truncated}\n\n"
-                f"Generated {len(variants)} low-turnover variants:\n" +
-                "\n".join(variant_summaries) + "\n\n"
+                f"Generated {len(variants)} low-turnover variants:\n" + "\n".join(variant_summaries) + "\n\n"
                 "Task: Judge which variants best preserve the original signal logic while reducing turnover.\n"
                 "Return JSON only:\n"
                 '  {"ranked_indices": [3, 1, 0, 2, ...], "confidence_scores": [0.9, 0.8, 0.6, 0.5, ...], "reasoning": "<brief>"}\n'
@@ -338,6 +352,7 @@ class TurnoverOptimizer:
                 timeout=15.0,
             )
             import json as _json
+
             parsed = _json.loads(response.strip()) if isinstance(response, str) else response
             ranked_indices = parsed.get("ranked_indices", list(range(len(variants))))
             confidence_scores = parsed.get("confidence_scores", [v.confidence for v in variants])
@@ -351,14 +366,16 @@ class TurnoverOptimizer:
                     seen.add(idx)
                     conf = confidence_scores[idx] if idx < len(confidence_scores) else variants[idx].confidence
                     v = variants[idx]
-                    ordered_variants.append(Variant(
-                        expression=v.expression,
-                        strategy=v.strategy,
-                        description=v.description,
-                        expected_to_reduction=v.expected_to_reduction,
-                        confidence=conf,
-                        risk_level=v.risk_level,
-                    ))
+                    ordered_variants.append(
+                        Variant(
+                            expression=v.expression,
+                            strategy=v.strategy,
+                            description=v.description,
+                            expected_to_reduction=v.expected_to_reduction,
+                            confidence=conf,
+                            risk_level=v.risk_level,
+                        )
+                    )
 
             for i, v in enumerate(variants):
                 if i not in seen:
@@ -372,13 +389,20 @@ class TurnoverOptimizer:
             )
             ms = (time.perf_counter() - t0) * 1000
             with contextlib.suppress(OSError, ValueError, RuntimeError):
-                await self._tel.record_exit("TurnoverOptimizer", eid, metrics={"llm_called": llm_called, "reranked_count": len(ordered_variants)}, duration_ms=ms)
+                await self._tel.record_exit(
+                    "TurnoverOptimizer",
+                    eid,
+                    metrics={"llm_called": llm_called, "reranked_count": len(ordered_variants)},
+                    duration_ms=ms,
+                )
             return ordered_variants
         except TimeoutError:
             logger.warning("[TO-OPT-LLM] LLM timed out after 15s, returning original order")
-            ms = (time.perf_counter() - t0) * 1000 if 't0' in dir() else 0
+            ms = (time.perf_counter() - t0) * 1000 if "t0" in dir() else 0
             with contextlib.suppress(OSError, ValueError, RuntimeError):
-                await self._tel.record_exit("TurnoverOptimizer", eid, metrics={"llm_called": False, "reranked_count": 0}, duration_ms=ms)
+                await self._tel.record_exit(
+                    "TurnoverOptimizer", eid, metrics={"llm_called": False, "reranked_count": 0}, duration_ms=ms
+                )
             return variants
         except (aiohttp.ClientError, ValueError, json.JSONDecodeError) as e:
             if eid:
@@ -420,7 +444,10 @@ class TurnoverOptimizer:
         return max(gain, 0.0)
 
     def _infer_returns_from_fitness(
-        self, sharpe: float, fitness: float, turnover: float,
+        self,
+        sharpe: float,
+        fitness: float,
+        turnover: float,
     ) -> float:
         """Infer absolute returns from known Fitness formula components."""
         if sharpe == 0 or fitness == 0:
@@ -443,7 +470,10 @@ class TurnoverOptimizer:
         return 1.0 - (current_fitness / optimal_fitness)
 
     def _find_optimal_turnover(
-        self, sharpe: float, returns_abs: float, current_to: float,
+        self,
+        sharpe: float,
+        returns_abs: float,
+        current_to: float,
     ) -> tuple[float, float]:
         """Find TO that maximizes Fitness in search range.
 
@@ -477,15 +507,16 @@ class TurnoverOptimizer:
         return TurnoverSeverity.LOW
 
     def _select_strategies(
-        self, expr: str, to: float, severity: TurnoverSeverity,
+        self,
+        expr: str,
+        to: float,
+        severity: TurnoverSeverity,
     ) -> list[str]:
         """Select appropriate optimization strategies based on analysis."""
         strategies = []
 
         has_decay = "ts_decay_linear" in expr or "ts_decay_exp_window" in expr
-        has_high_freq_ops = any(
-            op in expr for op in ["ts_delta", "ts_regression", "ts_corr"]
-        )
+        has_high_freq_ops = any(op in expr for op in ["ts_delta", "ts_regression", "ts_corr"])
 
         if has_decay:
             strategies.append("decay_extension")
@@ -511,7 +542,7 @@ class TurnoverOptimizer:
         """Strategy 1: Extend/increase decay window."""
         variants = []
 
-        decay_match = re.search(r'ts_decay_linear\(([^,]+),\s*(\d+)\)', expr)
+        decay_match = re.search(r"ts_decay_linear\(([^,]+),\s*(\d+)\)", expr)
         if not decay_match:
             inner_expr = decay_match.group(1) if decay_match else expr
             current_window = int(decay_match.group(2)) if decay_match else 0
@@ -520,14 +551,16 @@ class TurnoverOptimizer:
                 if new_window > current_window and current_window > 0:
                     new_expr = f"ts_decay_linear({inner_expr}, {new_window})"
                     reduction = min(0.4, (new_window - current_window) / current_window * 0.3)
-                    variants.append(Variant(
-                        expression=new_expr,
-                        strategy="decay_extension",
-                        description=f"Increase decay window {current_window}→{new_window}",
-                        expected_to_reduction=reduction,
-                        confidence=0.85 if new_window <= 30 else 0.7,
-                        risk_level="low",
-                    ))
+                    variants.append(
+                        Variant(
+                            expression=new_expr,
+                            strategy="decay_extension",
+                            description=f"Increase decay window {current_window}→{new_window}",
+                            expected_to_reduction=reduction,
+                            confidence=0.85 if new_window <= 30 else 0.7,
+                            risk_level="low",
+                        )
+                    )
         else:
             inner = decay_match.group(1)
             current_win = int(decay_match.group(2))
@@ -535,8 +568,8 @@ class TurnoverOptimizer:
             for new_win in DECAY_WINDOWS:
                 if new_win != current_win:
                     new_expr = re.sub(
-                        r'ts_decay_linear\([^,]+,\s*\d+\)',
-                        f'ts_decay_linear({inner}, {new_win})',
+                        r"ts_decay_linear\([^,]+,\s*\d+\)",
+                        f"ts_decay_linear({inner}, {new_win})",
                         expr,
                         count=1,
                     )
@@ -545,14 +578,16 @@ class TurnoverOptimizer:
                     else:
                         reduction = -0.1
 
-                    variants.append(Variant(
-                        expression=new_expr,
-                        strategy="decay_extension",
-                        description=f"Adjust decay window {current_win}→{new_win}",
-                        expected_to_reduction=max(0, reduction),
-                        confidence=0.85 if 10 <= new_win <= 30 else 0.65,
-                        risk_level="low",
-                    ))
+                    variants.append(
+                        Variant(
+                            expression=new_expr,
+                            strategy="decay_extension",
+                            description=f"Adjust decay window {current_win}→{new_win}",
+                            expected_to_reduction=max(0, reduction),
+                            confidence=0.85 if 10 <= new_win <= 30 else 0.65,
+                            risk_level="low",
+                        )
+                    )
 
         return variants
 
@@ -565,14 +600,16 @@ class TurnoverOptimizer:
         for size in HUMP_SIZES:
             new_expr = f"hump({expr}, {size})"
             reduction = 0.25 + (size * 2)
-            variants.append(Variant(
-                expression=new_expr,
-                strategy="hump_filtering",
-                description=f"Apply hump filter (size={size})",
-                expected_to_reduction=min(reduction, 0.45),
-                confidence=0.75,
-                risk_level="medium",
-            ))
+            variants.append(
+                Variant(
+                    expression=new_expr,
+                    strategy="hump_filtering",
+                    description=f"Apply hump filter (size={size})",
+                    expected_to_reduction=min(reduction, 0.45),
+                    confidence=0.75,
+                    risk_level="medium",
+                )
+            )
 
         return variants
 
@@ -586,14 +623,16 @@ class TurnoverOptimizer:
             for exit_th in TRADE_WHEN_THRESHOLDS["exit"]:
                 new_expr = f"trade_when({expr}, {entry}, {exit_th})"
                 reduction = 0.35 + abs(entry) + abs(exit_th)
-                variants.append(Variant(
-                    expression=new_expr,
-                    strategy="trade_when_trigger",
-                    description=f"Conditional rebalance (entry={entry}, exit={exit_th})",
-                    expected_to_reduction=min(reduction, 0.55),
-                    confidence=0.65,
-                    risk_level="medium",
-                ))
+                variants.append(
+                    Variant(
+                        expression=new_expr,
+                        strategy="trade_when_trigger",
+                        description=f"Conditional rebalance (entry={entry}, exit={exit_th})",
+                        expected_to_reduction=min(reduction, 0.55),
+                        confidence=0.65,
+                        risk_level="medium",
+                    )
+                )
 
         return variants[:6]
 
@@ -601,18 +640,20 @@ class TurnoverOptimizer:
         """Strategy 4: Replace ts_decay_linear with ts_mean (smoother)."""
         variants = []
 
-        decay_matches = list(re.finditer(r'ts_decay_linear\(([^,]+),\s*(\d+)\)', expr))
+        decay_matches = list(re.finditer(r"ts_decay_linear\(([^,]+),\s*(\d+)\)", expr))
         if not decay_matches:
             for window in [10, 20, 30]:
                 new_expr = f"ts_mean({expr}, {window})"
-                variants.append(Variant(
-                    expression=new_expr,
-                    strategy="mean_replacement",
-                    description=f"Wrap with ts_mean(window={window})",
-                    expected_to_reduction=0.20,
-                    confidence=0.70,
-                    risk_level="low",
-                ))
+                variants.append(
+                    Variant(
+                        expression=new_expr,
+                        strategy="mean_replacement",
+                        description=f"Wrap with ts_mean(window={window})",
+                        expected_to_reduction=0.20,
+                        confidence=0.70,
+                        risk_level="low",
+                    )
+                )
         else:
             for match in decay_matches[:2]:
                 inner = match.group(1)
@@ -620,16 +661,18 @@ class TurnoverOptimizer:
 
                 windows_to_try = list(set([max(old_window, 10), max(old_window, 20), old_window + 10]))
                 for new_window in windows_to_try[:3]:
-                    new_expr = expr[:match.start()] + f"ts_mean({inner}, {new_window})" + expr[match.end():]
+                    new_expr = expr[: match.start()] + f"ts_mean({inner}, {new_window})" + expr[match.end() :]
                     reduction = 0.15 + (new_window - old_window) / max(old_window, 1) * 0.1
-                    variants.append(Variant(
-                        expression=new_expr,
-                        strategy="mean_replacement",
-                        description=f"Replace decay_linear with ts_mean({new_window})",
-                        expected_to_reduction=min(reduction, 0.35),
-                        confidence=0.72,
-                        risk_level="low",
-                    ))
+                    variants.append(
+                        Variant(
+                            expression=new_expr,
+                            strategy="mean_replacement",
+                            description=f"Replace decay_linear with ts_mean({new_window})",
+                            expected_to_reduction=min(reduction, 0.35),
+                            confidence=0.72,
+                            risk_level="low",
+                        )
+                    )
 
         return variants
 
@@ -649,14 +692,16 @@ class TurnoverOptimizer:
         for outer_w in outer_windows:
             new_expr = f"ts_decay_linear({expr}, {outer_w})"
             reduction = 0.30 if has_existing_decay else 0.25
-            variants.append(Variant(
-                expression=new_expr,
-                strategy="double_smoothing",
-                description=f"Add outer decay layer (window={outer_w})",
-                expected_to_reduction=reduction,
-                confidence=0.68,
-                risk_level="medium",
-            ))
+            variants.append(
+                Variant(
+                    expression=new_expr,
+                    strategy="double_smoothing",
+                    description=f"Add outer decay layer (window={outer_w})",
+                    expected_to_reduction=reduction,
+                    confidence=0.68,
+                    risk_level="medium",
+                )
+            )
 
         return variants
 
@@ -682,7 +727,10 @@ class TurnoverOptimizer:
                     composite_factors,
                 )
             analysis_dict = self.analyze_turnover_bottleneck(
-                expr, sharpe, fitness, turnover,
+                expr,
+                sharpe,
+                fitness,
+                turnover,
             )
 
             analysis = TurnoverAnalysisResult(
@@ -699,22 +747,33 @@ class TurnoverOptimizer:
             variants = []
             if analysis.is_bottleneck or turnover > self.config["to_threshold"]:
                 variants = self.generate_low_turnover_variants(
-                    expr, turnover, max_variants,
+                    expr,
+                    turnover,
+                    max_variants,
                 )
 
-            safe = [v for v in variants if v.risk_level in ("low", "medium")]
+            _safe = [v for v in variants if v.risk_level in ("low", "medium")]
             summary = self._build_summary(analysis, variants)
 
             result = TurnoverOptimizationResult(
                 original_expression=expr,
                 original_to=turnover,
                 analysis=analysis,
-            variants=variants,
-            summary=summary,
-        )
+                variants=variants,
+                summary=summary,
+            )
             ms = (time.perf_counter() - t0) * 1000
             with contextlib.suppress(OSError, ValueError, RuntimeError):
-                self._tel.record_exit_sync("TurnoverOptimizer", eid, metrics={"original_to": round(turnover, 4), "optimized_to": round(analysis.optimal_to, 4), "variants_generated": len(variants)}, duration_ms=ms)
+                self._tel.record_exit_sync(
+                    "TurnoverOptimizer",
+                    eid,
+                    metrics={
+                        "original_to": round(turnover, 4),
+                        "optimized_to": round(analysis.optimal_to, 4),
+                        "variants_generated": len(variants),
+                    },
+                    duration_ms=ms,
+                )
             return result
         except Exception as e:
             if eid:
@@ -723,7 +782,9 @@ class TurnoverOptimizer:
             raise
 
     def _build_summary(
-        self, analysis: TurnoverAnalysisResult, variants: list[Variant],
+        self,
+        analysis: TurnoverAnalysisResult,
+        variants: list[Variant],
     ) -> str:
         """Build human-readable optimization summary."""
         parts = [
@@ -731,12 +792,14 @@ class TurnoverOptimizer:
             f"optimal={analysis.optimal_to:.1%}, "
             f"severity={analysis.severity.value}",
             f"Potential Fitness Gain: {analysis.potential_gain:+.1%}",
-            f"Variants Generated: {len(variants)} ({len([v for v in variants if v.risk_level=='low'])} low-risk)",
+            f"Variants Generated: {len(variants)} ({len([v for v in variants if v.risk_level == 'low'])} low-risk)",
         ]
 
         if variants:
             best = max(variants, key=lambda v: v.expected_to_reduction * v.confidence)
-            parts.append(f"Best Variant: [{best.strategy}] ΔTO≈{best.expected_to_reduction:.0%} (conf={best.confidence:.0%})")
+            parts.append(
+                f"Best Variant: [{best.strategy}] ΔTO≈{best.expected_to_reduction:.0%} (conf={best.confidence:.0%})"
+            )
 
         return " | ".join(parts)
 

@@ -12,16 +12,18 @@ Unit tests for NavigationFusion (Voting Mechanism)
   6. 自适应权重记录与查询
   7. 边界情况和空值处理
 """
+
 from __future__ import annotations
 
 import pytest
+
 from openalpha_brain.core.navigation_fusion import (
-    NavigationFusion,
-    MABOutput,
-    ClassifierOutput,
     AlignerOutput,
+    ClassifierOutput,
     FusionResult,
     FusionStrategy,
+    MABOutput,
+    NavigationFusion,
 )
 
 
@@ -197,7 +199,7 @@ class TestDynamicWeights:
     def test_unavailable_module_zero_weight(self, fusion):
         """不可用模块权重为0"""
         mab = MABOutput(selected_family="momentum", confidence=0.70)
-        
+
         result = fusion.fuse(mab_output=mab, classifier_output=None, aligner_output=None)
 
         assert result.weight_distribution.get("classifier", 0) == 0

@@ -1,6 +1,7 @@
 """Verification test for 3 bug fixes from E2E Round 7."""
-import re
+
 import json
+import re
 import sys
 
 
@@ -20,32 +21,32 @@ def test_bug1_json_comment_stripping():
   }
 }"""
     text = json_with_slash_comments.strip()
-    text = re.sub(r'//[^\n]*', '', text)
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+    text = re.sub(r"//[^\n]*", "", text)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     parsed = json.loads(text)
     assert parsed["critique"]["overall_verdict"] == "REJECT"
     print(f"  [PASS] // inline comments stripped | verdict={parsed['critique']['overall_verdict']}")
 
     # Test 2: /* block comments */
     json_block = '{"key": "value" /* comment */, "b": 2}'
-    cleaned = re.sub(r'//[^\n]*', '', json_block)
-    cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"//[^\n]*", "", json_block)
+    cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
     p2 = json.loads(cleaned)
     assert p2["key"] == "value"
-    print(f"  [PASS] /* block comments stripped")
+    print("  [PASS] /* block comments stripped")
 
     # Test 3: Mixed format with markdown code fence
     json_md = '```json\n{"a": 1, // note\n "b": 2}\n```'
     if json_md.startswith("```"):
         first_nl = json_md.find("\n")
-        json_md = json_md[first_nl + 1:]
+        json_md = json_md[first_nl + 1 :]
         if json_md.endswith("```"):
             json_md = json_md[:-3]
         json_md = json_md.strip()
-    json_md = re.sub(r'//[^\n]*', '', json_md)
+    json_md = re.sub(r"//[^\n]*", "", json_md)
     p3 = json.loads(json_md)
     assert p3["a"] == 1
-    print(f"  [PASS] Markdown code fence + comments handled")
+    print("  [PASS] Markdown code fence + comments handled")
 
     print("  => BUG-1 FIX VERIFIED ✅\n")
 
@@ -57,7 +58,7 @@ def test_bug2_bug3_complexity_enrichment():
     print("=" * 60)
 
     def extract_operators(expression):
-        operator_pattern = r'\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b'
+        operator_pattern = r"\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b"
         operators = re.findall(operator_pattern, expression)
         return list(dict.fromkeys(operators))
 
@@ -111,7 +112,7 @@ def test_fallback_expression():
     print("=" * 60)
 
     def extract_operators(expression):
-        operator_pattern = r'\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b'
+        operator_pattern = r"\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b"
         return list(dict.fromkeys(re.findall(operator_pattern, expression)))
 
     # New fallback (after fix) - must have >=5 ops
@@ -137,5 +138,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nUNEXPECTED ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

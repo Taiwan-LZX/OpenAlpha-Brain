@@ -559,7 +559,7 @@ class FeedbackLoopOrchestrator:
                 results.append(cycle_result)
 
                 if cycle_result.best_sharpe is not None and cycle_result.best_sharpe > self.stats.best_sharpe_ever:
-                        self.stats.best_sharpe_ever = cycle_result.best_sharpe
+                    self.stats.best_sharpe_ever = cycle_result.best_sharpe
 
                 if self._running and len(results) < cycle_limit:
                     await asyncio.sleep(actual_interval)
@@ -751,22 +751,22 @@ class FeedbackLoopOrchestrator:
         mfr_boost_reason = ""
 
         if score_report is not None and hasattr(score_report, "multi_layer_result") and score_report.multi_layer_result:
-                ml_result = score_report.multi_layer_result
-                if ml_result.get("is_high_icir_low_fitness"):
-                    is_high_icir_low_fitness = True
-                    icir_info = ml_result.get("icir_metrics", {})
-                    icir_override_reason = (
-                        f"HIGH_ICIR_LOW_FITNESS: ICIR={icir_info.get('icir', 'N/A')} but Fitness < 1.0 → 强制改进路径"
-                    )
+            ml_result = score_report.multi_layer_result
+            if ml_result.get("is_high_icir_low_fitness"):
+                is_high_icir_low_fitness = True
+                icir_info = ml_result.get("icir_metrics", {})
+                icir_override_reason = (
+                    f"HIGH_ICIR_LOW_FITNESS: ICIR={icir_info.get('icir', 'N/A')} but Fitness < 1.0 → 强制改进路径"
+                )
 
-                # 检查 EFFICIENT_ALPHA
-                if ml_result.get("is_efficient_alpha"):
-                    is_efficient_alpha = True
-                    mfr_info = ml_result.get("multi_faceted_reward", {})
-                    mfr_boost_reason = (
-                        f"EFFICIENT_ALPHA: efficiency={mfr_info.get('efficiency', 'N/A')} > 0.3 "
-                        f"→ Experience注入+LLM改进路径"
-                    )
+            # 检查 EFFICIENT_ALPHA
+            if ml_result.get("is_efficient_alpha"):
+                is_efficient_alpha = True
+                mfr_info = ml_result.get("multi_faceted_reward", {})
+                mfr_boost_reason = (
+                    f"EFFICIENT_ALPHA: efficiency={mfr_info.get('efficiency', 'N/A')} > 0.3 "
+                    f"→ Experience注入+LLM改进路径"
+                )
 
         # 基础决策逻辑
         if passed and sharpe >= pass_threshold:
@@ -1602,6 +1602,231 @@ class FeedbackLoopOrchestrator:
                 self._mab.penalize(arm=direction, value=0.5)
             except (OSError, ValueError, RuntimeError):
                 pass
+
+    async def analyze_and_improve(
+        self,
+        brain_result: Any,
+        expression: str,
+        session_id: str = "",
+        cycle_num: int = 0,
+    ) -> Any:
+        """Public facade for loop_engine integration.
+
+        Analyzes brain result and generates improvements WITHOUT submitting
+        through SlotManager. Each improver plays its specialized role:
+          - DecisionEngine → action classification
+          - ReflectionEngine → failure diagnosis
+          - AdaptiveNeutralizer → neutralization recommendation
+          - NearPassImprover → near-pass variant generation
+          - FitnessBoost → low-fitness variant generation
+          - TurnoverOptimizer → high-TO analysis
+
+        Args:
+            brain_result: Raw WQ brain result object.
+            expression: The alpha expression that was submitted.
+            session_id: Session identifier for logging.
+            cycle_num: Current cycle number.
+
+        Returns:
+            FOAnalysisResult with action, improved expressions, and metadata.
+        """
+        from dataclasses import dataclass as _dc
+
+        @_dc
+        class FOAnalysisResult:
+            action: Any = None
+            action_reason: str = ""
+            sharpe: float = 0.0
+            fitness: float = 0.0
+            turnover: float | None = None
+            improved_expressions: list = field(default_factory=list)
+            improvement_sources: list = field(default_factory=list)
+            neutralization_recommendation: dict | None = None
+            reflection_diagnosis: dict | None = None
+            near_pass_analysis: dict | None = None
+            turnover_analysis: dict | None = None
+
+        result = FOAnalysisResult()
+        sharpe = getattr(brain_result, "real_sharpe", None) or getattr(brain_result, "sharpe", 0) or 0.0
+        fitness = getattr(brain_result, "real_fitness", None) or getattr(brain_result, "fitness", 0) or 0.0
+        turnover = getattr(brain_result, "real_turnover", None) or getattr(brain_result, "turnover", None)
+        result.sharpe = sharpe
+        result.fitness = fitness
+        result.turnover = turnover
+
+        wq_feedback = {
+            "sharpe": sharpe,
+            "turnover": turnover,
+            "fitness": fitness,
+            "checks": getattr(brain_result, "brain_checks", []) or getattr(brain_result, "gate_failures", []) or [],
+        }
+
+        try:
+            parsed = await self._result_router.route(
+                type("SlotInfo", (), {"expression": expression, "task_name": session_id, "metadata": {}})(),
+                brain_result,
+            )
+            decision_outcome = self._decision_engine.decide_from_parsed_result(
+                parsed,
+                anti_fit_score=parsed.anti_fit_score,
+            )
+            result.action = decision_outcome.action
+            result.action_reason = decision_outcome.reason
+            logger.info(
+                "[FO-ANALYZE] %s | action=%s reason=%.100s sharpe=%.3f fitness=%.3f",
+                session_id,
+                decision_outcome.action.value if decision_outcome.action else "UNKNOWN",
+                decision_outcome.reason[:100] if decision_outcome.reason else "",
+                sharpe,
+                fitness,
+            )
+        except (OSError, ValueError, RuntimeError) as route_exc:
+            logger.debug("[FO-ANALYZE] ResultRouter/DecisionEngine failed: %s", route_exc)
+            from openalpha_brain.core.decision_engine import DecisionAction
+
+            result.action = DecisionAction.NOISE_PENALIZE
+            result.action_reason = f"route/decision failed: {route_exc}"
+
+        if self._adaptive_neutralizer is not None:
+            try:
+                category = self._extract_direction(expression) or "momentum"
+                adap_rec = self._adaptive_neutralizer.analyze_and_recommend(
+                    expression=expression,
+                    category=category,
+                    wq_metrics=wq_feedback,
+                )
+                result.neutralization_recommendation = {
+                    "recommended_level": adap_rec.recommended_level,
+                    "confidence": adap_rec.confidence,
+                    "reasoning": adap_rec.reasoning[:200] if adap_rec.reasoning else "",
+                    "is_forced": adap_rec.is_forced,
+                }
+                logger.info(
+                    "[FO-ANALYZE] [ADAPT-NEUT] level=%s conf=%.2f forced=%s",
+                    adap_rec.recommended_level,
+                    adap_rec.confidence,
+                    adap_rec.is_forced,
+                )
+            except (OSError, ValueError, RuntimeError):
+                pass
+
+        if self._reflection_engine is not None:
+            try:
+                br_dict = {
+                    "sharpe": sharpe,
+                    "fitness": fitness,
+                    "turnover": turnover,
+                    "checks": wq_feedback.get("checks", []),
+                }
+                refl = await self._reflection_engine.reflect_on_failure(
+                    expression=expression,
+                    brain_result=br_dict,
+                )
+                result.reflection_diagnosis = {
+                    "root_cause": getattr(refl, "root_cause", "") or "",
+                    "composite_factors": list(getattr(refl, "composite_factors", []) or []),
+                    "failure_stage": getattr(refl, "failure_stage", "") or "",
+                    "diagnosis_available": getattr(refl, "llm_diagnosis_available", False),
+                }
+                logger.info(
+                    "[FO-ANALYZE] [REFLECTION] root_cause=%.60s stage=%s",
+                    getattr(refl, "root_cause", "")[:60] if refl else "",
+                    getattr(refl, "failure_stage", "") if refl else "",
+                )
+            except (OSError, ValueError, RuntimeError):
+                pass
+
+        try:
+            near_pass = self._near_pass_improver.analyze(
+                sharpe=sharpe,
+                fitness=fitness,
+                turnover=turnover,
+                checks=wq_feedback.get("checks", []),
+            )
+            result.near_pass_analysis = {
+                "category": near_pass.category.name if near_pass.category else "",
+                "primary_fix_target": near_pass.primary_fix_target or "",
+                "sharpe_gap": near_pass.sharpe_gap,
+                "fitness_gap": near_pass.fitness_gap,
+            }
+
+            if near_pass.category in (
+                NearPassCategory.SHARPE_GOOD_FITNESS_POOR,
+                NearPassCategory.BOTH_NEAR,
+            ):
+                variants = self._near_pass_improver.generate_deterministic_variants(
+                    expression=expression,
+                    analysis=near_pass,
+                    max_variants=6,
+                )
+                for v in variants[:4]:
+                    pf = self.prefilter.prefilter(v.expression)
+                    if pf.passed:
+                        result.improved_expressions.append(v.expression)
+                        result.improvement_sources.append(f"near_pass_{v.mutation_type}")
+                logger.info(
+                    "[FO-ANALYZE] [NEAR-PASS] %d variants generated, %d passed prefilter",
+                    len(variants),
+                    len(result.improved_expressions),
+                )
+        except (OSError, ValueError, RuntimeError):
+            pass
+
+        if (
+            self._fitness_boost is not None
+            and result.near_pass_analysis
+            and result.near_pass_analysis.get("category") == "SHARPE_GOOD_FITNESS_POOR"
+        ):
+            try:
+                boost_ctx = {}
+                if result.reflection_diagnosis and result.reflection_diagnosis.get("diagnosis_available"):
+                    boost_ctx["llm_root_cause"] = result.reflection_diagnosis.get("root_cause", "")
+                    boost_ctx["primary_failure_stage"] = result.reflection_diagnosis.get("failure_stage", "")
+
+                fb_result = self._fitness_boost.generate_boost_variants(
+                    expression=expression,
+                    sharpe=sharpe,
+                    fitness=fitness,
+                    turnover=turnover,
+                    max_variants=6,
+                    context=boost_ctx if boost_ctx else None,
+                )
+                for fv in fb_result.variants[:3]:
+                    pf_fb = self.prefilter.prefilter(fv.expression)
+                    if pf_fb.passed:
+                        result.improved_expressions.append(fv.expression)
+                        result.improvement_sources.append(f"fitness_boost_{fv.boost_tier}")
+                logger.info(
+                    "[FO-ANALYZE] [FITNESS-BOOST] %d variants generated, %d passed prefilter",
+                    len(fb_result.variants),
+                    sum(1 for s in result.improvement_sources if s.startswith("fitness_boost")),
+                )
+            except (OSError, ValueError, RuntimeError):
+                pass
+
+        if self._turnover_optimizer is not None and turnover is not None and turnover > 0.5:
+            try:
+                to_result = self._turnover_optimizer.analyze(expression, turnover)
+                result.turnover_analysis = {
+                    "severity": to_result.analysis.severity.name if to_result.analysis else "",
+                    "potential_gain": getattr(to_result.analysis, "potential_gain", 0) if to_result.analysis else 0,
+                }
+                logger.info(
+                    "[FO-ANALYZE] [TURNOVER-OPT] severity=%s potential_gain=%.0%%",
+                    result.turnover_analysis.get("severity", ""),
+                    result.turnover_analysis.get("potential_gain", 0),
+                )
+            except (OSError, ValueError, RuntimeError):
+                pass
+
+        logger.info(
+            "[FO-ANALYZE] COMPLETE | %s | action=%s variants=%d sources=%s",
+            session_id,
+            result.action.value if hasattr(result.action, "value") else str(result.action),
+            len(result.improved_expressions),
+            result.improvement_sources,
+        )
+        return result
 
     async def _handle_weak_improve(
         self,
@@ -3324,6 +3549,97 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
 
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.warning("[REFLECTION] ⚠ Failed to prepare reflection outcome data: %s", exc)
+
+    @classmethod
+    def create_for_loop(cls, config: dict | None = None) -> FeedbackLoopOrchestrator:
+        """Create FO instance for loop_engine integration (no SlotManager needed).
+
+        Initializes all improvers for analyze_and_improve() but does NOT
+        require SlotManager. Submit is handled by loop_engine directly.
+
+        Args:
+            config: Optional configuration overrides.
+
+        Returns:
+            FeedbackLoopOrchestrator ready for analyze_and_improve() calls.
+        """
+        _dummy_sm = type("SlotInfo", (), {"expression": "", "task_name": "", "metadata": {}})()
+        _dummy_slot_mgr = type(
+            "SlotManager",
+            (),
+            {
+                "submit_improved": lambda *a, **kw: None,
+                "register_callback": lambda *a, **kw: None,
+                "unregister_callback": lambda *a, **kw: None,
+            },
+        )()
+        obj = cls.__new__(cls)
+        object.__setattr__(obj, "cookies", None)
+        object.__setattr__(obj, "slot_manager", _dummy_slot_mgr)
+        object.__setattr__(obj, "config", config or {})
+        from openalpha_brain.validation.signal_quality_pre_filter import SignalQualityPreFilter
+
+        object.__setattr__(obj, "prefilter", SignalQualityPreFilter())
+        object.__setattr__(obj, "_reflexion_engine", None)
+        object.__setattr__(obj, "_mab", None)
+        try:
+            from openalpha_brain.knowledge.field_proxy_map import get_field_proxy_map
+
+            object.__setattr__(obj, "_field_proxy_map", get_field_proxy_map())
+        except (ImportError, AttributeError, RuntimeError, OSError):
+            object.__setattr__(obj, "_field_proxy_map", None)
+        from openalpha_brain.core.orchestrator_stats import OrchestratorStats
+
+        object.__setattr__(obj, "stats", OrchestratorStats())
+        from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+        from openalpha_brain.validation.anti_overfit_detector import LightweightAntiOverfitDetector
+
+        object.__setattr__(obj, "_near_pass_improver", NearPassImprover())
+        object.__setattr__(obj, "_anti_overfit", LightweightAntiOverfitDetector())
+        try:
+            from openalpha_brain.evolution.fitness_boost import FitnessBoostEngine
+
+            object.__setattr__(obj, "_fitness_boost", FitnessBoostEngine())
+        except (ImportError, AttributeError, RuntimeError, OSError):
+            object.__setattr__(obj, "_fitness_boost", None)
+        try:
+            from openalpha_brain.optimization.turnover_optimizer import TurnoverOptimizer
+
+            object.__setattr__(obj, "_turnover_optimizer", TurnoverOptimizer())
+        except (ImportError, AttributeError, RuntimeError, OSError):
+            object.__setattr__(obj, "_turnover_optimizer", None)
+        try:
+            from openalpha_brain.evolution.adaptive_neutralizer import AdaptiveNeutralizer
+
+            if AdaptiveNeutralizer is not None:
+                object.__setattr__(
+                    obj,
+                    "_adaptive_neutralizer",
+                    AdaptiveNeutralizer(directions=["momentum", "mean_reversion", "volatility"]),
+                )
+        except (ImportError, AttributeError, RuntimeError, OSError):
+            object.__setattr__(obj, "_adaptive_neutralizer", None)
+        try:
+            from openalpha_brain.services.brain_submitter import ReflexionEngine
+
+            object.__setattr__(obj, "_reflection_engine", ReflexionEngine())
+        except (ImportError, AttributeError, RuntimeError, OSError):
+            object.__setattr__(obj, "_reflection_engine", None)
+        from openalpha_brain.core.result_router import ResultRouter
+
+        object.__setattr__(
+            obj,
+            "_result_router",
+            ResultRouter(anti_overfit=obj._anti_overfit, adaptive_neutralizer=obj._adaptive_neutralizer),
+        )
+        from openalpha_brain.core.decision_engine import DecisionEngine
+
+        object.__setattr__(obj, "_decision_engine", DecisionEngine(config or {}))
+        object.__setattr__(obj, "_cycle_num", 0)
+        object.__setattr__(obj, "_improvement_chains", {})
+        object.__setattr__(obj, "_running", False)
+        logger.info("[FO] Created via create_for_loop() — all improvers initialized")
+        return obj
 
 
 async def create_orchestrator(

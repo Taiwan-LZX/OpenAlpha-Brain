@@ -1,29 +1,62 @@
 from __future__ import annotations
 
 CRITICAL_ALGORITHMS = {
-    "mab_select", "rag_retrieve", "conversation_summarizer", "ast_repair",
-    "brain_submit", "add_record", "whitelist_update", "experience_card_retrieval",
-    "market_state_infer", "signal_arbiter_rerank",
+    "mab_select",
+    "rag_retrieve",
+    "conversation_summarizer",
+    "ast_repair",
+    "brain_submit",
+    "add_record",
+    "whitelist_update",
+    "experience_card_retrieval",
+    "market_state_infer",
+    "signal_arbiter_rerank",
 }
 
 IMPORTANT_ALGORITHMS = {
-    "find_similar_by_embedding", "vector_duplicate_check", "semantic_alignment_check",
-    "feature_map_add", "param_optimization", "alpha_channel_submit",
-    "experience_distillation", "evidence_recording", "success_case_add",
-    "pnl_stability_analysis", "garch_volatility", "overfit_detection",
-    "originality_check", "complexity_control", "failure_fix_add",
-    "mab_update", "logic_evolution",
+    "find_similar_by_embedding",
+    "vector_duplicate_check",
+    "semantic_alignment_check",
+    "feature_map_add",
+    "param_optimization",
+    "alpha_channel_submit",
+    "experience_distillation",
+    "evidence_recording",
+    "success_case_add",
+    "pnl_stability_analysis",
+    "garch_volatility",
+    "overfit_detection",
+    "originality_check",
+    "complexity_control",
+    "failure_fix_add",
+    "mab_update",
+    "logic_evolution",
 }
 
 CONDITIONAL_ALGORITHMS = {
-    "multi_agent_orchestrator", "self_critique", "specialist_agent_create",
-    "semantic_crossover", "gradient_mutation", "crossover_mutation_engine",
-    "auto_debug_loop", "yearly_data_fetch", "correlation_fetch",
-    "prod_correlation_check", "explore_unexplored_regions", "sample_inspiration",
-    "find_similar_failures", "tool_search", "sample_distant_parent",
-    "classify", "tool_conflict_detection", "quant_logic_review",
-    "evidence_distillation", "trajectory_mutation", "semantic_space_mutation",
-    "alpha_channel_batch", "mab_bias_adjustment",
+    "multi_agent_orchestrator",
+    "self_critique",
+    "specialist_agent_create",
+    "semantic_crossover",
+    "gradient_mutation",
+    "crossover_mutation_engine",
+    "auto_debug_loop",
+    "yearly_data_fetch",
+    "correlation_fetch",
+    "prod_correlation_check",
+    "explore_unexplored_regions",
+    "sample_inspiration",
+    "find_similar_failures",
+    "tool_search",
+    "sample_distant_parent",
+    "classify",
+    "tool_conflict_detection",
+    "quant_logic_review",
+    "evidence_distillation",
+    "trajectory_mutation",
+    "semantic_space_mutation",
+    "alpha_channel_batch",
+    "mab_bias_adjustment",
 }
 
 
@@ -32,9 +65,15 @@ def check_algorithm_connectivity(algo_call_counts, critical=None, important=None
     important = important or IMPORTANT_ALGORITHMS
     conditional = conditional or CONDITIONAL_ALGORITHMS
 
-    critical_called = {name: algo_call_counts[name] for name in critical if name in algo_call_counts and algo_call_counts[name] > 0}
-    important_called = {name: algo_call_counts[name] for name in important if name in algo_call_counts and algo_call_counts[name] > 0}
-    conditional_called = {name: algo_call_counts[name] for name in conditional if name in algo_call_counts and algo_call_counts[name] > 0}
+    critical_called = {
+        name: algo_call_counts[name] for name in critical if name in algo_call_counts and algo_call_counts[name] > 0
+    }
+    important_called = {
+        name: algo_call_counts[name] for name in important if name in algo_call_counts and algo_call_counts[name] > 0
+    }
+    conditional_called = {
+        name: algo_call_counts[name] for name in conditional if name in algo_call_counts and algo_call_counts[name] > 0
+    }
 
     critical_missing = sorted(name for name in critical if name not in critical_called)
     important_missing = sorted(name for name in important if name not in important_called)
@@ -78,17 +117,12 @@ class AlgorithmConnectivityChecker:
             important=self.required_important,
         )
         report["min_coverage_pct"] = min_coverage_pct
-        assert report["critical_missing"] == [], (
-            f"Critical algorithms missing: {report['critical_missing']}"
-        )
+        assert report["critical_missing"] == [], f"Critical algorithms missing: {report['critical_missing']}"
         important_coverage = (
-            len(report["important_called"]) / len(self.required_important) * 100.0
-            if self.required_important
-            else 0.0
+            len(report["important_called"]) / len(self.required_important) * 100.0 if self.required_important else 0.0
         )
         assert important_coverage >= min_coverage_pct, (
-            f"Important algorithm coverage {important_coverage:.1f}% "
-            f"below minimum {min_coverage_pct}%"
+            f"Important algorithm coverage {important_coverage:.1f}% below minimum {min_coverage_pct}%"
         )
         return report
 

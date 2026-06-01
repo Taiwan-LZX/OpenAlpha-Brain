@@ -1,4 +1,9 @@
-from openalpha_brain.validation.validator import validate_syntax, validate_metrics, PERMITTED_OPERATORS, VALID_BRAIN_VARS
+from openalpha_brain.validation.validator import (
+    PERMITTED_OPERATORS,
+    VALID_BRAIN_VARS,
+    validate_metrics,
+    validate_syntax,
+)
 
 
 class TestValidateSyntax:

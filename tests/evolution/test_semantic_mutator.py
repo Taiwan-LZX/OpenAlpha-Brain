@@ -1,4 +1,5 @@
 import pytest
+
 from openalpha_brain.evolution.semantic_mutator import SemanticMutator
 
 

@@ -1,13 +1,22 @@
 import asyncio
+
 import pytest
-from openalpha_brain.validation.signal_arbiter import (
-    SignalArbiter, SignalSource, ArbitrationResult, DEFAULT_WEIGHTS, WEIGHT_BOUNDS,
-    ADJUSTMENT_INTERVAL, RAGSignalAdapter, MABSignalAdapter, AssociationSignalAdapter,
-    WhitelistSignalAdapter, MarketSignalAdapter,
-)
-from openalpha_brain.learning.mab import HierarchicalMAB, AssociationMatrix, BetaArm
+
+from openalpha_brain.learning.mab import AssociationMatrix, HierarchicalMAB
+from openalpha_brain.utils.market_state import MarketStateInferencer
 from openalpha_brain.utils.whitelist import WhitelistManager
-from openalpha_brain.utils.market_state import MarketState, MarketStateInferencer
+from openalpha_brain.validation.signal_arbiter import (
+    ADJUSTMENT_INTERVAL,
+    DEFAULT_WEIGHTS,
+    WEIGHT_BOUNDS,
+    AssociationSignalAdapter,
+    MABSignalAdapter,
+    MarketSignalAdapter,
+    RAGSignalAdapter,
+    SignalArbiter,
+    SignalSource,
+    WhitelistSignalAdapter,
+)
 
 
 class TestSignalArbiter:
@@ -268,10 +277,12 @@ class TestRankWithAdapters:
             ],
         }
         rag_adapter = RAGSignalAdapter(rag_result)
-        field_results, op_results = asyncio.run(arbiter.rank_with_adapters(
-            field_adapters=[rag_adapter],
-            op_adapters=[rag_adapter],
-        ))
+        field_results, op_results = asyncio.run(
+            arbiter.rank_with_adapters(
+                field_adapters=[rag_adapter],
+                op_adapters=[rag_adapter],
+            )
+        )
         assert len(field_results) == 2
         assert field_results[0].item_id == "close"
         assert len(op_results) == 2
@@ -290,12 +301,14 @@ class TestRankWithAdapters:
             ],
         }
         rag_adapter = RAGSignalAdapter(rag_result)
-        field_results, op_results = asyncio.run(arbiter.rank_with_adapters(
-            field_adapters=[rag_adapter],
-            op_adapters=[rag_adapter],
-            top_k_fields=2,
-            top_k_ops=1,
-        ))
+        field_results, op_results = asyncio.run(
+            arbiter.rank_with_adapters(
+                field_adapters=[rag_adapter],
+                op_adapters=[rag_adapter],
+                top_k_fields=2,
+                top_k_ops=1,
+            )
+        )
         assert len(field_results) == 2
         assert len(op_results) == 1
 
@@ -309,10 +322,12 @@ class TestRankWithAdapters:
         mab = HierarchicalMAB()
         mab.update("momentum", ["ts_rank"], ["close"], reward=1.0)
         mab_adapter = MABSignalAdapter(mab)
-        field_results, op_results = asyncio.run(arbiter.rank_with_adapters(
-            field_adapters=[rag_adapter, mab_adapter],
-            op_adapters=[rag_adapter, mab_adapter],
-        ))
+        field_results, op_results = asyncio.run(
+            arbiter.rank_with_adapters(
+                field_adapters=[rag_adapter, mab_adapter],
+                op_adapters=[rag_adapter, mab_adapter],
+            )
+        )
         close_result = next(r for r in field_results if r.item_id == "close")
         assert "rag" in close_result.signal_breakdown
         assert "mab" in close_result.signal_breakdown

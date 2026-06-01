@@ -1,20 +1,52 @@
-import json
-import pytest
-
 from openalpha_brain.knowledge.field_proxy_map import (
-    FieldProxyMap,
     FieldFamily,
-    FIELD_FAMILIES,
+    FieldProxyMap,
 )
 
 
 def _make_loaded_fpm() -> FieldProxyMap:
     fpm = FieldProxyMap()
     fpm._fields = [
-        {"id": "close", "description": "closing price", "family_id": "price_trend", "l1_category": "price", "coverage": 0.95, "user_count": 100, "alpha_count": 50, "is_cold": False},
-        {"id": "volume", "description": "trading volume", "family_id": "volume_liquidity", "l1_category": "price", "coverage": 0.90, "user_count": 80, "alpha_count": 30, "is_cold": False},
-        {"id": "cold_field_x", "description": "low coverage field", "family_id": "price_trend", "l1_category": "price", "coverage": 0.1, "user_count": 1, "alpha_count": 0, "is_cold": True},
-        {"id": "roe", "description": "return on equity", "family_id": "profitability", "l1_category": "fundamental", "coverage": 0.85, "user_count": 60, "alpha_count": 20, "is_cold": False},
+        {
+            "id": "close",
+            "description": "closing price",
+            "family_id": "price_trend",
+            "l1_category": "price",
+            "coverage": 0.95,
+            "user_count": 100,
+            "alpha_count": 50,
+            "is_cold": False,
+        },
+        {
+            "id": "volume",
+            "description": "trading volume",
+            "family_id": "volume_liquidity",
+            "l1_category": "price",
+            "coverage": 0.90,
+            "user_count": 80,
+            "alpha_count": 30,
+            "is_cold": False,
+        },
+        {
+            "id": "cold_field_x",
+            "description": "low coverage field",
+            "family_id": "price_trend",
+            "l1_category": "price",
+            "coverage": 0.1,
+            "user_count": 1,
+            "alpha_count": 0,
+            "is_cold": True,
+        },
+        {
+            "id": "roe",
+            "description": "return on equity",
+            "family_id": "profitability",
+            "l1_category": "fundamental",
+            "coverage": 0.85,
+            "user_count": 60,
+            "alpha_count": 20,
+            "is_cold": False,
+        },
     ]
     fpm._field_map = {f["id"]: f for f in fpm._fields}
     fpm._family_map = {

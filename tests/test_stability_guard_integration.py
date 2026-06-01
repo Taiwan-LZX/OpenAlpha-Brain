@@ -13,16 +13,13 @@ StabilityGuard Integration Tests
   - 边界情况和异常处理
 """
 
-import asyncio
 import unittest
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from dataclasses import dataclass
-from typing import Any, Optional
+from unittest.mock import MagicMock, patch
 
 from openalpha_brain.validation.stability_guard import (
     StabilityGuard,
     StabilityTracker,
-    ExpressionFingerprint,
 )
 
 
@@ -77,19 +74,22 @@ class TestStabilityGuardOnWQCompletion(unittest.TestCase):
 
     def test_stability_evaluation_called_with_correct_params(self):
         """Test that evaluate_and_guard is called with expression, cycle, and sharpe."""
-        with patch.object(self.guard, 'evaluate_and_guard', return_value={
-            "stability_score": 0.8,
-            "is_stable": True,
-            "instability_type": None,
-            "severity": 0.0,
-            "should_restrict": False,
-            "constraints": None,
-            "penalty": 0.0,
-            "diagnosis": "Stable",
-            "raw_fingerprint": {},
-        }) as mock_eval:
-
-            result = self.guard.evaluate_and_guard(
+        with patch.object(
+            self.guard,
+            "evaluate_and_guard",
+            return_value={
+                "stability_score": 0.8,
+                "is_stable": True,
+                "instability_type": None,
+                "severity": 0.0,
+                "should_restrict": False,
+                "constraints": None,
+                "penalty": 0.0,
+                "diagnosis": "Stable",
+                "raw_fingerprint": {},
+            },
+        ) as mock_eval:
+            _result = self.guard.evaluate_and_guard(
                 expression=self.mock_slot_info.expression,
                 cycle=1,
                 current_sharpe=self.mock_brain_result.sharpe,
@@ -97,9 +97,9 @@ class TestStabilityGuardOnWQCompletion(unittest.TestCase):
 
             mock_eval.assert_called_once()
             call_kwargs = mock_eval.call_args[1]
-            self.assertEqual(call_kwargs['expression'], "rank(ts_delta(close, 5))")
-            self.assertEqual(call_kwargs['cycle'], 1)
-            self.assertEqual(call_kwargs['current_sharpe'], 1.5)
+            self.assertEqual(call_kwargs["expression"], "rank(ts_delta(close, 5))")
+            self.assertEqual(call_kwargs["cycle"], 1)
+            self.assertEqual(call_kwargs["current_sharpe"], 1.5)
 
     def test_stability_metrics_injected_to_wq_feedback(self):
         """Test that stability metrics are correctly injected into wq_feedback."""
@@ -125,7 +125,7 @@ class TestStabilityGuardOnWQCompletion(unittest.TestCase):
 
     def test_should_restrict_flag_set_correctly(self):
         """Test that should_restrict flag reflects instability."""
-        stable_expr = "rank(ts_delta(close, 5))"
+        _stable_expr = "rank(ts_delta(close, 5))"
         unstable_exprs = [
             "ts_mean(close, 10)",
             "ts_regression(volume, close, 20)",
@@ -150,12 +150,12 @@ class TestStabilityGuardOnWQCompletion(unittest.TestCase):
         expr = "ts_regression(volume, close, 20)"
         for i in range(12):
             varied_exprs = [
-                f"ts_mean(close, {i+1})",
-                f"rank(ts_delta(volume, {i+2}))",
-                f"ts_std_dev(open, {i+3})",
+                f"ts_mean(close, {i + 1})",
+                f"rank(ts_delta(volume, {i + 2}))",
+                f"ts_std_dev(open, {i + 3})",
             ]
             for v_expr in varied_exprs:
-                result = self.guard.evaluate_and_guard(expression=v_expr, cycle=i)
+                _result = self.guard.evaluate_and_guard(expression=v_expr, cycle=i)
 
         final_result = self.guard.evaluate_and_guard(expression=expr, cycle=12)
         if final_result["should_restrict"]:
@@ -171,7 +171,7 @@ class TestStabilityGuardOnWQCompletion(unittest.TestCase):
         invalid_inputs = [
             ("", 0, None),
             ("   ", 1, -1.5),
-            ("rank()", 100, float('inf')),
+            ("rank()", 100, float("inf")),
         ]
 
         for expr, cycle, sharpe in invalid_inputs:
@@ -215,8 +215,7 @@ class TestStabilityGuardInImprovement(unittest.TestCase):
             self.guard.evaluate_and_guard(expression=f"rank(ts_delta(close, {i}))", cycle=i)
 
         last_result = self.guard._last_result
-        if (last_result and last_result.get("should_restrict") and
-                last_result.get("constraints")):
+        if last_result and last_result.get("should_restrict") and last_result.get("constraints"):
             constraints = last_result["constraints"]
 
             constraint_prompt = (
@@ -308,11 +307,13 @@ class TestStabilityGuardInBrainSubmitter(unittest.TestCase):
             expr = f"ts_mean(close, {i % 5 + 1})"
             result = guard.evaluate_and_guard(expression=expr, cycle=i)
             if result["should_restrict"]:
-                restricted_events.append({
-                    "attempt": i,
-                    "severity": result["severity"],
-                    "type": result.get("instability_type"),
-                })
+                restricted_events.append(
+                    {
+                        "attempt": i,
+                        "severity": result["severity"],
+                        "type": result.get("instability_type"),
+                    }
+                )
 
         if len(restricted_events) > 0:
             event = restricted_events[0]
@@ -345,14 +346,13 @@ class TestStabilityRewardAdjustment(unittest.TestCase):
         summary = self.guard.get_summary()
 
         if summary["current_stability_score"] > 0.7:
-            self.assertGreaterEqual(adjusted, base_reward,
-                                   "Stable system should get bonus or neutral adjustment")
+            self.assertGreaterEqual(adjusted, base_reward, "Stable system should get bonus or neutral adjustment")
 
     def test_adjustment_after_unstable_evaluation(self):
         """Test that unstable expressions get penalty adjustment."""
         for i in range(12):
             self.guard.evaluate_and_guard(
-                expression=f"ts_rank(close, {(i*7)%30+1})",
+                expression=f"ts_rank(close, {(i * 7) % 30 + 1})",
                 cycle=i,
             )
 
@@ -361,8 +361,7 @@ class TestStabilityRewardAdjustment(unittest.TestCase):
         summary = self.guard.get_summary()
 
         if summary["current_stability_score"] < 0.35:
-            self.assertLessEqual(adjusted, base_reward * 1.01,
-                                 "Unstable system should get penalty or reduced reward")
+            self.assertLessEqual(adjusted, base_reward * 1.01, "Unstable system should get penalty or reduced reward")
 
     def test_adjustment_precision(self):
         """Test that adjustment maintains reasonable precision."""
@@ -418,7 +417,7 @@ class TestStabilitySummaryAndReporting(unittest.TestCase):
 
         for i in range(15):
             result = guard.evaluate_and_guard(
-                expression=f"ts_mean(close, {(i*3)%20+1})",
+                expression=f"ts_mean(close, {(i * 3) % 20 + 1})",
                 cycle=i,
             )
             if result["should_restrict"]:
@@ -453,7 +452,7 @@ class TestGracefulDegradationScenarios(unittest.TestCase):
         guard.evaluate_and_guard.side_effect = RuntimeError("Stability eval failed")
 
         try:
-            result = guard.evaluate_and_guard(
+            _result = guard.evaluate_and_guard(
                 expression="rank(ts_delta(close, 5))",
                 cycle=1,
                 current_sharpe=1.5,
@@ -512,24 +511,33 @@ class TestEdgeCasesAndBoundaryConditions(unittest.TestCase):
             scores.append(result["stability_score"])
 
         if len(scores) >= 2:
-            self.assertGreater(scores[-1], 0.5,
-                               "Repeated same expression should be highly stable")
+            self.assertGreater(scores[-1], 0.5, "Repeated same expression should be highly stable")
 
     def test_rapidly_changing_expressions(self):
         """Test stability score with rapidly changing expressions."""
         guard = StabilityGuard()
-        operators = ['rank', 'ts_mean', 'ts_std_dev', 'ts_delta', 'ts_regression',
-                     'ts_corr', 'ts_zscore', 'ts_decay_linear', 'ts_skewness', 'ts_kurtosis']
+        operators = [
+            "rank",
+            "ts_mean",
+            "ts_std_dev",
+            "ts_delta",
+            "ts_regression",
+            "ts_corr",
+            "ts_zscore",
+            "ts_decay_linear",
+            "ts_skewness",
+            "ts_kurtosis",
+        ]
 
         for i, op in enumerate(operators):
-            result = guard.evaluate_and_guard(
-                expression=f"{op}(close, {(i%10)+1})",
+            expr_str = "{}(close, {})".format(op, (i % 10) + 1)
+            _result = guard.evaluate_and_guard(
+                expression=expr_str,
                 cycle=i,
             )
 
         summary = guard.get_summary()
-        self.assertLess(summary["current_stability_score"], 0.8,
-                        "Rapidly changing ops should reduce stability")
+        self.assertLess(summary["current_stability_score"], 0.8, "Rapidly changing ops should reduce stability")
 
     def test_empty_expression_handling(self):
         """Test handling of empty or whitespace expressions."""
@@ -665,21 +673,23 @@ class TestIntegrationEndToEnd(unittest.TestCase):
         for attempt, (improved_expr, improved_sharpe) in enumerate(improved_variants, 1):
             if attempt > 0:
                 stab_eval = guard.evaluate_and_guard(
-                    expression=base_expr if attempt == 1 else improved_variants[attempt-2][0],
+                    expression=base_expr if attempt == 1 else improved_variants[attempt - 2][0],
                     cycle=100 + attempt,
-                    current_sharpe=base_sharpe if attempt == 1 else improved_variants[attempt-2][1],
+                    current_sharpe=base_sharpe if attempt == 1 else improved_variants[attempt - 2][1],
                     is_mutation=True,
                 )
 
                 base_reward = improved_sharpe
                 adjusted_reward = guard.compute_reward_adjustment(base_reward)
 
-                improvements.append({
-                    "attempt": attempt,
-                    "base_reward": base_reward,
-                    "adjusted_reward": adjusted_reward,
-                    "was_restricted": stab_eval["should_restrict"],
-                })
+                improvements.append(
+                    {
+                        "attempt": attempt,
+                        "base_reward": base_reward,
+                        "adjusted_reward": adjusted_reward,
+                        "was_restricted": stab_eval["should_restrict"],
+                    }
+                )
 
         self.assertEqual(len(improvements), 3)
         self.assertTrue(all("adjusted_reward" in imp for imp in improvements))
@@ -688,11 +698,11 @@ class TestIntegrationEndToEnd(unittest.TestCase):
         """Test scenario where system recovers from instability."""
         guard = StabilityGuard()
 
-        phase1_exprs = [f"ts_mean(close, {i%10+1})" for i in range(12)]
+        phase1_exprs = [f"ts_mean(close, {i % 10 + 1})" for i in range(12)]
         for i, expr in enumerate(phase1_exprs):
             guard.evaluate_and_guard(expression=expr, cycle=i)
 
-        unstable_score = guard.get_summary()["current_stability_score"]
+        _unstable_score = guard.get_summary()["current_stability_score"]
 
         phase2_exprs = ["rank(ts_delta(close, 5))"] * 8
         for i, expr in enumerate(phase2_exprs, start=12):
@@ -700,9 +710,8 @@ class TestIntegrationEndToEnd(unittest.TestCase):
 
         recovery_score = guard.get_summary()["current_stability_score"]
 
-        self.assertGreater(recovery_score, 0.5,
-                          "Score should show improvement after stabilizing expressions")
+        self.assertGreater(recovery_score, 0.5, "Score should show improvement after stabilizing expressions")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main(verbosity=2)

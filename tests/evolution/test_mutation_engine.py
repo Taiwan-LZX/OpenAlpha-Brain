@@ -6,10 +6,11 @@ No real LLM required - pure string operations.
 """
 
 import pytest
+
 from openalpha_brain.evolution.mutation_engine import (
     BrainAwareMutationEngine,
-    MutationStrategy,
     Diagnosis,
+    MutationStrategy,
 )
 
 
@@ -449,9 +450,7 @@ class TestGenerateMutationPrompt:
             "测试",
         )
         inspiration = ["expr1", "expr2", "expr3"]
-        prompt = engine.generate_mutation_prompt(
-            diagnosis, "test_expr", inspiration_exprs=inspiration
-        )
+        prompt = engine.generate_mutation_prompt(diagnosis, "test_expr", inspiration_exprs=inspiration)
 
         assert "参考表达式" in prompt
         assert "expr1" in prompt
@@ -515,9 +514,9 @@ class TestEdgeCases:
 
     def test_none_metrics(self):
         engine = BrainAwareMutationEngine()
-        expression = "test"
+        _expression = "test"
         wq_metrics = {}
-        wq_checks = []
+        _wq_checks = []
         score = engine.compute_score(wq_metrics)
         assert score == 20
 

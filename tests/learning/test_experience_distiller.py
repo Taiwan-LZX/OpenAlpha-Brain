@@ -1,7 +1,6 @@
-import json
-
 import pytest
-from openalpha_brain.learning.experience_distiller import ExperienceDistiller, ExperienceCard
+
+from openalpha_brain.learning.experience_distiller import ExperienceCard, ExperienceDistiller
 
 
 class _StubReflectionEngine:
@@ -41,15 +40,19 @@ class _StubAlphaLogicLib:
 class TestDistillFromFailures:
     @pytest.mark.asyncio
     async def test_creates_cards_from_recurring_patterns(self, tmp_path):
-        reflection_engine = _StubReflectionEngine({
-            "signal_too_weak": 5,
-            "high_turnover": 2,
-        })
+        reflection_engine = _StubReflectionEngine(
+            {
+                "signal_too_weak": 5,
+                "high_turnover": 2,
+            }
+        )
 
-        failure_lib = _StubFailureLib([
-            {"fix_attempt": "use ts_zscore instead of ts_delta", "fix_success": True, "direction": "momentum"},
-            {"fix_attempt": "add ts_decay_linear", "fix_success": True, "direction": "momentum"},
-        ])
+        failure_lib = _StubFailureLib(
+            [
+                {"fix_attempt": "use ts_zscore instead of ts_delta", "fix_success": True, "direction": "momentum"},
+                {"fix_attempt": "add ts_decay_linear", "fix_success": True, "direction": "momentum"},
+            ]
+        )
 
         distiller = ExperienceDistiller(path=str(tmp_path / "cards.json"))
         cards = await distiller.distill_from_failures(reflection_engine, failure_lib, min_occurrences=3)
@@ -64,9 +67,11 @@ class TestDistillFromFailures:
     async def test_skips_patterns_below_min_occurrences(self, tmp_path):
         reflection_engine = _StubReflectionEngine({"rare_pattern": 1})
 
-        failure_lib = _StubFailureLib([
-            {"fix_attempt": "some fix", "fix_success": True, "direction": ""},
-        ])
+        failure_lib = _StubFailureLib(
+            [
+                {"fix_attempt": "some fix", "fix_success": True, "direction": ""},
+            ]
+        )
 
         distiller = ExperienceDistiller(path=str(tmp_path / "cards.json"))
         cards = await distiller.distill_from_failures(reflection_engine, failure_lib, min_occurrences=3)
@@ -78,9 +83,11 @@ class TestDistillFromFailures:
     async def test_skips_when_no_successful_fixes(self, tmp_path):
         reflection_engine = _StubReflectionEngine({"bad_pattern": 4})
 
-        failure_lib = _StubFailureLib([
-            {"fix_attempt": "failed fix", "fix_success": False, "direction": ""},
-        ])
+        failure_lib = _StubFailureLib(
+            [
+                {"fix_attempt": "failed fix", "fix_success": False, "direction": ""},
+            ]
+        )
 
         distiller = ExperienceDistiller(path=str(tmp_path / "cards.json"))
         cards = await distiller.distill_from_failures(reflection_engine, failure_lib, min_occurrences=3)
@@ -133,7 +140,9 @@ class TestGetApplicableCards:
     async def test_returns_matching_cards(self, tmp_path):
         distiller = ExperienceDistiller(path=str(tmp_path / "cards.json"))
         distiller._cards = [
-            ExperienceCard(failure_pattern="LOW_SHARPE+momentum", fix_strategy="use ts_zscore", confidence=0.8, usage_count=2),
+            ExperienceCard(
+                failure_pattern="LOW_SHARPE+momentum", fix_strategy="use ts_zscore", confidence=0.8, usage_count=2
+            ),
             ExperienceCard(failure_pattern="HIGH_TURNOVER", fix_strategy="add decay", confidence=0.6, usage_count=0),
         ]
 
@@ -166,7 +175,9 @@ class TestGetApplicableCards:
 class TestRecordCardUsage:
     def test_updates_confidence_and_usage_on_success(self, tmp_path):
         distiller = ExperienceDistiller(path=str(tmp_path / "cards.json"))
-        card = ExperienceCard(failure_pattern="test", fix_strategy="fix", confidence=0.5, usage_count=0, success_count=0)
+        card = ExperienceCard(
+            failure_pattern="test", fix_strategy="fix", confidence=0.5, usage_count=0, success_count=0
+        )
         distiller._cards = [card]
 
         distiller.record_card_usage(card.rule_id, success=True)
@@ -177,7 +188,9 @@ class TestRecordCardUsage:
 
     def test_increments_usage_on_failure_without_success(self, tmp_path):
         distiller = ExperienceDistiller(path=str(tmp_path / "cards.json"))
-        card = ExperienceCard(failure_pattern="test", fix_strategy="fix", confidence=0.5, usage_count=0, success_count=0)
+        card = ExperienceCard(
+            failure_pattern="test", fix_strategy="fix", confidence=0.5, usage_count=0, success_count=0
+        )
         distiller._cards = [card]
 
         distiller.record_card_usage(card.rule_id, success=False)

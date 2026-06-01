@@ -13,16 +13,16 @@ Unit tests for DecisionEngine (Pipeline Stage 2)
   7. 自定义配置
   8. 负 Sharpe 和噪音因子
 """
+
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock
 
 from openalpha_brain.core.decision_engine import (
-    DecisionEngine,
-    DecisionContext,
-    DecisionOutcome,
     DecisionAction,
+    DecisionContext,
+    DecisionEngine,
+    DecisionOutcome,
 )
 from openalpha_brain.core.result_router import ParsedWQResult
 
@@ -36,13 +36,15 @@ def default_engine():
 @pytest.fixture
 def custom_engine():
     """使用自定义阈值的 DecisionEngine"""
-    return DecisionEngine(config={
-        "sharpe_pass_threshold": 1.5,
-        "sharpe_improve_threshold": 1.0,
-        "weak_improve_threshold": 0.2,
-        "repair_retry_threshold": -0.3,
-        "anti_fit_penalty_threshold": 35,
-    })
+    return DecisionEngine(
+        config={
+            "sharpe_pass_threshold": 1.5,
+            "sharpe_improve_threshold": 1.0,
+            "weak_improve_threshold": 0.2,
+            "repair_retry_threshold": -0.3,
+            "anti_fit_penalty_threshold": 35,
+        }
+    )
 
 
 @pytest.fixture

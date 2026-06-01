@@ -1,4 +1,3 @@
-import pytest
 from openalpha_brain.evolution.evolution_types import AlphaTrajectory
 from openalpha_brain.evolution.trajectory_mutation import TemplateTrajectoryMutation
 

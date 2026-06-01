@@ -1,12 +1,10 @@
 """Tests for NearPassImprover - targeted improvement for near-passing factors."""
+
 import pytest
+
 from openalpha_brain.evolution.near_pass_improver import (
-    NearPassImprover,
-    NearPassAnalysis,
     NearPassCategory,
-    ImprovedVariant,
-    GATE_SHARPE_MIN,
-    GATE_FITNESS_MIN,
+    NearPassImprover,
 )
 
 
@@ -48,33 +46,39 @@ class TestDeterministicMutations:
             "-rank(signed_power(ts_zscore(returns / bookvalue_ps, 20), 2)), sector), 10)"
         )
         self.analysis = self.improver.analyze(
-            sharpe=1.30, fitness=0.69, turnover=31.0,
+            sharpe=1.30,
+            fitness=0.69,
+            turnover=31.0,
         )
 
     def test_generate_variants_non_empty(self):
         variants = self.improver.generate_deterministic_variants(
-            self.near_pass_expr, self.analysis,
+            self.near_pass_expr,
+            self.analysis,
         )
         assert len(variants) > 0, "Should generate at least one variant"
 
     def test_variants_are_different_from_original(self):
         variants = self.improver.generate_deterministic_variants(
-            self.near_pass_expr, self.analysis,
+            self.near_pass_expr,
+            self.analysis,
         )
         for v in variants:
-            assert v.expression != self.near_pass_expr, \
-                f"Variant should differ from original: {v.expression}"
+            assert v.expression != self.near_pass_expr, f"Variant should differ from original: {v.expression}"
 
     def test_no_duplicate_variants(self):
         variants = self.improver.generate_deterministic_variants(
-            self.near_pass_expr, self.analysis, max_variants=20,
+            self.near_pass_expr,
+            self.analysis,
+            max_variants=20,
         )
         exprs = [v.expression for v in variants]
         assert len(exprs) == len(set(exprs)), "No duplicates allowed"
 
     def test_decay_window_mutation(self):
         variants = self.improver._mutate_increase_decay_window(
-            self.near_pass_expr, self.analysis,
+            self.near_pass_expr,
+            self.analysis,
         )
         assert len(variants) > 0, "Should generate decay window variants"
         for v in variants:
@@ -83,7 +87,8 @@ class TestDeterministicMutations:
 
     def test_double_decay_mutation(self):
         variants = self.improver._mutate_add_double_decay(
-            self.near_pass_expr, self.analysis,
+            self.near_pass_expr,
+            self.analysis,
         )
         assert len(variants) > 0, "Should generate double decay variants"
         for v in variants:
@@ -93,7 +98,8 @@ class TestDeterministicMutations:
         expr_with_rank = "ts_decay_linear(rank(close), 10)"
         analysis = self.improver.analyze(sharpe=1.2, fitness=0.7)
         variants = self.improver._mutate_replace_rank_with_zscore(
-            expr_with_rank, analysis,
+            expr_with_rank,
+            analysis,
         )
         assert len(variants) > 0
         assert any("zscore" in v.expression for v in variants)
@@ -101,7 +107,8 @@ class TestDeterministicMutations:
     def test_remove_signed_power(self):
         expr_with_sp = "rank(signed_power(ts_zscore(x, 20), 2))"
         variants = self.improver._mutate_remove_nonlinear_transform(
-            expr_with_sp, self.analysis,
+            expr_with_sp,
+            self.analysis,
         )
         assert len(variants) > 0
         assert all("signed_power" not in v.expression for v in variants)
@@ -109,7 +116,8 @@ class TestDeterministicMutations:
     def test_neutralization_upgrade(self):
         expr_sector = "ts_decay_linear(group_neutralize(rank(x), sector), 10)"
         variants = self.improver._mutate_upgrade_neutralization(
-            expr_sector, self.analysis,
+            expr_sector,
+            self.analysis,
         )
         assert len(variants) > 0
         assert any("industry" in v.expression for v in variants)
@@ -117,19 +125,20 @@ class TestDeterministicMutations:
     def test_signal_direction_flip(self):
         expr_neg = "-rank(x)"
         variants = self.improver._mutate_change_signal_direction(
-            expr_neg, self.analysis,
+            expr_neg,
+            self.analysis,
         )
         assert len(variants) > 0
         assert not any(v.expression.startswith("-") for v in variants)
 
     def test_parameter_tuning(self):
         variants = self.improver._mutate_tune_parameters(
-            self.near_pass_expr, self.analysis,
+            self.near_pass_expr,
+            self.analysis,
         )
         power_variants = [v for v in variants if v.mutation_type == "power_tune"]
         zscore_variants = [v for v in variants if v.mutation_type == "zscore_window_tune"]
-        assert len(power_variants) > 0 or len(zscore_variants) > 0, \
-            "Should tune at least power or zscore parameters"
+        assert len(power_variants) > 0 or len(zscore_variants) > 0, "Should tune at least power or zscore parameters"
 
 
 class TestRealWorldScenario:
@@ -144,20 +153,23 @@ class TestRealWorldScenario:
             "-rank(signed_power(ts_zscore(returns / bookvalue_ps, 20), 2)), sector), 10)"
         )
         analysis = self.improver.analyze(
-            sharpe=1.30, fitness=0.69, turnover=31.0,
+            sharpe=1.30,
+            fitness=0.69,
+            turnover=31.0,
         )
         assert analysis.category == NearPassCategory.SHARPE_GOOD_FITNESS_POOR
 
         variants = self.improver.generate_deterministic_variants(
-            actual_factor, analysis, max_variants=12,
+            actual_factor,
+            analysis,
+            max_variants=12,
         )
         print(f"\n[Near-Pass] Generated {len(variants)} variants:")
         for i, v in enumerate(variants[:8], 1):
             print(f"  {i}. [{v.mutation_type}] {v.expression[:70]}...")
             print(f"     → {v.expected_effect}")
 
-        assert len(variants) >= 5, \
-            f"Should generate >=5 variants for this factor, got {len(variants)}"
+        assert len(variants) >= 5, f"Should generate >=5 variants for this factor, got {len(variants)}"
 
     def test_variant_quality(self):
         actual_factor = (
@@ -166,7 +178,9 @@ class TestRealWorldScenario:
         )
         analysis = self.improver.analyze(sharpe=1.30, fitness=0.69, turnover=31.0)
         variants = self.improver.generate_deterministic_variants(
-            actual_factor, analysis, max_variants=12,
+            actual_factor,
+            analysis,
+            max_variants=12,
         )
 
         decay_variants = [v for v in variants if v.mutation_type == "decay_window"]
@@ -174,10 +188,10 @@ class TestRealWorldScenario:
 
         for v in decay_variants:
             import re as _re
+
             numbers = _re.findall(r"\d+", v.expression)
             has_larger_window = any(int(n) > 10 for n in numbers if int(n) <= 60)
-            assert has_larger_window, \
-                f"Decay variant should have larger window: {v.expression}"
+            assert has_larger_window, f"Decay variant should have larger window: {v.expression}"
 
 
 if __name__ == "__main__":

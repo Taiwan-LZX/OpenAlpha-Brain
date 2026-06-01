@@ -3,16 +3,15 @@ OfficialScoringAdapter 单元测试
 
 覆盖评分计算、评级、改进建议等核心功能
 """
+
 import pytest
+
 from openalpha_brain.validation.official_scorer import (
+    GRADE_THRESHOLDS,
     OfficialScoringAdapter,
     ScoreReport,
-    CheckItem,
-    quick_score,
     evaluate_alpha_quality,
-    BRAIN_THRESHOLDS,
-    GRADE_THRESHOLDS,
-    DEFAULT_PASS_THRESHOLD,
+    quick_score,
 )
 from openalpha_brain.validation.wq_expression_validator import ValidationResult
 
@@ -59,9 +58,9 @@ class TestOfficialScoringAdapter:
     def test_poor_metrics(self):
         """差指标应得低分"""
         metrics = {
-            "sharpe": 0.5,   # 很低
+            "sharpe": 0.5,  # 很低
             "fitness": 0.3,  # 很低
-            "turnover": 0.80, # 超过平台限制
+            "turnover": 0.80,  # 超过平台限制
             "returns": -0.02,
             "drawdown": 0.40,  # 很高
             "checks": [
@@ -235,8 +234,7 @@ class TestChecksPenalty:
     def test_max_penalty_capped(self):
         """最大扣分为 5 分"""
         checks = [
-            {"name": f"c{i}", "value": None, "limit": None, "result": False, "severity": "ERROR"}
-            for i in range(10)
+            {"name": f"c{i}", "value": None, "limit": None, "result": False, "severity": "ERROR"} for i in range(10)
         ]
         penalty = OfficialScoringAdapter._calc_checks_penalty(checks)
         assert penalty == -5.0
@@ -458,9 +456,7 @@ class TestEvaluateAlphaQuality:
         expression = "rank(close)"
         metrics = {"sharpe": 1.0, "fitness": 0.8, "turnover": 0.15}
 
-        validation_result, _ = evaluate_alpha_quality(
-            expression, metrics, validator=custom_validator
-        )
+        validation_result, _ = evaluate_alpha_quality(expression, metrics, validator=custom_validator)
 
         assert isinstance(validation_result, ValidationResult)
 
@@ -511,10 +507,10 @@ class TestEdgeCases:
         """极端值处理"""
         scorer = OfficialScoringAdapter()
         metrics = {
-            "sharpe": 100.0,     # 极高的 Sharpe
-            "fitness": 50.0,     # 极高的 Fitness
-            "turnover": 0.001,   # 极低的 turnover
-            "drawdown": 0.99,    # 极高的 drawdown
+            "sharpe": 100.0,  # 极高的 Sharpe
+            "fitness": 50.0,  # 极高的 Fitness
+            "turnover": 0.001,  # 极低的 turnover
+            "drawdown": 0.99,  # 极高的 drawdown
             "checks": [],
         }
         report = scorer.compute_score(metrics)

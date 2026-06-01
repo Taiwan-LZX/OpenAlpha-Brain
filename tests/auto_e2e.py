@@ -1,21 +1,23 @@
 """
 OpenAlpha-Brain Full Autonomous Loop E2E Test
 =================================================
-Real pipeline test: LLM Generate → PreFilter → WQ Submit(3-slot) → 
+Real pipeline test: LLM Generate → PreFilter → WQ Submit(3-slot) →
 Feedback → LLM Improve → Priority Boost Re-submit
 
 Uses: Real LM Studio + Real WQ BRAIN Platform
 """
+
 import asyncio
-import sys
-import os
-import time
 import json
 import logging
+import os
+import sys
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 logging.basicConfig(
@@ -45,14 +47,16 @@ async def main():
 
     # ── Phase 1: Auth ─────────────────────────────────────
     from openalpha_brain.config.config import settings
-    email = getattr(settings, 'BRAIN_EMAIL', '') or ''
-    password = getattr(settings, 'BRAIN_PASSWORD', '') or ''
+
+    email = getattr(settings, "BRAIN_EMAIL", "") or ""
+    password = getattr(settings, "BRAIN_PASSWORD", "") or ""
 
     if not email or not password:
         logger.error("[FATAL] Missing BRAIN_EMAIL/BRAIN_PASSWORD in .env")
         return False
 
     from openalpha_brain.services import brain_client
+
     cookies = await brain_client.authenticate(email, password)
     logger.info("[Phase 1] Auth OK — %s***", email[:3])
 
@@ -97,10 +101,16 @@ async def main():
         icon = "✅" if result.passed else ("⚡" if entry["source"] == "improved" else "❌")
         sp = f"{result.sharpe:.3f}" if result.sharpe is not None else "---"
         src_tag = "[IMPROVED]" if entry["source"] == "improved" else "[RAW]"
-        logger.info("  %s [Slot%d] %s %s Sharpe=%s TO=%s (%.0fs)",
-                    icon, slot.slot_id, src_tag, (slot.task_name or "")[:22],
-                    sp, f"{result.turnover:.1f}%" if result.turnover else "---",
-                    slot.elapsed_sec)
+        logger.info(
+            "  %s [Slot%d] %s %s Sharpe=%s TO=%s (%.0fs)",
+            icon,
+            slot.slot_id,
+            src_tag,
+            (slot.task_name or "")[:22],
+            sp,
+            f"{result.turnover:.1f}%" if result.turnover else "---",
+            slot.elapsed_sec,
+        )
 
     slot_manager.register_callback(on_complete)
 
@@ -135,11 +145,17 @@ async def main():
         try:
             result = await orchestrator.run_one_cycle(focus_area=area)
             cycle_results.append(result)
-            logger.info("[Cycle %d/%d] gen=%d filt=%d sub=%d dur=%.1fs",
-                        i+1, max_cycles, result.generated, result.prefiltered,
-                        result.submitted, result.duration_sec)
+            logger.info(
+                "[Cycle %d/%d] gen=%d filt=%d sub=%d dur=%.1fs",
+                i + 1,
+                max_cycles,
+                result.generated,
+                result.prefiltered,
+                result.submitted,
+                result.duration_sec,
+            )
         except Exception as e:
-            logger.error("[Cycle %d/%d] ERROR: %s", i+1, max_cycles, e)
+            logger.error("[Cycle %d/%d] ERROR: %s", i + 1, max_cycles, e)
             cycle_results.append(None)
 
         # Brief pause between cycles
@@ -164,8 +180,13 @@ async def main():
             break
 
         if waited % 30 == 0:
-            logger.info("  ... waiting: done=%d queue=%d busy=%d best=%.3f",
-                        m.total_completed, m.queue_depth, busy, m.best_sharpe)
+            logger.info(
+                "  ... waiting: done=%d queue=%d busy=%d best=%.3f",
+                m.total_completed,
+                m.queue_depth,
+                busy,
+                m.best_sharpe,
+            )
 
     # ── Phase 7: Cleanup & Report ─────────────────────────
     await orchestrator.stop()
@@ -179,15 +200,17 @@ async def main():
 async def check_llm() -> bool:
     """Check if LM Studio is running and responsive"""
     from openalpha_brain.config.config import settings
-    base_url = getattr(settings, 'LMSTUDIO_API_BASE', 'http://localhost:1234')
+
+    base_url = getattr(settings, "LMSTUDIO_API_BASE", "http://localhost:1234")
 
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{base_url}/v1/models")
             if resp.status_code == 200:
                 data = resp.json()
-                models = [m.get('id', '?') for m in data.get('data', [])]
+                models = [m.get("id", "?") for m in data.get("data", [])]
                 logger.info("  LLM endpoint: %s | Models: %s", base_url, models[:3])
                 return True
     except Exception as e:
@@ -209,11 +232,17 @@ def print_final_report(cycle_results):
     logger.info("--- Cycle Summary ---")
     for i, cr in enumerate(cycle_results):
         if cr is None:
-            logger.info("  Cycle %d: ERROR", i+1)
+            logger.info("  Cycle %d: ERROR", i + 1)
         else:
-            logger.info("  Cycle %d: gen=%d prefilter=%d submit=%d dur=%.1fs err=%d",
-                        i+1, cr.generated, cr.prefiltered, cr.submitted,
-                        cr.duration_sec, len(cr.errors))
+            logger.info(
+                "  Cycle %d: gen=%d prefilter=%d submit=%d dur=%.1fs err=%d",
+                i + 1,
+                cr.generated,
+                cr.prefiltered,
+                cr.submitted,
+                cr.duration_sec,
+                len(cr.errors),
+            )
 
     # Results breakdown by source
     raw_results = [r for r in ALL_RESULTS if r.get("source") == "generated"]
@@ -221,8 +250,12 @@ def print_final_report(cycle_results):
 
     logger.info("")
     logger.info("--- Results by Source ---")
-    logger.info("  Raw generated: %d | Improved (re-submitted): %d | Total: %d",
-                len(raw_results), len(improved_results), len(ALL_RESULTS))
+    logger.info(
+        "  Raw generated: %d | Improved (re-submitted): %d | Total: %d",
+        len(raw_results),
+        len(improved_results),
+        len(ALL_RESULTS),
+    )
 
     # Sharpe distribution
     all_sharpes = [r["sharpe"] for r in ALL_RESULTS if r["sharpe"] is not None]
@@ -238,13 +271,12 @@ def print_final_report(cycle_results):
 
         logger.info("")
         logger.info("--- Sharpe Distribution ---")
-        logger.info("  Count: %d | Avg: %.4f | Best: %.4f | Worst: %.4f",
-                    len(all_sharpes), avg, mx, mn)
-        logger.info("  >= 1.25 (PASS):   %d (%.0f%%)", g125, g125/max(len(all_sharpes),1)*100)
-        logger.info("  >= 1.00 (near):   %d (%.0f%%)", g100, g100/max(len(all_sharpes),1)*100)
-        logger.info("  >= 0.80 (improve): %d (%.0f%%)", g080, g080/max(len(all_sharpes),1)*100)
-        logger.info("  >= 0.00 (flat):   %d (%.0f%%)", g000, g000/max(len(all_sharpes),1)*100)
-        logger.info("  < 0.00 (loss):    %d (%.0f%%)", neg, neg/max(len(all_sharpes),1)*100)
+        logger.info("  Count: %d | Avg: %.4f | Best: %.4f | Worst: %.4f", len(all_sharpes), avg, mx, mn)
+        logger.info("  >= 1.25 (PASS):   %d (%.0f%%)", g125, g125 / max(len(all_sharpes), 1) * 100)
+        logger.info("  >= 1.00 (near):   %d (%.0f%%)", g100, g100 / max(len(all_sharpes), 1) * 100)
+        logger.info("  >= 0.80 (improve): %d (%.0f%%)", g080, g080 / max(len(all_sharpes), 1) * 100)
+        logger.info("  >= 0.00 (flat):   %d (%.0f%%)", g000, g000 / max(len(all_sharpes), 1) * 100)
+        logger.info("  < 0.00 (loss):    %d (%.0f%%)", neg, neg / max(len(all_sharpes), 1) * 100)
 
         # Improvement effectiveness
         if improved_results and raw_results:
@@ -258,27 +290,28 @@ def print_final_report(cycle_results):
                 logger.info("--- Improvement Effectiveness ---")
                 logger.info("  Raw avg Sharpe:     %.4f (%d samples)", raw_avg, len(raw_sp))
                 logger.info("  Improved avg Sharpe: %.4f (%d samples)", imp_avg, len(imp_sp))
-                logger.info("  Delta: %+.4f (%s)", delta,
-                            "IMPROVEMENT" if delta > 0 else "REGRESSION")
+                logger.info("  Delta: %+.4f (%s)", delta, "IMPROVEMENT" if delta > 0 else "REGRESSION")
 
     # Per-factor detail table
     logger.info("")
     logger.info("--- All Factor Results (sorted by Sharpe) ---")
     sorted_results = sorted(ALL_RESULTS, key=lambda x: x.get("sharpe") or -999, reverse=True)
-    logger.info("  %-3s %-24s %-9s %7s %6s %6s %5s  %s",
-                "#", "Name", "Source", "Sharpe", "Fitness", "TO%", "Gen", "Status")
+    logger.info(
+        "  %-3s %-24s %-9s %7s %6s %6s %5s  %s", "#", "Name", "Source", "Sharpe", "Fitness", "TO%", "Gen", "Status"
+    )
     logger.info("  " + "-" * 90)
 
     for i, r in enumerate(sorted_results):
-        sp = f"{r['sharpe']:.4f}" if r['sharpe'] is not None else "----"
-        ft = f"{r['fitness']:.3f}" if r['fitness'] is not None else "---"
-        to = f"{r['turnover']:.1f}" if r['turnover'] is not None else "---"
-        src = r['source'][:8].upper() if r['source'] else "?"
-        gen = str(r.get('improvement_gen', 0))
-        st = "PASS" if r['passed'] else "FAIL"
-        fl = "; ".join(r['failures'][:1]) if r['failures'] else ""
-        logger.info("  %-3d %-24s %-9s %7s %6s %6s %5s  %s %s",
-                    i+1, (r['name'] or "")[:22], src, sp, ft, to, gen, st, fl)
+        sp = f"{r['sharpe']:.4f}" if r["sharpe"] is not None else "----"
+        ft = f"{r['fitness']:.3f}" if r["fitness"] is not None else "---"
+        to = f"{r['turnover']:.1f}" if r["turnover"] is not None else "---"
+        src = r["source"][:8].upper() if r["source"] else "?"
+        gen = str(r.get("improvement_gen", 0))
+        st = "PASS" if r["passed"] else "FAIL"
+        fl = "; ".join(r["failures"][:1]) if r["failures"] else ""
+        logger.info(
+            "  %-3d %-24s %-9s %7s %6s %6s %5s  %s %s", i + 1, (r["name"] or "")[:22], src, sp, ft, to, gen, st, fl
+        )
 
     logger.info("")
     logger.info("=" * 70)
@@ -288,15 +321,21 @@ def print_final_report(cycle_results):
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"auto_e2e_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "test_type": "full_autonomous_loop",
-            "started_at": datetime.fromtimestamp(START_TIME).isoformat() if START_TIME else None,
-            "total_time_sec": round(total_time, 1),
-            "total_results": len(ALL_RESULTS),
-            "raw_count": len(raw_results),
-            "improved_count": len(improved_results),
-            "results": ALL_RESULTS,
-        }, f, indent=2, ensure_ascii=False, default=str)
+        json.dump(
+            {
+                "test_type": "full_autonomous_loop",
+                "started_at": datetime.fromtimestamp(START_TIME).isoformat() if START_TIME else None,
+                "total_time_sec": round(total_time, 1),
+                "total_results": len(ALL_RESULTS),
+                "raw_count": len(raw_results),
+                "improved_count": len(improved_results),
+                "results": ALL_RESULTS,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
     logger.info("Report saved: %s", out_path)
 
 

@@ -69,8 +69,18 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]  # line-length handled by ruff format
+select = [
+    "E4",   # Import errors
+    "E5",   # Line length / syntax
+    "E7",   # Statement errors (bare-except, duplicate-key, etc.)
+    "E9",   # Syntax errors
+    "F",    # Pyflakes (undefined names, unused vars, import issues)
+    "I",    # isort (import sorting)
+    "W",    # Warnings (whitespace, ignored overrides)
+]
+ignore = [
+    "E501",   # line-length handled by ruff format
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["openalpha_brain"]

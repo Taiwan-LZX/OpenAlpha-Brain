@@ -10,6 +10,7 @@ Covers:
 
 Target: ~65-75 test functions.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,15 +21,14 @@ import time
 import pytest
 
 from openalpha_brain.evolution.adaptive_neutralizer import (
+    _FORBIDDEN_PAIRS,
+    DEFAULT_CONFIG,
     AdaptiveNeutralizer,
     AdaptiveRecommendation,
-    DEFAULT_CONFIG,
     EhsaniConditionEvaluator,
-    _FORBIDDEN_PAIRS,
-    _LEVEL_ORDER,
     NeutralizationExperience,
-    NeutralizationTrial,
     NeutralizationExperienceTracker,
+    NeutralizationTrial,
     create_adaptive_neutralizer,
 )
 
@@ -72,9 +72,14 @@ def _make_metrics(
 class TestNeutralizationTrialDataclass:
     def test_creation_with_valid_data(self):
         trial = _make_trial(
-            category="momentum", level="industry",
-            sharpe_before=1.0, sharpe_after=1.15, fitness_delta=0.08,
-            outcome="success", expr_id="expr_001", ts=1000.0,
+            category="momentum",
+            level="industry",
+            sharpe_before=1.0,
+            sharpe_after=1.15,
+            fitness_delta=0.08,
+            outcome="success",
+            expr_id="expr_001",
+            ts=1000.0,
         )
         assert trial.category == "momentum"
         assert trial.neutralization_level == "industry"
@@ -134,11 +139,16 @@ class TestNeutralizationExperienceDataclass:
 
     def test_custom_values(self):
         exp = NeutralizationExperience(
-            category="mom", level="subindustry",
-            total_trials=10, successes=7,
-            avg_sharpe_delta=0.12, avg_fitness_delta=0.05,
-            success_rate=0.7, mab_score=0.75,
-            last_updated=999.0, is_forbidden=True,
+            category="mom",
+            level="subindustry",
+            total_trials=10,
+            successes=7,
+            avg_sharpe_delta=0.12,
+            avg_fitness_delta=0.05,
+            success_rate=0.7,
+            mab_score=0.75,
+            last_updated=999.0,
+            is_forbidden=True,
         )
         assert exp.total_trials == 10
         assert exp.successes == 7
@@ -177,10 +187,15 @@ class TestTrackerRecordTrial:
     def test_record_multiple_trials_accumulates(self):
         for i in range(5):
             outcome = "success" if i % 2 == 0 else "failure"
-            self.tracker.record_trial(_make_trial(
-                category="size", level="none",
-                outcome=outcome, expr_id=f"e{i}", ts=float(i),
-            ))
+            self.tracker.record_trial(
+                _make_trial(
+                    category="size",
+                    level="none",
+                    outcome=outcome,
+                    expr_id=f"e{i}",
+                    ts=float(i),
+                )
+            )
         exp = self.tracker.get_experience("size", "none")
         assert exp.total_trials == 5
         assert exp.successes == 3
@@ -218,12 +233,16 @@ class TestTrackerBestLevel:
     def test_best_level_with_sufficient_data(self):
         for lvl in ["industry", "subindustry"]:
             for i in range(5):
-                self.tracker.record_trial(_make_trial(
-                    category="mom_best", level=lvl,
-                    sharpe_after=1.2 if lvl == "industry" else 1.0,
-                    outcome="success" if lvl == "industry" else "failure",
-                    expr_id=f"{lvl}_{i}", ts=float(i),
-                ))
+                self.tracker.record_trial(
+                    _make_trial(
+                        category="mom_best",
+                        level=lvl,
+                        sharpe_after=1.2 if lvl == "industry" else 1.0,
+                        outcome="success" if lvl == "industry" else "failure",
+                        expr_id=f"{lvl}_{i}",
+                        ts=float(i),
+                    )
+                )
         best = self.tracker.get_best_level_for_category("mom_best")
         assert best is not None
         assert best in DEFAULT_CONFIG["neutralization_levels"]
@@ -243,10 +262,15 @@ class TestTrackerBestLevel:
 
     def test_best_level_skips_forbidden_experiences(self):
         for i in range(6):
-            self.tracker.record_trial(_make_trial(
-                category="forbidden_cat", level="bad_lvl",
-                outcome="failure", expr_id=f"fb_{i}", ts=float(i),
-            ))
+            self.tracker.record_trial(
+                _make_trial(
+                    category="forbidden_cat",
+                    level="bad_lvl",
+                    outcome="failure",
+                    expr_id=f"fb_{i}",
+                    ts=float(i),
+                )
+            )
         exp = self.tracker.get_experience("forbidden_cat", "bad_lvl")
         assert exp.is_forbidden is True
         best = self.tracker.get_best_level_for_category("forbidden_cat")
@@ -268,16 +292,30 @@ class TestTrackerMatrixAndIO:
 
     def test_save_and_load_roundtrip(self, tmp_path):
         file_path = tmp_path / "experience.json"
-        self.tracker.record_trial(_make_trial(
-            category="save_test", level="industry",
-            sharpe_before=1.0, sharpe_after=1.2, fitness_delta=0.10,
-            expr_id="s1", ts=100.0, outcome="success",
-        ))
-        self.tracker.record_trial(_make_trial(
-            category="save_test", level="sector",
-            sharpe_before=0.8, sharpe_after=0.75, fitness_delta=-0.04,
-            expr_id="s2", ts=200.0, outcome="failure",
-        ))
+        self.tracker.record_trial(
+            _make_trial(
+                category="save_test",
+                level="industry",
+                sharpe_before=1.0,
+                sharpe_after=1.2,
+                fitness_delta=0.10,
+                expr_id="s1",
+                ts=100.0,
+                outcome="success",
+            )
+        )
+        self.tracker.record_trial(
+            _make_trial(
+                category="save_test",
+                level="sector",
+                sharpe_before=0.8,
+                sharpe_after=0.75,
+                fitness_delta=-0.04,
+                expr_id="s2",
+                ts=200.0,
+                outcome="failure",
+            )
+        )
         self.tracker.save_to_disk(file_path)
         assert file_path.exists()
         new_tracker = NeutralizationExperienceTracker()
@@ -323,9 +361,13 @@ class TestTrackerEdgeCases:
         def writer(cat: str, n: int):
             try:
                 for i in range(n):
-                    self.tracker.record_trial(_make_trial(
-                        category=cat, expr_id=f"{cat}_{i}", ts=float(i),
-                    ))
+                    self.tracker.record_trial(
+                        _make_trial(
+                            category=cat,
+                            expr_id=f"{cat}_{i}",
+                            ts=float(i),
+                        )
+                    )
             except Exception as e:
                 errors.append(e)
 
@@ -346,10 +388,15 @@ class TestTrackerEdgeCases:
 
     def test_forbidden_flag_set_on_low_success_rate(self):
         for i in range(6):
-            self.tracker.record_trial(_make_trial(
-                category="fbd", level="dangerous",
-                outcome="failure", expr_id=f"f_{i}", ts=float(i),
-            ))
+            self.tracker.record_trial(
+                _make_trial(
+                    category="fbd",
+                    level="dangerous",
+                    outcome="failure",
+                    expr_id=f"f_{i}",
+                    ts=float(i),
+                )
+            )
         exp = self.tracker.get_experience("fbd", "dangerous")
         assert exp.is_forbidden is True
         assert ("fbd", "dangerous") in _FORBIDDEN_PAIRS
@@ -439,10 +486,15 @@ class TestEhsaniRecommendLevel:
 
     def test_recommend_uses_experience_when_available(self):
         for _ in range(5):
-            self.tracker.record_trial(_make_trial(
-                category="exp_rec", level="industry",
-                sharpe_after=1.3, outcome="success", expr_id="er",
-            ))
+            self.tracker.record_trial(
+                _make_trial(
+                    category="exp_rec",
+                    level="industry",
+                    sharpe_after=1.3,
+                    outcome="success",
+                    expr_id="er",
+                )
+            )
         level, conf = self.eval.recommend_level("exp_rec", 1.0, self.tracker)
         assert level == "industry"
         assert conf > 0
@@ -475,9 +527,16 @@ class TestAdaptiveNeutralizerInit:
     def test_init_loads_existing_file(self, tmp_path):
         path = tmp_path / "preload.json"
         pre = AdaptiveNeutralizer(experience_path=path)
-        pre.record_outcome("expr_pre", "preload_cat", "industry", {
-            "sharpe_before": 1.0, "sharpe_after": 1.1, "fitness_delta": 0.05,
-        })
+        pre.record_outcome(
+            "expr_pre",
+            "preload_cat",
+            "industry",
+            {
+                "sharpe_before": 1.0,
+                "sharpe_after": 1.1,
+                "fitness_delta": 0.05,
+            },
+        )
         restored = AdaptiveNeutralizer(experience_path=path)
         exp = restored._tracker.get_experience("preload_cat", "industry")
         assert exp.total_trials >= 1
@@ -490,7 +549,8 @@ class TestAdaptiveAnalyzeAndRecommend:
     def test_analyze_returns_valid_adaptive_recommendation(self, tmp_path):
         nz = self._nz(tmp_path)
         rec = nz.analyze_and_recommend(
-            expression="rank(close)", category="momentum",
+            expression="rank(close)",
+            category="momentum",
             wq_metrics=_make_metrics(),
         )
         assert isinstance(rec, AdaptiveRecommendation)
@@ -502,17 +562,23 @@ class TestAdaptiveAnalyzeAndRecommend:
     def test_analyze_should_neutralize_true_for_low_sr_ratio(self, tmp_path):
         nz = self._nz(tmp_path)
         rec = nz.analyze_and_recommend(
-            expression="rank(close)", category="momentum",
+            expression="rank(close)",
+            category="momentum",
             wq_metrics=_make_metrics(sharpe_raw=1.0, sharpe_neut=0.65),
         )
-        assert ("Ehsani" in rec.reasoning or "neutralize" in rec.reasoning.lower()
-                or "minimal" in rec.reasoning.lower()
-                or "DEFENSIVE_LOG" in rec.reasoning or "downgrad" in rec.reasoning.lower())
+        assert (
+            "Ehsani" in rec.reasoning
+            or "neutralize" in rec.reasoning.lower()
+            or "minimal" in rec.reasoning.lower()
+            or "DEFENSIVE_LOG" in rec.reasoning
+            or "downgrad" in rec.reasoning.lower()
+        )
 
     def test_analyze_should_not_overneutralize_momentum(self, tmp_path):
         nz = self._nz(tmp_path)
         rec = nz.analyze_and_recommend(
-            expression="rank(close)", category="momentum",
+            expression="rank(close)",
+            category="momentum",
             wq_metrics=_make_metrics(),
         )
         assert rec.recommended_level not in ("double", "triple")
@@ -521,7 +587,8 @@ class TestAdaptiveAnalyzeAndRecommend:
         nz = self._nz(tmp_path)
         for cat in ["momentum", "value", "quality", "size", "volatility", "liquidity"]:
             rec = nz.analyze_and_recommend(
-                expression="rank(close)", category=cat,
+                expression="rank(close)",
+                category=cat,
                 wq_metrics=_make_metrics(),
             )
             assert rec.recommended_level in DEFAULT_CONFIG["neutralization_levels"]
@@ -529,7 +596,8 @@ class TestAdaptiveAnalyzeAndRecommend:
     def test_analyze_alternatives_are_tuples(self, tmp_path):
         nz = self._nz(tmp_path)
         rec = nz.analyze_and_recommend(
-            expression="rank(close)", category="value",
+            expression="rank(close)",
+            category="value",
             wq_metrics=_make_metrics(),
         )
         for alt in rec.alternative_levels:
@@ -547,7 +615,8 @@ class TestAdaptiveAnalyzeAndRecommend:
 
         monkeypatch.setattr(nz._evaluator, "evaluate", crash)
         rec = nz.analyze_and_recommend(
-            expression="bad_expr", category="momentum",
+            expression="bad_expr",
+            category="momentum",
             wq_metrics=_make_metrics(),
         )
         assert rec.recommended_level == "industry"
@@ -561,44 +630,79 @@ class TestAdaptiveRecordOutcome:
 
     def test_record_outcome_updates_internal_state(self, tmp_path):
         nz = self._nz(tmp_path)
-        nz.record_outcome("expr_1", "momentum", "industry", {
-            "sharpe_before": 1.0, "sharpe_after": 1.15, "fitness_delta": 0.08,
-        })
+        nz.record_outcome(
+            "expr_1",
+            "momentum",
+            "industry",
+            {
+                "sharpe_before": 1.0,
+                "sharpe_after": 1.15,
+                "fitness_delta": 0.08,
+            },
+        )
         exp = nz._tracker.get_experience("momentum", "industry")
         assert exp.total_trials == 1
         assert exp.successes == 1
 
     def test_record_outcome_low_sharpe_marks_failure(self, tmp_path):
         nz = self._nz(tmp_path)
-        nz.record_outcome("expr_lo", "value", "subindustry", {
-            "sharpe_before": 1.0, "sharpe_after": 0.5, "fitness_delta": -0.10,
-        })
+        nz.record_outcome(
+            "expr_lo",
+            "value",
+            "subindustry",
+            {
+                "sharpe_before": 1.0,
+                "sharpe_after": 0.5,
+                "fitness_delta": -0.10,
+            },
+        )
         exp = nz._tracker.get_experience("value", "subindustry")
         assert exp.successes == 0
 
     def test_record_outcome_negative_fitness_marks_partial_or_failure(self, tmp_path):
         nz = self._nz(tmp_path)
-        nz.record_outcome("expr_neg", "quality", "industry", {
-            "sharpe_before": 1.0, "sharpe_after": 1.05, "fitness_delta": -0.02,
-        })
+        nz.record_outcome(
+            "expr_neg",
+            "quality",
+            "industry",
+            {
+                "sharpe_before": 1.0,
+                "sharpe_after": 1.05,
+                "fitness_delta": -0.02,
+            },
+        )
         exp = nz._tracker.get_experience("quality", "industry")
         assert exp.total_trials == 1
 
     def test_record_multiple_outcomes_accumulate(self, tmp_path):
         nz = self._nz(tmp_path)
         for i in range(5):
-            nz.record_outcome(f"expr_{i}", "size", "industry", {
-                "sharpe_before": 1.0, "sharpe_after": 1.1, "fitness_delta": 0.04,
-            })
+            nz.record_outcome(
+                f"expr_{i}",
+                "size",
+                "industry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 1.1,
+                    "fitness_delta": 0.04,
+                },
+            )
         exp = nz._tracker.get_experience("size", "industry")
         assert exp.total_trials == 5
 
     def test_record_persists_to_disk(self, tmp_path):
         path = tmp_path / "persist_rec.json"
         nz = AdaptiveNeutralizer(experience_path=path)
-        nz.record_outcome("persist_expr", "liquidity", "industry", {
-            "sharpe_before": 0.9, "sharpe_after": 1.0, "fitness_delta": 0.06,
-        })
+        nz.record_outcome(
+            "persist_expr",
+            "liquidity",
+            "industry",
+            {
+                "sharpe_before": 0.9,
+                "sharpe_after": 1.0,
+                "fitness_delta": 0.06,
+            },
+        )
         assert path.exists()
 
 
@@ -627,9 +731,16 @@ class TestAdaptiveSamplingWeights:
         path = tmp_path / "forbid_w.json"
         nz = AdaptiveNeutralizer(experience_path=path)
         for i in range(7):
-            nz.record_outcome(f"fb_{i}", "forbid_w", "subindustry", {
-                "sharpe_before": 1.0, "sharpe_after": 0.6, "fitness_delta": -0.09,
-            })
+            nz.record_outcome(
+                f"fb_{i}",
+                "forbid_w",
+                "subindustry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 0.6,
+                    "fitness_delta": -0.09,
+                },
+            )
         weights = nz.get_sampling_weights("forbid_w")
         assert "subindustry" not in weights
 
@@ -665,14 +776,23 @@ class TestAdaptiveIntegration:
     def test_recommend_record_rerecommend_updates_behavior(self, tmp_path):
         nz = self._nz(tmp_path)
         rec1 = nz.analyze_and_recommend(
-            expression="rank(close)", category="integration",
+            expression="rank(close)",
+            category="integration",
             wq_metrics=_make_metrics(),
         )
-        nz.record_outcome("expr_int", "integration", rec1.recommended_level, {
-            "sharpe_before": 1.0, "sharpe_after": 1.12, "fitness_delta": 0.07,
-        })
+        nz.record_outcome(
+            "expr_int",
+            "integration",
+            rec1.recommended_level,
+            {
+                "sharpe_before": 1.0,
+                "sharpe_after": 1.12,
+                "fitness_delta": 0.07,
+            },
+        )
         rec2 = nz.analyze_and_recommend(
-            expression="rank(close)", category="integration",
+            expression="rank(close)",
+            category="integration",
             wq_metrics=_make_metrics(),
         )
         assert isinstance(rec2, AdaptiveRecommendation)
@@ -681,11 +801,18 @@ class TestAdaptiveIntegration:
 
     def test_mab_scores_update_after_recording(self, tmp_path):
         nz = self._nz(tmp_path)
-        w1 = nz.get_sampling_weights("mab_loop")
+        _w1 = nz.get_sampling_weights("mab_loop")
         for _ in range(5):
-            nz.record_outcome("mab_e", "mab_loop", "industry", {
-                "sharpe_before": 1.0, "sharpe_after": 1.2, "fitness_delta": 0.08,
-            })
+            nz.record_outcome(
+                "mab_e",
+                "mab_loop",
+                "industry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 1.2,
+                    "fitness_delta": 0.08,
+                },
+            )
         w2 = nz.get_sampling_weights("mab_loop")
         assert sum(w2.values()) == pytest.approx(1.0, abs=1e-9)
 
@@ -701,14 +828,16 @@ class TestSafetyMomentumTripleNeutralization:
 
     def test_momentum_never_recommends_double(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="momentum",
+            expression="rank(close)",
+            category="momentum",
             wq_metrics=_make_metrics(sharpe_raw=3.0, sharpe_neut=0.5),
         )
         assert rec.recommended_level != "double"
 
     def test_momentum_never_recommends_triple(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="ts_delta(close,5)", category="momentum",
+            expression="ts_delta(close,5)",
+            category="momentum",
             wq_metrics=_make_metrics(sharpe_raw=5.0, sharpe_neut=0.3),
         )
         assert rec.recommended_level != "triple"
@@ -725,14 +854,21 @@ class TestSafetyLowSharpeDowngrade:
 
     def test_low_post_neutralization_sharpe_downgrades(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="downgrade_test",
+            expression="rank(close)",
+            category="downgrade_test",
             wq_metrics=_make_metrics(sharpe_raw=1.0, sharpe_neut=0.6),
         )
-        assert "Sharpe" in rec.reasoning or "downgrad" in rec.reasoning.lower() or "coarsen" in rec.reasoning.lower() or rec.recommended_level in ("none", "industry")
+        assert (
+            "Sharpe" in rec.reasoning
+            or "downgrad" in rec.reasoning.lower()
+            or "coarsen" in rec.reasoning.lower()
+            or rec.recommended_level in ("none", "industry")
+        )
 
     def test_normal_sharpe_no_downgrade_log(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="normal_test",
+            expression="rank(close)",
+            category="normal_test",
             wq_metrics=_make_metrics(sharpe_raw=1.0, sharpe_neut=1.2),
         )
         assert rec.is_forced is False or "0.8" not in rec.reasoning or "downgrad" not in rec.reasoning.lower()
@@ -745,20 +881,35 @@ class TestSafetyForbiddenLevels:
     def test_forbidden_detected_after_many_failures(self, tmp_path):
         nz = self._nz(tmp_path)
         for i in range(7):
-            nz.record_outcome(f"fbd_{i}", "fbd_cat", "subindustry", {
-                "sharpe_before": 1.0, "sharpe_after": 0.65, "fitness_delta": -0.08,
-            })
+            nz.record_outcome(
+                f"fbd_{i}",
+                "fbd_cat",
+                "subindustry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 0.65,
+                    "fitness_delta": -0.08,
+                },
+            )
         exp = nz._tracker.get_experience("fbd_cat", "subindustry")
         assert exp.is_forbidden is True
 
     def test_forbidden_excluded_from_recommendation(self, tmp_path):
         nz = self._nz(tmp_path)
         for i in range(7):
-            nz.record_outcome(f"ff_{i}", "ff_cat", "subindustry", {
-                "sharpe_before": 1.0, "sharpe_after": 0.68, "fitness_delta": -0.07,
-            })
+            nz.record_outcome(
+                f"ff_{i}",
+                "ff_cat",
+                "subindustry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 0.68,
+                    "fitness_delta": -0.07,
+                },
+            )
         rec = nz.analyze_and_recommend(
-            expression="rank(close)", category="ff_cat",
+            expression="rank(close)",
+            category="ff_cat",
             wq_metrics=_make_metrics(),
         )
         assert rec.recommended_level != "subindustry" or rec.is_forced is True
@@ -766,18 +917,32 @@ class TestSafetyForbiddenLevels:
     def test_good_performance_does_not_forbidden(self, tmp_path):
         nz = self._nz(tmp_path)
         for i in range(7):
-            nz.record_outcome(f"gf_{i}", "good_cat", "industry", {
-                "sharpe_before": 1.0, "sharpe_after": 1.25, "fitness_delta": 0.10,
-            })
+            nz.record_outcome(
+                f"gf_{i}",
+                "good_cat",
+                "industry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 1.25,
+                    "fitness_delta": 0.10,
+                },
+            )
         exp = nz._tracker.get_experience("good_cat", "industry")
         assert exp.is_forbidden is False
 
     def test_forbidden_levels_global_set_populated(self, tmp_path):
         nz = self._nz(tmp_path)
         for i in range(7):
-            nz.record_outcome(f"gl_{i}", "global_fbd", "risky_lvl", {
-                "sharpe_before": 1.0, "sharpe_after": 0.62, "fitness_delta": -0.10,
-            })
+            nz.record_outcome(
+                f"gl_{i}",
+                "global_fbd",
+                "risky_lvl",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 0.62,
+                    "fitness_delta": -0.10,
+                },
+            )
         assert ("global_fbd", "risky_lvl") in _FORBIDDEN_PAIRS
 
 
@@ -789,7 +954,8 @@ class TestSafetyDefensiveLogging:
         nz = self._nz(tmp_path)
         with caplog.at_level(logging.WARNING, logger="openalpha_brain.evolution.adaptive_neutralizer"):
             rec = nz.analyze_and_recommend(
-                expression="rank(close)", category="momentum",
+                expression="rank(close)",
+                category="momentum",
                 wq_metrics=_make_metrics(sharpe_raw=1.0, sharpe_neut=0.99),
             )
         defensive_logs = [r for r in caplog.records if "DEFENSIVE_LOG" in r.message]
@@ -800,9 +966,16 @@ class TestSafetyDefensiveLogging:
         nz = self._nz(tmp_path)
         with caplog.at_level(logging.WARNING, logger="openalpha_brain.evolution.adaptive_neutralizer"):
             for i in range(7):
-                nz.record_outcome(f"log_{i}", "log_cat", "bad_lvl", {
-                    "sharpe_before": 1.0, "sharpe_after": 0.63, "fitness_delta": -0.09,
-                })
+                nz.record_outcome(
+                    f"log_{i}",
+                    "log_cat",
+                    "bad_lvl",
+                    {
+                        "sharpe_before": 1.0,
+                        "sharpe_after": 0.63,
+                        "fitness_delta": -0.09,
+                    },
+                )
         fbd_logs = [r for r in caplog.records if "FORBIDDEN" in r.message]
         assert len(fbd_logs) >= 1
 
@@ -818,7 +991,8 @@ class TestEdgeColdStart:
 
     def test_cold_start_returns_valid_recommendation(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="brand_new_factor",
+            expression="rank(close)",
+            category="brand_new_factor",
             wq_metrics=_make_metrics(),
         )
         assert isinstance(rec, AdaptiveRecommendation)
@@ -841,16 +1015,28 @@ class TestEdgeCorruptedData:
 
     def test_load_partial_json_recovers_data(self, tmp_path):
         partial = tmp_path / "partial_exp.json"
-        partial.write_text(json.dumps({
-            "experiences": [{
-                "category": "ok", "level": "industry",
-                "total_trials": 1, "successes": 1,
-                "avg_sharpe_delta": 0.1, "avg_fitness_delta": 0.05,
-                "success_rate": 1.0, "mab_score": 0.67,
-                "last_updated": 100.0, "is_forbidden": False,
-            }],
-            "forbidden_pairs": [],
-        }), encoding="utf-8")
+        partial.write_text(
+            json.dumps(
+                {
+                    "experiences": [
+                        {
+                            "category": "ok",
+                            "level": "industry",
+                            "total_trials": 1,
+                            "successes": 1,
+                            "avg_sharpe_delta": 0.1,
+                            "avg_fitness_delta": 0.05,
+                            "success_rate": 1.0,
+                            "mab_score": 0.67,
+                            "last_updated": 100.0,
+                            "is_forbidden": False,
+                        }
+                    ],
+                    "forbidden_pairs": [],
+                }
+            ),
+            encoding="utf-8",
+        )
         tracker = NeutralizationExperienceTracker()
         tracker.load_from_disk(partial)
         assert tracker.get_experience("ok", "industry").total_trials == 1
@@ -864,11 +1050,16 @@ class TestEdgePerformance:
         nz = self._nz(tmp_path)
         start = time.perf_counter()
         for i in range(500):
-            nz.record_outcome(f"perf_{i}", "perf_cat", "industry", {
-                "sharpe_before": 1.0,
-                "sharpe_after": 1.05 + (i % 10) * 0.01,
-                "fitness_delta": 0.03,
-            })
+            nz.record_outcome(
+                f"perf_{i}",
+                "perf_cat",
+                "industry",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 1.05 + (i % 10) * 0.01,
+                    "fitness_delta": 0.03,
+                },
+            )
         elapsed = time.perf_counter() - start
         assert elapsed < 3.0, f"500 trials took {elapsed:.2f}s, too slow"
 
@@ -876,13 +1067,15 @@ class TestEdgePerformance:
         nz = self._nz(tmp_path)
         for _ in range(50):
             nz.analyze_and_recommend(
-                expression="rank(close)", category="perf_rec",
+                expression="rank(close)",
+                category="perf_rec",
                 wq_metrics=_make_metrics(),
             )
         start = time.perf_counter()
         for _ in range(100):
             nz.analyze_and_recommend(
-                expression="rank(close)", category="perf_rec",
+                expression="rank(close)",
+                category="perf_rec",
                 wq_metrics=_make_metrics(),
             )
         elapsed = time.perf_counter() - start
@@ -895,42 +1088,48 @@ class TestEdgeInvalidInput:
 
     def test_empty_expression_handled(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="", category="momentum",
+            expression="",
+            category="momentum",
             wq_metrics=_make_metrics(),
         )
         assert isinstance(rec, AdaptiveRecommendation)
 
     def test_unknown_category_handled(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="xyz_nonexistent_factor",
+            expression="rank(close)",
+            category="xyz_nonexistent_factor",
             wq_metrics=_make_metrics(),
         )
         assert rec.recommended_level in DEFAULT_CONFIG["neutralization_levels"]
 
     def test_unicode_expression_handled(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(收盤價)", category="動量",
+            expression="rank(收盤價)",
+            category="動量",
             wq_metrics=_make_metrics(),
         )
         assert isinstance(rec, AdaptiveRecommendation)
 
     def test_empty_metrics_defaults_safely(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="value",
+            expression="rank(close)",
+            category="value",
             wq_metrics={},
         )
         assert isinstance(rec, AdaptiveRecommendation)
 
     def test_zero_sharpe_raw_no_crash(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="volatility",
+            expression="rank(close)",
+            category="volatility",
             wq_metrics={"sharpe_raw": 0.0, "sharpe_neutralized": 0.0, "correlation": 0.7},
         )
         assert isinstance(rec, AdaptiveRecommendation)
 
     def test_negative_sharpe_raw_no_crash(self, tmp_path):
         rec = self._nz(tmp_path).analyze_and_recommend(
-            expression="rank(close)", category="size",
+            expression="rank(close)",
+            category="size",
             wq_metrics={"sharpe_raw": -0.5, "sharpe_neutralized": -0.3, "correlation": 0.7},
         )
         assert isinstance(rec, AdaptiveRecommendation)
@@ -940,9 +1139,16 @@ class TestEdgePersistence:
     def test_save_state_persists_across_instances(self, tmp_path):
         path = tmp_path / "cross_inst.json"
         nz1 = AdaptiveNeutralizer(experience_path=path)
-        nz1.record_outcome("cross_1", "cross_cat", "industry", {
-            "sharpe_before": 1.0, "sharpe_after": 1.15, "fitness_delta": 0.08,
-        })
+        nz1.record_outcome(
+            "cross_1",
+            "cross_cat",
+            "industry",
+            {
+                "sharpe_before": 1.0,
+                "sharpe_after": 1.15,
+                "fitness_delta": 0.08,
+            },
+        )
         nz2 = AdaptiveNeutralizer(experience_path=path)
         exp = nz2._tracker.get_experience("cross_cat", "industry")
         assert exp.total_trials >= 1
@@ -951,9 +1157,16 @@ class TestEdgePersistence:
         path = tmp_path / "fbd_persist.json"
         nz = AdaptiveNeutralizer(experience_path=path)
         for i in range(7):
-            nz.record_outcome(f"fp_{i}", "fp_cat", "fp_bad", {
-                "sharpe_before": 1.0, "sharpe_after": 0.64, "fitness_delta": -0.08,
-            })
+            nz.record_outcome(
+                f"fp_{i}",
+                "fp_cat",
+                "fp_bad",
+                {
+                    "sharpe_before": 1.0,
+                    "sharpe_after": 0.64,
+                    "fitness_delta": -0.08,
+                },
+            )
         raw = json.loads(path.read_text(encoding="utf-8"))
         assert any(p[0] == "fp_cat" and p[1] == "fp_bad" for p in raw.get("forbidden_pairs", []))
 
@@ -974,12 +1187,13 @@ class TestEdgeConfigCustomization:
             "ehsani_correlation_estimate": 0.7,
             "category_defaults": {
                 "custom_factor": {"default_level": "none", "max_level": "industry"},
-            }
+            },
         }
         path = tmp_path / "custom_cfg.json"
         nz = AdaptiveNeutralizer(experience_path=path, config=custom_config)
         rec = nz.analyze_and_recommend(
-            expression="rank(close)", category="custom_factor",
+            expression="rank(close)",
+            category="custom_factor",
             wq_metrics=_make_metrics(),
         )
         assert rec.recommended_level in ("none", "industry")

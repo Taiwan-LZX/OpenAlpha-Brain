@@ -1,17 +1,13 @@
-import pytest
 from openalpha_brain.agents.multi_agent import (
-    Hypothesis,
     AgentResult,
+    Hypothesis,
     SemanticAnchor,
     _check_semantic_alignment,
-    _collect_operators_from_ast,
     _collect_fields_from_ast,
+    _collect_operators_from_ast,
     _extract_max_lookback,
-    _DIRECTION_OPERATOR_MAP,
-    _DIRECTION_FIELD_MAP,
-    _load_direction_operator_map,
     _load_direction_field_map,
-    _MECHANISM_OPERATOR_MAP,
+    _load_direction_operator_map,
 )
 
 
@@ -59,40 +55,76 @@ class TestExtractMaxLookback:
 
 class TestCheckSemanticAlignment:
     def test_momentum_with_ts_delta(self):
-        h = Hypothesis(direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test")
+        h = Hypothesis(
+            direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test"
+        )
         score = _check_semantic_alignment(h, "ts_delta(close, 5)")
         assert score > 0.0
 
     def test_momentum_with_rank_only(self):
-        h = Hypothesis(direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test")
+        h = Hypothesis(
+            direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test"
+        )
         score = _check_semantic_alignment(h, "rank(cap)")
         assert score < 0.7
 
     def test_unknown_direction(self):
-        h = Hypothesis(direction="unknown_direction", asset_class="equity", time_horizon="medium-term", mechanism="test", natural_language="test")
+        h = Hypothesis(
+            direction="unknown_direction",
+            asset_class="equity",
+            time_horizon="medium-term",
+            mechanism="test",
+            natural_language="test",
+        )
         score = _check_semantic_alignment(h, "rank(close)")
         assert score < 1.0
         assert score >= 0.0
 
     def test_short_time_horizon_long_lookback(self):
-        h = Hypothesis(direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test")
+        h = Hypothesis(
+            direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test"
+        )
         score = _check_semantic_alignment(h, "ts_delta(close, 200)")
         assert score < 1.0
 
     def test_mechanism_momentum_penalty(self):
-        h = Hypothesis(direction="momentum", asset_class="equity", time_horizon="medium-term", mechanism="momentum signal", natural_language="test")
+        h = Hypothesis(
+            direction="momentum",
+            asset_class="equity",
+            time_horizon="medium-term",
+            mechanism="momentum signal",
+            natural_language="test",
+        )
         score_with = _check_semantic_alignment(h, "ts_delta(close, 10)")
-        h2 = Hypothesis(direction="momentum", asset_class="equity", time_horizon="medium-term", mechanism="momentum signal", natural_language="test")
+        h2 = Hypothesis(
+            direction="momentum",
+            asset_class="equity",
+            time_horizon="medium-term",
+            mechanism="momentum signal",
+            natural_language="test",
+        )
         score_without = _check_semantic_alignment(h2, "rank(close)")
         assert score_with >= score_without
 
     def test_mechanism_volatility_penalty(self):
-        h = Hypothesis(direction="volatility", asset_class="equity", time_horizon="medium-term", mechanism="volatility breakout", natural_language="test")
+        h = Hypothesis(
+            direction="volatility",
+            asset_class="equity",
+            time_horizon="medium-term",
+            mechanism="volatility breakout",
+            natural_language="test",
+        )
         score = _check_semantic_alignment(h, "ts_std_dev(close, 20)")
         assert score > 0.0
 
     def test_mechanism_mean_reversion_no_penalty(self):
-        h = Hypothesis(direction="mean_reversion", asset_class="equity", time_horizon="medium-term", mechanism="mean_reversion", natural_language="test")
+        h = Hypothesis(
+            direction="mean_reversion",
+            asset_class="equity",
+            time_horizon="medium-term",
+            mechanism="mean_reversion",
+            natural_language="test",
+        )
         score = _check_semantic_alignment(h, "ts_zscore(close, 20)")
         assert score > 0.0
 
@@ -126,7 +158,13 @@ class TestSemanticAnchor:
 class TestAgentResult:
     def test_result_has_new_fields(self):
         r = AgentResult(
-            hypothesis=Hypothesis(direction="momentum", asset_class="equity", time_horizon="short", mechanism="test", natural_language="test"),
+            hypothesis=Hypothesis(
+                direction="momentum",
+                asset_class="equity",
+                time_horizon="short",
+                mechanism="test",
+                natural_language="test",
+            ),
             expression="ts_delta(close, 5)",
             simulation_payload={},
             originality_score=0.8,

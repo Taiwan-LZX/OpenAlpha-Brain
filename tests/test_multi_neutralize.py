@@ -7,20 +7,18 @@ Covers:
   - FitnessBoost Tier 3 multi-layer upgrade logic
   - Edge cases and boundary conditions
 """
+
 from __future__ import annotations
 
 import pytest
 
+from openalpha_brain.evolution.fitness_boost import (
+    FitnessBoostEngine,
+)
 from openalpha_brain.generation.alpha_logics import (
     AlphaLogicLibrary,
     BlockType,
-    TemplateBlock,
-    ThreeBlockTemplate,
     _build_three_block_templates,
-)
-from openalpha_brain.evolution.fitness_boost import (
-    FitnessBoostEngine,
-    FitnessVariant,
 )
 
 
@@ -246,17 +244,31 @@ class TestAllCoreTemplatesHaveMNVersion:
     def setup_method(self):
         self.templates = _build_three_block_templates()
 
-    @pytest.mark.parametrize("template_id", [
-        "momentum_short_term", "momentum_medium_term", "momentum_volume_confirmed",
-        "value_regression", "value_earnings_quality",
-        "quality_earnings_stability", "quality_asset_turnover",
-        "size_small_cap_premium",
-        "volatility_low_vol_anomaly", "volatility_change_signal", "volatility_clustering",
-        "liquidity_premium", "liquidity_improvement_signal",
-        "lead_lag_price_volume", "lead_lag_cross_field", "lead_lag_industry_rotation",
-        "momentum_long_term_reversal",
-        "mean_reversion_zscore", "mean_reversion_bollinger", "mean_reversion_valuation",
-    ])
+    @pytest.mark.parametrize(
+        "template_id",
+        [
+            "momentum_short_term",
+            "momentum_medium_term",
+            "momentum_volume_confirmed",
+            "value_regression",
+            "value_earnings_quality",
+            "quality_earnings_stability",
+            "quality_asset_turnover",
+            "size_small_cap_premium",
+            "volatility_low_vol_anomaly",
+            "volatility_change_signal",
+            "volatility_clustering",
+            "liquidity_premium",
+            "liquidity_improvement_signal",
+            "lead_lag_price_volume",
+            "lead_lag_cross_field",
+            "lead_lag_industry_rotation",
+            "momentum_long_term_reversal",
+            "mean_reversion_zscore",
+            "mean_reversion_bollinger",
+            "mean_reversion_valuation",
+        ],
+    )
     def test_template_has_mn_version(self, template_id):
         mn_id = f"{template_id}_mn"
         mn_template = self.templates.get(mn_id)
@@ -276,16 +288,23 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_single_layer_detects_upgrade_opportunity(self):
         expr = "ts_decay_linear(group_neutralize(rank(close), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7, turnover=30,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
+            turnover=30,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
-        multi_layer_variants = [v for v in variants if "升级多层中性化" in v.mutation_description or "双层" in v.mutation_description]
+        multi_layer_variants = [
+            v for v in variants if "升级多层中性化" in v.mutation_description or "双层" in v.mutation_description
+        ]
         assert len(multi_layer_variants) >= 1
 
     def test_b1_upgrade_generated(self):
         expr = "ts_decay_linear(group_neutralize(ts_rank(volume, 20), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         b1_variants = [v for v in variants if "B1" in v.mutation_description or "双层" in v.mutation_description]
@@ -297,7 +316,9 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_b2_upgrade_generated(self):
         expr = "ts_decay_linear(group_neutralize(rank(close), industry), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         b2_variants = [v for v in variants if "B2" in v.mutation_description or "三层" in v.mutation_description]
@@ -309,7 +330,9 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_b3_upgrade_generated(self):
         expr = "ts_decay_linear(group_neutralize(ts_delta(close, 5), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         b3_variants = [v for v in variants if "B3" in v.mutation_description or "混合" in v.mutation_description]
@@ -322,10 +345,14 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_b4_subindustry_upgrade_for_sector_or_industry(self):
         expr = "ts_decay_linear(group_neutralize(rank(close), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
-        b4_variants = [v for v in variants if "B4" in v.mutation_description or "subindustry" in v.mutation_description.lower()]
+        b4_variants = [
+            v for v in variants if "B4" in v.mutation_description or "subindustry" in v.mutation_description.lower()
+        ]
         if b4_variants:
             b4 = b4_variants[0]
             assert "subindustry" in b4.expression
@@ -334,7 +361,9 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_multi_layer_upgrade_not_applied_to_already_multi(self):
         expr = "ts_decay_linear(group_neutralize(group_neutralize(rank(close), sector), industry), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         upgrade_variants = [v for v in variants if "升级多层中性化" in v.mutation_description]
@@ -343,7 +372,9 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_upgrade_variants_have_medium_risk(self):
         expr = "ts_decay_linear(group_neutralize(ts_rank(close, 10), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         multi_variants = [v for v in variants if "升级" in v.mutation_description or "双层" in v.mutation_description]
@@ -353,7 +384,9 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_upgrade_preserves_signal_structure(self):
         expr = "ts_decay_linear(group_neutralize(rank(close), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         for variant in variants:
@@ -363,7 +396,9 @@ class TestFitnessBoostTier3MultiLayerUpgrade:
     def test_no_duplicate_variants_generated(self):
         expr = "ts_decay_linear(group_neutralize(rank(close), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         expressions = [v.expression for v in variants]
@@ -432,7 +467,9 @@ class TestEdgeCasesAndBoundaryConditions:
     def test_no_neutralize_returns_no_upgrades(self):
         expr = "ts_decay_linear(rank(close), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         upgrade_variants = [v for v in variants if "升级" in v.mutation_description]
@@ -441,16 +478,22 @@ class TestEdgeCasesAndBoundaryConditions:
     def test_group_zscore_no_upgrade(self):
         expr = "ts_decay_linear(group_zscore(rank(close), sector), 10)"
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         upgrade_variants = [v for v in variants if "升级多层" in v.mutation_description]
         assert len(upgrade_variants) == 0
 
     def test_complex_nested_expression_handled(self):
-        expr = "ts_decay_linear(group_neutralize(rank(ts_corr(ts_delta(close, 1), ts_delta(volume, 1), 10)), sector), 10)"
+        expr = (
+            "ts_decay_linear(group_neutralize(rank(ts_corr(ts_delta(close, 1), ts_delta(volume, 1), 10)), sector), 10)"
+        )
         analysis = self.engine.analyze_fitness_bottleneck(
-            expression=expr, sharpe=1.3, fitness=0.7,
+            expression=expr,
+            sharpe=1.3,
+            fitness=0.7,
         )
         variants = self.engine._tier_neutralization_balance(expr, analysis)
         assert len(variants) >= 0

@@ -1,9 +1,10 @@
 import pytest
+
 from openalpha_brain.validation.anti_overfit_detector import (
-    LightweightAntiOverfitDetector,
-    FullAntiOverfitDetector,
-    TestResult,
     AntiOverfitResult,
+    FullAntiOverfitDetector,
+    LightweightAntiOverfitDetector,
+    TestResult,
 )
 
 
@@ -136,12 +137,14 @@ class TestLightweightAntiOverfitDetector:
 
     def test_fitness_suspicious_high_with_low_sharpe_fails(self):
         detector = LightweightAntiOverfitDetector()
-        result = detector.evaluate({
-            "sharpe": 0.3,
-            "fitness": 50.0,
-            "turnover": 0.05,
-            "returns": 0.01,
-        })
+        result = detector.evaluate(
+            {
+                "sharpe": 0.3,
+                "fitness": 50.0,
+                "turnover": 0.05,
+                "returns": 0.01,
+            }
+        )
         fit_test = [t for t in result.tests if t.name == "Fitness效率"][0]
         assert not fit_test.passed
         assert fit_test.details.get("suspicious") is True
@@ -156,61 +159,71 @@ class TestLightweightAntiOverfitDetector:
 
     def test_drawdown_normal_passes(self):
         detector = LightweightAntiOverfitDetector()
-        result = detector.evaluate({
-            "sharpe": 1.0,
-            "turnover": 0.3,
-            "fitness": 1.5,
-            "returns": 0.1,
-            "drawdown": 0.12,
-        })
+        result = detector.evaluate(
+            {
+                "sharpe": 1.0,
+                "turnover": 0.3,
+                "fitness": 1.5,
+                "returns": 0.1,
+                "drawdown": 0.12,
+            }
+        )
         dd_test = [t for t in result.tests if t.name == "回撤稳定性"][0]
         assert dd_test.passed
 
     def test_drawdown_too_high_fails(self):
         detector = LightweightAntiOverfitDetector()
-        result = detector.evaluate({
-            "sharpe": 1.0,
-            "turnover": 0.3,
-            "fitness": 1.5,
-            "returns": 0.1,
-            "drawdown": 0.30,
-        })
+        result = detector.evaluate(
+            {
+                "sharpe": 1.0,
+                "turnover": 0.3,
+                "fitness": 1.5,
+                "returns": 0.1,
+                "drawdown": 0.30,
+            }
+        )
         dd_test = [t for t in result.tests if t.name == "回撤稳定性"][0]
         assert not dd_test.passed
         assert len(dd_test.details.get("warnings", [])) > 0
 
     def test_low_drawdown_high_sharpe_suspicious(self):
         detector = LightweightAntiOverfitDetector()
-        result = detector.evaluate({
-            "sharpe": 3.0,
-            "turnover": 0.3,
-            "fitness": 5.0,
-            "returns": 0.3,
-            "drawdown": 0.02,
-        })
+        result = detector.evaluate(
+            {
+                "sharpe": 3.0,
+                "turnover": 0.3,
+                "fitness": 5.0,
+                "returns": 0.3,
+                "drawdown": 0.02,
+            }
+        )
         dd_test = [t for t in result.tests if t.name == "回撤稳定性"][0]
         assert not dd_test.passed
 
     def test_drawdown_none_passes_by_default(self):
         detector = LightweightAntiOverfitDetector()
-        result = detector.evaluate({
-            "sharpe": 1.0,
-            "turnover": 0.3,
-            "fitness": 1.5,
-            "returns": 0.1,
-        })
+        result = detector.evaluate(
+            {
+                "sharpe": 1.0,
+                "turnover": 0.3,
+                "fitness": 1.5,
+                "returns": 0.1,
+            }
+        )
         dd_test = [t for t in result.tests if t.name == "回撤稳定性"][0]
         assert dd_test.passed
 
     def test_drawdown_abs_value_used(self):
         detector = LightweightAntiOverfitDetector()
-        result = detector.evaluate({
-            "sharpe": 1.0,
-            "turnover": 0.3,
-            "fitness": 1.5,
-            "returns": 0.1,
-            "drawdown": -0.20,
-        })
+        result = detector.evaluate(
+            {
+                "sharpe": 1.0,
+                "turnover": 0.3,
+                "fitness": 1.5,
+                "returns": 0.1,
+                "drawdown": -0.20,
+            }
+        )
         dd_test = [t for t in result.tests if t.name == "回撤稳定性"][0]
         assert dd_test.details.get("drawdown") == 0.2
 

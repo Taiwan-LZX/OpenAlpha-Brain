@@ -1,5 +1,6 @@
 import httpx
-from openalpha_brain.services.http_pool import get_client, close_client
+
+from openalpha_brain.services.http_pool import get_client
 
 
 class TestHttpPool:

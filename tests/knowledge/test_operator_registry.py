@@ -1,4 +1,5 @@
 import pytest
+
 from openalpha_brain.knowledge.operator_registry import (
     OperatorCategory,
     OperatorDef,
@@ -146,8 +147,9 @@ class TestOperatorRegistry:
         assert op.avg_sharpe == pytest.approx(1.75, rel=1e-2)
 
     def test_record_usage_nonexistent(self, registry):
-        should_not_raise = lambda: registry.record_usage("nonexistent", 1.0)
-        should_not_raise()
+        def _should_not_raise():
+            registry.record_usage("nonexistent", 1.0)
+        _should_not_raise()
 
     def test_get_stats(self, registry):
         registry.record_usage("ts_mean", 1.5)
@@ -257,8 +259,12 @@ class TestCategoryCoverage:
         categories = list(OperatorCategory)
         for cat in categories:
             ops = registry.get_by_category(cat)
-            if cat in [OperatorCategory.TEMPORAL, OperatorCategory.MATH,
-                       OperatorCategory.CROSS_SECTIONAL, OperatorCategory.LOGICAL]:
+            if cat in [
+                OperatorCategory.TEMPORAL,
+                OperatorCategory.MATH,
+                OperatorCategory.CROSS_SECTIONAL,
+                OperatorCategory.LOGICAL,
+            ]:
                 assert len(ops) > 0, f"{cat.value} 分类应该有算子"
 
     def test_temporal_category_count(self, registry):
@@ -288,12 +294,14 @@ class TestEdgeCases:
         assert len(errors) == 0
 
     def test_complex_nested_expression(self, registry):
-        expr = ("group_neutralize("
-                "trade_when("
-                "rank(ts_decay_linear(ts_zscore(ts_corr(close, volume, 20), 20), 10)), "
-                "greater(volume, ts_mean(volume, 20)), "
-                "less(volume, ts_mean(volume, 5))"
-                "), industry)")
+        expr = (
+            "group_neutralize("
+            "trade_when("
+            "rank(ts_decay_linear(ts_zscore(ts_corr(close, volume, 20), 20), 10)), "
+            "greater(volume, ts_mean(volume, 20)), "
+            "less(volume, ts_mean(volume, 5))"
+            "), industry)"
+        )
         count = registry.count_operators(expr)
         assert count >= 8
 

@@ -1,4 +1,4 @@
-from openalpha_brain.validation.ast_repair import repair_expression, _VALID_OPS_CACHE, _VALID_VARS_CACHE
+from openalpha_brain.validation.ast_repair import _VALID_OPS_CACHE, _VALID_VARS_CACHE, repair_expression
 
 
 class TestRepairExpression:

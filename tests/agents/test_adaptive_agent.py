@@ -1,8 +1,6 @@
 import time
 
-import pytest
-
-from openalpha_brain.agents.adaptive_agent import AdaptiveAgentFactory, SpecialistAgent
+from openalpha_brain.agents.adaptive_agent import AdaptiveAgentFactory
 
 
 class TestCreateSpecialistAgent:

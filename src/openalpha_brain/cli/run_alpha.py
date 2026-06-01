@@ -13,6 +13,7 @@ Usage:
     python run_alpha.py mine [--focus AREA] [--wait SECONDS]  # 啟動採礦並等待結果
     python run_alpha.py full                          # 完整診斷: init → LLM → parse → BRAIN → full loop
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,9 +53,11 @@ def _load_session_id() -> str:
 
 # ── Sub-command: start ────────────────────────────────────────────────────────
 
+
 async def cmd_start(focus_area: str):
     """透過 HTTP API 啟動新的採礦 session。"""
     import httpx
+
     logger.info("[%s] 正在啟動新 Session (focus=%s) ...", _ts(), focus_area)
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
         r = await client.post(
@@ -73,9 +76,11 @@ async def cmd_start(focus_area: str):
 
 # ── Sub-command: check ───────────────────────────────────────────────────────
 
+
 async def cmd_check(session_id: str | None):
     """檢查指定 session 的狀態與所有 alpha 結果。"""
     import httpx
+
     if not session_id:
         session_id = _load_session_id()
     if not session_id:
@@ -137,7 +142,7 @@ def _print_session_summary(state: dict, alpha_data: dict):
             print(f"       sharpe={sharpe}  fitness={fitness}  turnover={turnover}")
             if checks:
                 for c in checks:
-                    print(f"       CHECK: {c.get('name','?')} = {c.get('result','?')}  val={c.get('value','?')}")
+                    print(f"       CHECK: {c.get('name', '?')} = {c.get('result', '?')}  val={c.get('value', '?')}")
 
     # Hallucination Log
     hall_log = state.get("hallucination_log", [])
@@ -187,6 +192,7 @@ def _print_session_summary(state: dict, alpha_data: dict):
 
 
 # ── Sub-command: run (self-loop E2E test) ────────────────────────────────────
+
 
 async def cmd_run(cycles: int, focus_area: str):
     """執行完整 self-loop E2E 測試（含所有 11 項測試）。"""
@@ -287,8 +293,8 @@ async def cmd_run(cycles: int, focus_area: str):
     logger.info("E2E Test Results:")
     passed = 0
     for name, ok in results.items():
-        status = "PASS" if ok else "FAIL"
-        logger.info("  [%s] %s", status, name)
+        _status = "PASS" if ok else "FAIL"
+        logger.info("  [%s] %s", _status, name)
         if ok:
             passed += 1
     logger.info("\nTotal: %d/%d passed", passed, len(results))
@@ -296,20 +302,26 @@ async def cmd_run(cycles: int, focus_area: str):
 
     report_path = Path(__file__).parent / "e2e_test_report.json"
     with open(report_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "timestamp": _ts(),
-            "cycles": cycles,
-            "focus_area": focus_area,
-            "results": {k: bool(v) for k, v in results.items()},
-            "passed": passed,
-            "total": len(results),
-        }, f, indent=2, ensure_ascii=False)
+        json.dump(
+            {
+                "timestamp": _ts(),
+                "cycles": cycles,
+                "focus_area": focus_area,
+                "results": {k: bool(v) for k, v in results.items()},
+                "passed": passed,
+                "total": len(results),
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
     logger.info("Report saved to %s", report_path)
 
     return passed == len(results)
 
 
 # ── Individual test functions (from _test_real_selfloop.py) ───────────────────
+
 
 async def _test_component_initialization():
     from openalpha_brain.config.config import settings
@@ -458,8 +470,12 @@ async def _test_brain_submission(expression: str):
 
     logger.info(
         "BRAIN result: status=%s sharpe=%s fitness=%s turnover=%s passed=%s alpha_id=%s",
-        gate.simulation_status, gate.sharpe, gate.fitness,
-        gate.turnover, gate.passed, gate.alpha_id,
+        gate.simulation_status,
+        gate.sharpe,
+        gate.fitness,
+        gate.turnover,
+        gate.passed,
+        gate.alpha_id,
     )
     return gate
 
@@ -476,7 +492,9 @@ async def _test_garch_and_overfit(brain_gate):
         garch_result = estimate_garch11(pnl_curve)
         logger.info(
             "GARCH: persistence=%.4f half_life=%.1f is_clustering=%s",
-            garch_result.persistence, garch_result.half_life, garch_result.is_clustering,
+            garch_result.persistence,
+            garch_result.half_life,
+            garch_result.is_clustering,
         )
 
     is_sharpe = brain_gate.sharpe if brain_gate else None
@@ -485,13 +503,16 @@ async def _test_garch_and_overfit(brain_gate):
     overfit_result = detect_overfit(is_sharpe=is_sharpe, os_sharpe=os_sharpe, pnl_curve=pnl_curve)
     logger.info(
         "Overfit: is_overfit=%s is_os_decay_ratio=%.4f warnings=%s",
-        overfit_result.is_overfit, overfit_result.is_os_decay_ratio, overfit_result.warnings,
+        overfit_result.is_overfit,
+        overfit_result.is_os_decay_ratio,
+        overfit_result.warnings,
     )
     return True
 
 
 async def _test_mab_feedback(direction: str):
     from openalpha_brain.core import loop_state
+
     if loop_state._mab is None:
         logger.warning("MAB not initialized, skipping")
         return False
@@ -533,6 +554,7 @@ async def _test_signal_arbiter():
 
 async def _test_rag_retrieve(direction: str):
     from openalpha_brain.core import loop_state
+
     if loop_state._rag_engine is None or not loop_state._rag_engine.is_ready:
         logger.warning("RAG not ready, skipping")
         return False
@@ -550,6 +572,7 @@ async def _test_rag_retrieve(direction: str):
 
 async def _test_whitelist():
     from openalpha_brain.core import loop_state
+
     if loop_state._whitelist_mgr is None:
         logger.warning("Whitelist not initialized, skipping")
         return False
@@ -562,6 +585,7 @@ async def _test_whitelist():
 
 async def _test_experience_distillation():
     from openalpha_brain.core import loop_state
+
     if loop_state._experience_distiller is None:
         logger.warning("ExperienceDistiller not initialized, skipping")
         return False
@@ -571,7 +595,9 @@ async def _test_experience_distillation():
     if loop_state._reflection_engine and loop_state._failure_lib:
         try:
             cards = await loop_state._experience_distiller.distill_from_failures(
-                loop_state._reflection_engine, loop_state._failure_lib, min_occurrences=2,
+                loop_state._reflection_engine,
+                loop_state._failure_lib,
+                min_occurrences=2,
             )
             logger.info("Distilled %d cards from failures", len(cards))
         except (OSError, ValueError, RuntimeError) as e:
@@ -580,7 +606,8 @@ async def _test_experience_distillation():
     if loop_state._logic_library:
         try:
             evidence_cards = await loop_state._experience_distiller.distill_from_evidence(
-                loop_state._logic_library, min_evidence=3,
+                loop_state._logic_library,
+                min_evidence=3,
             )
             logger.info("Distilled %d cards from evidence", len(evidence_cards))
         except (OSError, ValueError, RuntimeError) as e:
@@ -618,14 +645,15 @@ async def _test_full_selfloop(cycles: int, focus_area: str):
     )
 
     from openalpha_brain.core import loop_state
+
     logger.info("Algo call stats: %s", loop_state._algo_call_counts)
 
-    assert len(loop_state._algo_call_counts) > 1, \
-        f"Too few algorithms called: {loop_state._algo_call_counts}"
+    assert len(loop_state._algo_call_counts) > 1, f"Too few algorithms called: {loop_state._algo_call_counts}"
     return True
 
 
 # ── Sub-command: mine (real mining session via HTTP API) ─────────────────────
+
 
 async def cmd_mine(focus_area: str, wait_seconds: int):
     """透過 HTTP API 啟動真實採礦 session，等待指定秒數後回報結果。"""
@@ -665,6 +693,7 @@ async def cmd_mine(focus_area: str, wait_seconds: int):
 
 
 # ── Sub-command: full (complete diagnostic pipeline) ─────────────────────────
+
 
 async def cmd_full():
     """完整診斷流程: 初始化 → LLM 生成 → 解析 → BRAIN 提交 → 完整 Loop。"""
@@ -741,7 +770,7 @@ async def cmd_full():
     logger.info("DIAGNOSTIC SUMMARY:")
     all_pass = True
     for name, ok in results.items():
-        status = "PASS" if ok else "FAIL"
+        _status = "PASS" if ok else "FAIL"
         symbol = "OK" if ok else "XX"
         logger.info("  [%s] %s", symbol, name)
         if not ok:
@@ -751,17 +780,23 @@ async def cmd_full():
 
     report_path = Path(__file__).parent / "diagnostic_report.json"
     with open(report_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "timestamp": _ts(),
-            "diagnostic_results": {k: bool(v) for k, v in results.items()},
-            "overall_pass": all_pass,
-        }, f, indent=2, ensure_ascii=False)
+        json.dump(
+            {
+                "timestamp": _ts(),
+                "diagnostic_results": {k: bool(v) for k, v in results.items()},
+                "overall_pass": all_pass,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
     logger.info("Diagnostic report saved to %s", report_path)
 
     return all_pass
 
 
 # ── CLI Argument Parser ──────────────────────────────────────────────────────
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -805,6 +840,7 @@ Examples:
 
 
 # ── Main Entry Point ─────────────────────────────────────────────────────────
+
 
 async def main():
     parser = build_parser()

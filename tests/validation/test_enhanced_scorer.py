@@ -14,21 +14,17 @@
 """
 
 import pytest
-import math
 
 from openalpha_brain.validation.official_scorer import (
-    OfficialScoringAdapter,
-    ScoreReport,
-    AdvancedMetrics,
     ICIRMetrics,
     MultiFacetedReward,
-    BRAIN_THRESHOLDS,
+    OfficialScoringAdapter,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════
 # Test Fixtures
 # ══════════════════════════════════════════════════════════════════════
+
 
 @pytest.fixture
 def scorer():
@@ -96,11 +92,7 @@ def noise_metrics():
 @pytest.fixture
 def complex_expression():
     """复杂表达式"""
-    return (
-        "group_neutralize("
-        "tanh(signed_power(rank(ts_decay_linear(ts_zscore(close, 20), 10)), 0.5)), "
-        "industry)"
-    )
+    return "group_neutralize(tanh(signed_power(rank(ts_decay_linear(ts_zscore(close, 20), 10)), 0.5)), industry)"
 
 
 @pytest.fixture
@@ -112,6 +104,7 @@ def simple_expression():
 # ══════════════════════════════════════════════════════════════════════
 # 1. ICIRMetrics 数据类测试 (10 tests)
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestICIRMetricsDataclass:
     """ICIRMetrics 数据类基本功能测试"""
@@ -198,6 +191,7 @@ class TestICIRMetricsDataclass:
 # 2. MultiFacetedReward 数据类测试 (10 tests)
 # ══════════════════════════════════════════════════════════════════════
 
+
 class TestMultiFacetedRewardDataclass:
     """MultiFacetedReward 数据类基本功能测试"""
 
@@ -243,8 +237,9 @@ class TestMultiFacetedRewardDataclass:
         )
         d = reward.to_dict()
         assert len(d) == 6
-        assert all(k in d for k in ["signal_quality", "stability", "efficiency",
-                                    "uniqueness", "simplicity", "total_reward"])
+        assert all(
+            k in d for k in ["signal_quality", "stability", "efficiency", "uniqueness", "simplicity", "total_reward"]
+        )
 
     def test_is_efficient_alpha_true(self):
         """efficiency > 0.3 应返回 True"""
@@ -283,11 +278,11 @@ class TestMultiFacetedRewardDataclass:
 
         # 手动验证 total_reward 在合理范围内
         expected_min = (
-            MultiFacetedReward.WEIGHTS["signal_quality"] * reward.signal_quality +
-            MultiFacetedReward.WEIGHTS["stability"] * reward.stability +
-            MultiFacetedReward.WEIGHTS["efficiency"] * reward.efficiency +
-            MultiFacetedReward.WEIGHTS["uniqueness"] * reward.uniqueness -
-            MultiFacetedReward.WEIGHTS["simplicity"] * reward.simplicity
+            MultiFacetedReward.WEIGHTS["signal_quality"] * reward.signal_quality
+            + MultiFacetedReward.WEIGHTS["stability"] * reward.stability
+            + MultiFacetedReward.WEIGHTS["efficiency"] * reward.efficiency
+            + MultiFacetedReward.WEIGHTS["uniqueness"] * reward.uniqueness
+            - MultiFacetedReward.WEIGHTS["simplicity"] * reward.simplicity
         )
 
         # 允许小的浮点误差
@@ -297,6 +292,7 @@ class TestMultiFacetedRewardDataclass:
 # ══════════════════════════════════════════════════════════════════════
 # 3. infer_icir_metrics 方法测试 (10 tests)
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestInferICIRMetrics:
     """ICIR 推断方法测试"""
@@ -374,6 +370,7 @@ class TestInferICIRMetrics:
 # 4. compute_multi_faceted_reward 方法测试 (10 tests)
 # ══════════════════════════════════════════════════════════════════════
 
+
 class TestComputeMultiFacetedReward:
     """多面奖励函数测试"""
 
@@ -423,14 +420,12 @@ class TestComputeMultiFacetedReward:
 
         assert result_unique.uniqueness > result_common.uniqueness
 
-    def test_simplicity_penalty_for_complex_expression(self, scorer, perfect_metrics, complex_expression, simple_expression):
+    def test_simplicity_penalty_for_complex_expression(
+        self, scorer, perfect_metrics, complex_expression, simple_expression
+    ):
         """复杂表达式应有更高的 complexity penalty"""
-        result_complex = scorer.compute_multi_faceted_reward(
-            perfect_metrics, expr=complex_expression
-        )
-        result_simple = scorer.compute_multi_faceted_reward(
-            perfect_metrics, expr=simple_expression
-        )
+        result_complex = scorer.compute_multi_faceted_reward(perfect_metrics, expr=complex_expression)
+        result_simple = scorer.compute_multi_faceted_reward(perfect_metrics, expr=simple_expression)
 
         assert result_complex.simplicity >= result_simple.simplicity
 
@@ -454,6 +449,7 @@ class TestComputeMultiFacetedReward:
 # ══════════════════════════════════════════════════════════════════════
 # 5. multi_layer_evaluate 增强测试 (5 tests)
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestMultiLayerEvaluateEnhanced:
     """增强的多层评估决策测试"""
@@ -495,31 +491,32 @@ class TestMultiLayerEvaluateEnhanced:
 # 6. ScoreReport 向后兼容性测试 (5 tests)
 # ══════════════════════════════════════════════════════════════════════
 
+
 class TestScoreReportBackwardCompatibility:
     """ScoreReport 向后兼容性测试"""
 
     def test_basic_fields_present(self, scorer, perfect_metrics):
         """基本字段应仍然存在"""
         report = scorer.compute_score(perfect_metrics)
-        assert hasattr(report, 'overall_score')
-        assert hasattr(report, 'grade')
-        assert hasattr(report, 'breakdown')
-        assert hasattr(report, 'passed')
-        assert hasattr(report, 'details')
-        assert hasattr(report, 'improvement_hints')
+        assert hasattr(report, "overall_score")
+        assert hasattr(report, "grade")
+        assert hasattr(report, "breakdown")
+        assert hasattr(report, "passed")
+        assert hasattr(report, "details")
+        assert hasattr(report, "improvement_hints")
 
     def test_v1_fields_still_work(self, scorer, perfect_metrics):
         """v1.0 的增强字段应仍然工作"""
         report = scorer.compute_score(perfect_metrics)
-        assert hasattr(report, 'advanced_metrics')
-        assert hasattr(report, 'multi_layer_result')
-        assert hasattr(report, 'factor_profile')
+        assert hasattr(report, "advanced_metrics")
+        assert hasattr(report, "multi_layer_result")
+        assert hasattr(report, "factor_profile")
 
     def test_v2_new_fields_exist(self, scorer, perfect_metrics):
         """v2.0 的新字段应存在"""
         report = scorer.compute_score(perfect_metrics)
-        assert hasattr(report, 'icir_metrics')
-        assert hasattr(report, 'multi_faceted_reward')
+        assert hasattr(report, "icir_metrics")
+        assert hasattr(report, "multi_faceted_reward")
 
     def test_icir_metrics_not_none_for_valid_input(self, scorer, perfect_metrics):
         """有效输入的 icir_metrics 不应为 None"""
@@ -544,6 +541,7 @@ class TestScoreReportBackwardCompatibility:
 # ══════════════════════════════════════════════════════════════════════
 # 7. 辅助方法测试 (5+ tests)
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestEstimateUniqueness:
     """_estimate_uniqueness 方法测试"""
@@ -631,6 +629,7 @@ class TestEstimateComplexityPenalty:
 # ══════════════════════════════════════════════════════════════════════
 # 8. 集成场景测试 (额外补充)
 # ══════════════════════════════════════════════════════════════════════
+
 
 class TestIntegrationScenarios:
     """端到端集成场景测试"""

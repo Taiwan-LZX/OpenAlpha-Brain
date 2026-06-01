@@ -13,14 +13,14 @@ Unit tests for ResultRouter (Pipeline Stage 1)
   7. AdaptiveNeutralizer 记录
   8. 边界情况和空值处理
 """
+
 from __future__ import annotations
 
-import asyncio
-import pytest
-from dataclasses import dataclass
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
-from openalpha_brain.core.result_router import ResultRouter, ParsedWQResult
+import pytest
+
+from openalpha_brain.core.result_router import ParsedWQResult, ResultRouter
 
 
 @pytest.fixture
@@ -146,8 +146,15 @@ class TestParsedWQResult:
         log_dict = result.to_log_dict()
 
         expected_keys = {
-            "task_id", "expr", "sharpe", "passed", "fitness",
-            "is_stable", "anti_fit_score", "official_score", "error",
+            "task_id",
+            "expr",
+            "sharpe",
+            "passed",
+            "fitness",
+            "is_stable",
+            "anti_fit_score",
+            "official_score",
+            "error",
         }
         assert set(log_dict.keys()) >= expected_keys
         assert len(log_dict) >= 13
@@ -349,8 +356,12 @@ class TestResultRouterWithScorer:
         mock_report.improvement_hints = ["increase turnover margin"]
         mock_report.icir_metrics = MagicMock(ic=0.08, ir=1.5, icir=0.12, predicted_fitness=1.2, confidence=0.85)
         mock_report.multi_faceted_reward = MagicMock(
-            signal_quality=0.9, stability=0.8, efficiency=0.7,
-            uniqueness=0.85, total_reward=0.81, is_efficient_alpha=True,
+            signal_quality=0.9,
+            stability=0.8,
+            efficiency=0.7,
+            uniqueness=0.85,
+            total_reward=0.81,
+            is_efficient_alpha=True,
         )
         mock_report.multi_layer_result = {
             "is_high_icir_low_fitness": False,
@@ -419,6 +430,7 @@ class TestResultRouterErrorHandling:
     @pytest.mark.asyncio
     async def test_slot_info_minimal(self, base_router):
         """测试最小化 slot_info 的容错"""
+
         class MinimalSlot:
             expression = "min_expr"
 
@@ -482,8 +494,9 @@ class TestResultRouterNeutralizerRecording:
         """测试 adaptive_neutralizer 为 None 时不崩溃"""
         parsed = ParsedWQResult(task_id="t3", expression="test")
 
-        should_not_raise = lambda: base_router.record_neutralizer_outcome(parsed)
-        should_not_raise()  # 不应该抛出异常
+        def _should_not_raise():
+            base_router.record_neutralizer_outcome(parsed)
+        _should_not_raise()  # 不应该抛出异常
 
     def test_record_neutralizer_exception(self, base_router):
         """测试 neutralizer 异常时的容错"""
@@ -493,8 +506,9 @@ class TestResultRouterNeutralizerRecording:
         router = ResultRouter(adaptive_neutralizer=mock_neutralizer)
         parsed = ParsedWQResult(task_id="t4", expression="test")
 
-        should_not_raise = lambda: router.record_neutralizer_outcome(parsed)
-        should_not_raise()  # 不应该抛出异常
+        def _should_not_raise():
+            router.record_neutralizer_outcome(parsed)
+        _should_not_raise()  # 不应该抛出异常
 
 
 class TestResultRouterCycleNum:
@@ -521,7 +535,7 @@ class TestResultRouterCycleNum:
         }
 
         router = ResultRouter(stability_guard=mock_guard, cycle_num=7)
-        result = await router.route(mock_slot_info, mock_brain_result)
+        _result = await router.route(mock_slot_info, mock_brain_result)
 
         call_kwargs = mock_guard.evaluate_and_guard.call_args[1]
         assert call_kwargs["cycle"] == 7

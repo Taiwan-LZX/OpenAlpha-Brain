@@ -11,26 +11,25 @@ Tests cover:
 
 Run: pytest tests/test_ea_search.py -v
 """
-import asyncio
+
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from openalpha_brain.evolution.ea_search import (
-    EASearchStrategy,
     EAConfig,
-    FactorIndividual,
     EAMutationType,
+    EASearchStrategy,
+    FactorIndividual,
     extract_block_a,
     extract_block_c,
-    swap_block_a,
     mutate_operator,
+    swap_block_a,
     tune_parameter,
 )
 
-
 SEED_EXPR = (
-    "ts_decay_linear(group_neutralize("
-    "-rank(signed_power(ts_zscore(returns / bookvalue_ps, 20), 2)), sector), 10)"
+    "ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(returns / bookvalue_ps, 20), 2)), sector), 10)"
 )
 
 SIMPLE_EXPR = "ts_decay_linear(group_neutralize(rank(close/volume), sector), 10)"
@@ -230,6 +229,7 @@ class TestInitializeDependencies:
         self.strategy.initialize_dependencies()
         assert self.strategy._near_pass is not None
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         assert isinstance(self.strategy._near_pass, NearPassImprover)
 
     def test_initialize_with_custom_near_pass(self):
@@ -249,6 +249,7 @@ class TestInitializePopulation:
     def setup_method(self):
         self.strategy = EASearchStrategy(population_size=8)
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     @pytest.mark.asyncio
@@ -287,6 +288,7 @@ class TestMutation:
     def setup_method(self):
         self.strategy = EASearchStrategy(llm_mutation_prob=0.0)
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     @pytest.mark.asyncio
@@ -313,8 +315,11 @@ class TestMutation:
     async def test_mutation_type_set_correctly(self):
         parent = FactorIndividual(expression=SIMPLE_EXPR, fitness=0.5)
         offspring = await self.strategy._mutate(parent)
-        valid_types = {EAMutationType.OPERATOR_SWAP, EAMutationType.PARAMETER_TUNE,
-                       EAMutationType.NEAR_PASS_DETERMINISTIC}
+        valid_types = {
+            EAMutationType.OPERATOR_SWAP,
+            EAMutationType.PARAMETER_TUNE,
+            EAMutationType.NEAR_PASS_DETERMINISTIC,
+        }
         for child in offspring:
             assert child.mutation_type in valid_types
 
@@ -325,6 +330,7 @@ class TestLLMMutation:
     def setup_method(self):
         self.strategy = EASearchStrategy(llm_mutation_prob=1.0)
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     @pytest.mark.asyncio
@@ -368,6 +374,7 @@ class TestCrossover:
     def setup_method(self):
         self.strategy = EASearchStrategy()
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     def test_successful_crossover(self):
@@ -408,17 +415,12 @@ class TestSelection:
     def setup_method(self):
         self.strategy = EASearchStrategy(population_size=6, elite_ratio=0.33)
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     def test_elites_preserved(self):
-        population = [
-            FactorIndividual(expression=f"expr_{i}", fitness=float(i * 0.1))
-            for i in range(6)
-        ]
-        offspring = [
-            FactorIndividual(expression=f"child_{i}", fitness=0.05)
-            for i in range(4)
-        ]
+        population = [FactorIndividual(expression=f"expr_{i}", fitness=float(i * 0.1)) for i in range(6)]
+        offspring = [FactorIndividual(expression=f"child_{i}", fitness=0.05) for i in range(4)]
         next_gen = self.strategy._select(population, offspring)
         elite_count = int(6 * 0.33)
         elites = next_gen[:elite_count]
@@ -431,10 +433,7 @@ class TestSelection:
         assert len(next_gen) == 6
 
     def test_better_offspring_can_enter_population(self):
-        population = [
-            FactorIndividual(expression=f"expr_{i}", fitness=0.1 + i * 0.05)
-            for i in range(6)
-        ]
+        population = [FactorIndividual(expression=f"expr_{i}", fitness=0.1 + i * 0.05) for i in range(6)]
         strong_offspring = [FactorIndividual(expression="super", fitness=0.9)]
         next_gen = self.strategy._select(population, strong_offspring)
         best = max(next_gen, key=lambda x: x.fitness)
@@ -453,10 +452,7 @@ class TestDiversity:
         self.strategy = EASearchStrategy()
 
     def test_identical_population_low_diversity(self):
-        population = [
-            FactorIndividual(expression=SIMPLE_EXPR, fitness=0.5)
-            for _ in range(5)
-        ]
+        population = [FactorIndividual(expression=SIMPLE_EXPR, fitness=0.5) for _ in range(5)]
         div = self.strategy._compute_diversity(population)
         assert div < 0.1, "Identical expressions should yield near-zero diversity"
 
@@ -524,6 +520,7 @@ class TestFullSearchLoop:
             timeout_seconds=30,
         )
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     @pytest.mark.asyncio
@@ -579,6 +576,7 @@ class TestFullSearchLoop:
     async def test_timeout_respected(self):
         slow_strategy = EASearchStrategy(timeout_seconds=1, max_generations=100)
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         slow_strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
         best, history = await slow_strategy.search(
             seed_expression=SIMPLE_EXPR,
@@ -593,6 +591,7 @@ class TestSubmitAndEval:
     def setup_method(self):
         self.strategy = EASearchStrategy()
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     @pytest.mark.asyncio
@@ -620,6 +619,7 @@ class TestInjectRandomDiversity:
     def setup_method(self):
         self.strategy = EASearchStrategy()
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self.strategy.initialize_dependencies(near_pass_improver=NearPassImprover())
 
     @pytest.mark.asyncio
