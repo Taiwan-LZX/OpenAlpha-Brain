@@ -6,13 +6,14 @@ import random
 import threading
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
+from openalpha_brain.utils.algo_logger import Timer, algo_log
 from openalpha_brain.utils.paper_edge_enhancements import compute_structural_novelty_score
 
 logger = logging.getLogger(__name__)
@@ -92,9 +93,7 @@ class GridArchive:
             if not self._valid_behavior(behavior):
                 return False
             cell = self._get_or_create_cell(behavior)
-            if len(cell.elites) < self._elite_capacity:
-                admitted = True
-            elif fitness > cell.worst_elite_fitness():
+            if len(cell.elites) < self._elite_capacity or fitness > cell.worst_elite_fitness():
                 admitted = True
             else:
                 return False
@@ -476,9 +475,7 @@ class FeatureMap:
                 return False
 
             worst_fitness = cell.worst_elite_fitness()
-            if len(cell.elites) < self.ELITE_CAPACITY:
-                admitted = True
-            elif fitness_score > worst_fitness:
+            if len(cell.elites) < self.ELITE_CAPACITY or fitness_score > worst_fitness:
                 admitted = True
             else:
                 admitted = False

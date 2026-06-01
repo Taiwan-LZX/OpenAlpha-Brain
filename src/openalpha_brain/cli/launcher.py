@@ -30,7 +30,6 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
 
 try:
     from rich.console import Console
@@ -42,7 +41,6 @@ except ImportError:
 
 from openalpha_brain.config.config import settings
 from openalpha_brain.services import brain_client
-
 
 if RICH_AVAILABLE:
     console = Console()
@@ -68,9 +66,9 @@ class CheckReport:
 class LLMStatus:
     """LLM service detection result."""
     available: bool = False
-    model_name: Optional[str] = None
-    endpoint: Optional[str] = None
-    error: Optional[str] = None
+    model_name: str | None = None
+    endpoint: str | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -80,7 +78,7 @@ class WQStatus:
     alpha_count: int = 0
     active_simulations: int = 0
     slots_available: int = 3
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
@@ -88,7 +86,7 @@ class PipelineStatus:
     """Pipeline loading result."""
     ready: bool = False
     components: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def _setup_logging() -> Path:
@@ -123,17 +121,17 @@ class BrainLauncher:
     """
 
     def __init__(self) -> None:
-        self._log_file: Optional[Path] = None
+        self._log_file: Path | None = None
         self._shutdown_event: asyncio.Event = asyncio.Event()
         self._stop_requested: bool = False
         self._cycle_count: int = 0
-        self._session_id: Optional[str] = None
+        self._session_id: str | None = None
         logger = logging.getLogger("openalpha.launcher")
 
     async def run(
         self,
-        focus_area: Optional[str] = None,
-        max_cycles: Optional[int] = None,
+        focus_area: str | None = None,
+        max_cycles: int | None = None,
         web_mode: bool = False,
     ) -> int:
         """
@@ -264,7 +262,7 @@ class BrainLauncher:
         datafields_path = data_dir / "brain_datafields.json"
 
         if operators_path.exists():
-            with open(operators_path, "r", encoding="utf-8") as f:
+            with open(operators_path, encoding="utf-8") as f:
                 operators = json.load(f)
             op_count = len(operators) if isinstance(operators, list) else len(operators.get("operators", []))
             if op_count >= 66:
@@ -280,7 +278,7 @@ class BrainLauncher:
             _print("❌", msg)
 
         if datafields_path.exists():
-            with open(datafields_path, "r", encoding="utf-8") as f:
+            with open(datafields_path, encoding="utf-8") as f:
                 datafields = json.load(f)
             df_count = len(datafields) if isinstance(datafields, list) else len(datafields.get("data", []))
             if df_count >= 7000:
@@ -342,7 +340,7 @@ class BrainLauncher:
                 status.error = f"LM Studio returned HTTP {resp.status_code}"
                 _print("❌", status.error)
 
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as exc:
             status.error = str(exc)
             _print("⚠️", f"Cannot connect to LM Studio: {exc}")
             _print("💡", "Attempting to start LM Studio...")
@@ -509,8 +507,8 @@ class BrainLauncher:
 
     async def run_main_loop(
         self,
-        focus_area: Optional[str] = None,
-        max_cycles: Optional[int] = None,
+        focus_area: str | None = None,
+        max_cycles: int | None = None,
     ) -> int:
         """
         Phase 5: Run the autonomous mining loop with self-healing.
@@ -655,7 +653,7 @@ class BrainLauncher:
             self._shutdown_event.set()
             _print("\n\n⚠️", "Shutdown requested. Finishing current cycle...")
 
-    def _print_heartbeat(self, cycle: int, limit: Optional[int]) -> None:
+    def _print_heartbeat(self, cycle: int, limit: int | None) -> None:
         """Print periodic status summary."""
         now = datetime.now().strftime("%H:%M:%S")
         limit_str = str(limit) if limit else "∞"
@@ -718,6 +716,7 @@ class BrainLauncher:
     async def _launch_web(self) -> int:
         """Launch FastAPI web dashboard mode."""
         import uvicorn
+
         from openalpha_brain.cli.main import app
 
         _print("🌐", "Launching Web Dashboard Mode")

@@ -22,12 +22,12 @@ import hashlib
 import json
 import logging
 import time
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from pathlib import Path
-from typing import Any, Optional
 
-from openalpha_brain.utils.algo_logger import algo_log
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
+from openalpha_brain.utils.algo_logger import algo_log
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ class NeutralizationExperienceTracker:
     @algo_log()
     def get_best_level_for_category(
         self, category: str, min_trials: int = 3
-    ) -> Optional[str]:
+    ) -> str | None:
         try:
             levels = DEFAULT_CONFIG["neutralization_levels"]
             candidates: list[tuple[str, NeutralizationExperience]] = []
@@ -223,7 +223,7 @@ class NeutralizationExperienceTracker:
             if not path.exists():
                 logger.info("[ADAPT-NEUT] No experience file at %s, starting fresh", path)
                 return
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
 
             self._experiences.clear()
@@ -255,7 +255,7 @@ class NeutralizationExperienceTracker:
 
 
 class EhsaniConditionEvaluator:
-    def __init__(self, config: Optional[dict] = None) -> None:
+    def __init__(self, config: dict | None = None) -> None:
         self._config = config or DEFAULT_CONFIG
         self._rho = self._config.get("ehsani_correlation_estimate", 0.7)
 
@@ -346,7 +346,7 @@ class EhsaniConditionEvaluator:
 
 
 class AdaptiveNeutralizer:
-    def __init__(self, experience_path: Path, config: Optional[dict] = None) -> None:
+    def __init__(self, experience_path: Path, config: dict | None = None) -> None:
         self._config = config or DEFAULT_CONFIG
         self._experience_path = Path(experience_path)
         self._tracker = NeutralizationExperienceTracker()
@@ -633,7 +633,7 @@ class AdaptiveNeutralizer:
         return default_info.get("default_level", "industry")
 
     @staticmethod
-    def _next_finer(current: str) -> Optional[str]:
+    def _next_finer(current: str) -> str | None:
         finer_map = {
             "none": "industry",
             "industry": "subindustry",
@@ -645,7 +645,7 @@ class AdaptiveNeutralizer:
 
 
 def create_adaptive_neutralizer(
-    experience_path: Path, config: Optional[dict] = None
+    experience_path: Path, config: dict | None = None
 ) -> AdaptiveNeutralizer:
     """Factory function for creating an AdaptiveNeutralizer instance."""
     return AdaptiveNeutralizer(experience_path=experience_path, config=config)

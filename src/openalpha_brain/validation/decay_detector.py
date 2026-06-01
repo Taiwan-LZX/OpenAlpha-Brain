@@ -263,7 +263,7 @@ class AlphaDecayDetector:
 
         try:
             pnl_curve = await self._fetch_pnl(alpha_id)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError):
             pnl_curve = None
 
         garch_anomaly = False
@@ -508,7 +508,7 @@ async def create_alpha_decay_handler(
             if multi_agent_orchestrator is not None:
                 try:
                     blacklist_dirs = [direction] if direction else []
-                    setattr(multi_agent_orchestrator, '_decay_blacklisted_dirs', blacklist_dirs)
+                    multi_agent_orchestrator._decay_blacklisted_dirs = blacklist_dirs
                     logger.info("decay_handler: L3 DIR_LIGHT - blacklist prompt injected for IdeaAgent")
                 except (AttributeError, OSError, RuntimeError) as exc:
                     logger.warning("decay_handler: prompt injection failed: %s", exc)

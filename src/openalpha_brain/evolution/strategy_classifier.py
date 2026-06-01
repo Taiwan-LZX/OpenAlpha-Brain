@@ -6,15 +6,15 @@ import logging
 import math
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
-from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Awaitable, Optional, cast
+from typing import cast
 
 import numpy as np
 
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +279,6 @@ class StrategyClassifier:
 
     @algo_log(log_args_to_skip=("self",))
     async def _llm_calibrate_classification(self, expression: str, rule_result: StrategyProfile) -> StrategyProfile:
-        import asyncio
         eid = None
         try:
             eid = await self._tel.record_enter("StrategyClassifier", cycle_id="unknown", expr_id=hash(expression) % 10000)
@@ -298,7 +297,7 @@ class StrategyClassifier:
                     self._llm_generate_fn(prompt),
                     timeout=12.0,
                 )
-            except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 logger.warning("[STRAT-CLASS-LLM] LLM call failed or timed out (12s), returning rule-based result unchanged")
                 ms = (time.perf_counter() - t0) * 1000
                 try:
@@ -469,9 +468,7 @@ class StrategyClassifier:
             for h in ["short", "medium", "long"]:
                 if h not in covered_horizons:
                     horizon_score = 0.45
-                    if h == "long" and "short" in covered_horizons:
-                        horizon_score += 0.12
-                    elif h == "short" and "long" in covered_horizons:
+                    if h == "long" and "short" in covered_horizons or h == "short" and "long" in covered_horizons:
                         horizon_score += 0.12
                     relevance_score = min(1.0, horizon_score)
                     suggestions.append({

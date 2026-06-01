@@ -255,7 +255,7 @@ async def record_pass_feedback(
                 await tel.record_exit("BrainResultProcessor", eid, metrics={"reward_applied": True}, duration_ms=ms)
             except (OSError, ValueError, RuntimeError):
                 pass
-    except (Exception,) as e:
+    except Exception as e:
         if eid:
             try:
                 await tel.record_error("BrainResultProcessor", str(e), type(e).__name__)
@@ -869,7 +869,7 @@ async def record_fail_feedback(
             await tel.record_exit("BrainResultProcessor", eid, metrics={"penalty_applied": True}, duration_ms=ms)
         except (OSError, ValueError, RuntimeError):
             pass
-    except (Exception,) as e:
+    except Exception as e:
         if eid:
             try:
                 await tel.record_error("BrainResultProcessor", str(e), type(e).__name__)

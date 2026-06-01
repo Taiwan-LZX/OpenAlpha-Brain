@@ -17,12 +17,13 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Callable, Awaitable, Any
+from typing import Any
 
-from openalpha_brain.utils.algo_logger import algo_log
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
+from openalpha_brain.utils.algo_logger import algo_log
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +90,8 @@ class NearPassImprover:
     def set_llm_generate_fn(self, fn: Callable[..., Awaitable]) -> None:
         self._llm_generate_fn = fn
 
-    def analyze(self, sharpe: float, fitness: float, turnover: Optional[float] = None,
-                checks: Optional[list] = None) -> NearPassAnalysis:
+    def analyze(self, sharpe: float, fitness: float, turnover: float | None = None,
+                checks: list | None = None) -> NearPassAnalysis:
         eid = None
         try:
             eid = self._tel.record_enter_sync("NearPassImprover", cycle_id="unknown", expr_id=hash(str(sharpe) + str(fitness)) % 10000)
@@ -250,7 +251,7 @@ class NearPassImprover:
                 except (OSError, ValueError, RuntimeError):
                     pass
                 return result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("[NEAR-PASS-LLM] LLM timed out after 10s, using original order")
                 ms = (time.perf_counter() - t0) * 1000
                 try:

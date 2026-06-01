@@ -21,19 +21,21 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Awaitable, Optional
+from typing import Any
 
 import numpy as np
 
 from openalpha_brain.knowledge.vector_index import VectorStore
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
+from openalpha_brain.utils.algo_logger import Timer, algo_log
 
 logger = logging.getLogger(__name__)
 
 from openalpha_brain.data import VEC_STORE_DIR as _DEFAULT_VEC_DIR
+
 _CACHE_TTL = 300
 FIELD_RETRIEVAL_OVERFETCH_FACTOR = 2
 FEEDBACK_BOOST_STANDARD = 1.3
@@ -449,7 +451,7 @@ class FactorContext:
         metrics_snapshot: 当前指标快照
     """
     current_expression: str = ""
-    failure_type: Optional[str] = None
+    failure_type: str | None = None
     field_family_in_use: str = ""
     recent_history: list = field(default_factory=list)
     metrics_snapshot: dict = field(default_factory=dict)
@@ -518,7 +520,7 @@ class SuccessCaseLibrary:
             "turnover": turnover,
             "direction": direction,
             "session_id": session_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         try:
             vec = await self._embed(f"{hypothesis} {expr}")
@@ -616,7 +618,7 @@ class FailureFixLibrary:
             "fix_success": fix_success,
             "direction": direction,
             "session_id": session_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         try:
             vec = await self._embed(f"{failure_type} {expr}")
@@ -770,7 +772,7 @@ class ExperienceReplayManager:
         with Timer("exp_replay_record"):
             card = ExperienceCard(
                 card_id=str(uuid.uuid4()),
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
                 failure_type=failure_type,
                 expression_structure=expression_structure or self._extract_structure_fingerprint(before_expr),
                 field_family=field_family or self._extract_field_family(before_expr),
@@ -989,7 +991,7 @@ class ExperienceReplayManager:
             try:
                 data = {
                     "version": "1.0.0",
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                     "total_cards": len(self._cards),
                     "cards": [
                         {

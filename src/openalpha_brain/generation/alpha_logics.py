@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 from openalpha_brain.cli.algo_monitor import AlgoMonitor
 from openalpha_brain.data import get_data_path
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
+from openalpha_brain.utils.algo_logger import algo_log, log_call
 from openalpha_brain.validation.ast_validator import ASTValidator
 
 _monitor = AlgoMonitor.get_instance()
@@ -808,16 +808,15 @@ class AlphaLogicLibrary:
                 if logic.category in categories:
                     if logic.factor_templates:
                         templates.extend(logic.factor_templates)
-            
+
             import logging
             _logger = logging.getLogger(__name__)
-            
+
             if adaptive_weights and len(templates) > 1:
                 _logger.info(
                     "[ADAPT-NEUT-WEIGHT] Templates BEFORE sorting: %s",
                     [t[:60] for t in templates[:10]],
                 )
-                import random
                 weighted = [(t, adaptive_weights.get(t, 1.0)) for t in templates]
                 total_weight = sum(w for _, w in weighted)
                 if total_weight > 0:
@@ -918,7 +917,7 @@ class AlphaLogicLibrary:
                 )
                 self._logics[child_id] = child
                 split_count += 1
-            logic.evidence_records = [{"split_into": [f"{lid}_{k.split('|')[0]}_{k.split('|')[1]}".replace(" ", "_").lower() for k in sub_patterns.keys()]}]
+            logic.evidence_records = [{"split_into": [f"{lid}_{k.split('|')[0]}_{k.split('|')[1]}".replace(" ", "_").lower() for k in sub_patterns]}]
 
         all_logics = list(self._logics.values())
         to_merge: list[tuple[str, str]] = []
@@ -1055,8 +1054,8 @@ class AlphaLogicLibrary:
                 lid: logic.to_dict()
                 for lid, logic in self._logics.items()
             }
-            import tempfile
             import shutil
+            import tempfile
             fd, tmp_path = tempfile.mkstemp(
                 suffix=".json.tmp",
                 dir=str(self._path.parent),

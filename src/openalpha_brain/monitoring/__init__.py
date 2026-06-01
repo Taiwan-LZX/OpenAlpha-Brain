@@ -1,7 +1,7 @@
 from openalpha_brain.monitoring.algorithm_telemetry import (
     AlgorithmTelemetryCollector,
-    ModuleTelemetryEvent,
     ModuleHealthSignal,
+    ModuleTelemetryEvent,
     telemetry_tracked,
 )
 

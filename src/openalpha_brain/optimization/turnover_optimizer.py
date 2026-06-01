@@ -275,7 +275,7 @@ class TurnoverOptimizer:
                         if v.expression not in seen_expressions and v.expression != expr:
                             seen_expressions.add(v.expression)
                             variants.append(v)
-                except (OSError, ValueError, RuntimeError) as e:
+                except (OSError, ValueError, RuntimeError):
                     pass
 
             variants.sort(key=lambda v: v.expected_to_reduction * v.confidence, reverse=True)

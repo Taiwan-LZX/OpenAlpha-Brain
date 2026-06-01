@@ -36,8 +36,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────
 
@@ -49,16 +48,16 @@ class ScoreReport:
     breakdown: dict            # {sharpe_score, fitness_score, ...}
     passed: bool               # overall >= threshold (默认 60)
     details: str = ""
-    improvement_hints: List[str] = field(default_factory=list)
+    improvement_hints: list[str] = field(default_factory=list)
 
     # 🆕 增强字段 (v1.0.0+)
-    advanced_metrics: Optional[AdvancedMetrics] = None      # 高级指标
-    multi_layer_result: Optional[dict] = None               # 多层评估结果
+    advanced_metrics: AdvancedMetrics | None = None      # 高级指标
+    multi_layer_result: dict | None = None               # 多层评估结果
     factor_profile: str = ""                                # 因子画像分类
 
     # 🆕 策略 D 字段 (v2.0.0+)
-    icir_metrics: Optional[ICIRMetrics] = None              # ICIR 推断指标
-    multi_faceted_reward: Optional[MultiFacetedReward] = None  # 多面奖励
+    icir_metrics: ICIRMetrics | None = None              # ICIR 推断指标
+    multi_faceted_reward: MultiFacetedReward | None = None  # 多面奖励
 
     def to_dict(self) -> dict:
         base = {
@@ -141,18 +140,18 @@ class AdvancedMetrics:
     可从 Sharpe/Fitness/Turnover 推断或标记为 unavailable
     """
     # IC 系列 (信息系数)
-    ic: Optional[float] = None           # Information Coefficient (Pearson)
-    rank_ic: Optional[float] = None      # Rank IC (Spearman)
-    ir: Optional[float] = None           # Information Ratio (mean_IC / std_IC)
-    icir: Optional[float] = None         # ICIR (mean_IC * sqrt(n) / std_IC)
-    rank_icir: Optional[float] = None    # Rank ICIR
+    ic: float | None = None           # Information Coefficient (Pearson)
+    rank_ic: float | None = None      # Rank IC (Spearman)
+    ir: float | None = None           # Information Ratio (mean_IC / std_IC)
+    icir: float | None = None         # ICIR (mean_IC * sqrt(n) / std_IC)
+    rank_icir: float | None = None    # Rank ICIR
 
     # 收益分解
-    quantile_returns: Optional[dict] = None  # {Q1: -2%, Q2: -0.5%, ..., Q5: 3%, spread: 5%}
+    quantile_returns: dict | None = None  # {Q1: -2%, Q2: -0.5%, ..., Q5: 3%, spread: 5%}
 
     # 稳定性指标
-    win_rate: Optional[float] = None     # 月度胜率 (>0 为正收益月份占比)
-    stability: Optional[float] = None   # IC 时间序列稳定性 (1 - CV_IC)
+    win_rate: float | None = None     # 月度胜率 (>0 为正收益月份占比)
+    stability: float | None = None   # IC 时间序列稳定性 (1 - CV_IC)
 
     # 综合诊断
     overall_diagnosis: str = ""          # 诊断结论 (如 "HIGH_SHARPE_LOW_FITNESS")
@@ -376,7 +375,7 @@ class OfficialScoringAdapter:
     def __init__(
         self,
         pass_threshold: float = DEFAULT_PASS_THRESHOLD,
-        custom_weights: Optional[Dict[str, int]] = None,
+        custom_weights: dict[str, int] | None = None,
     ) -> None:
         """
         Args:
@@ -579,7 +578,7 @@ class OfficialScoringAdapter:
             return max(0.0, 1.0 - (drawdown - 0.35) * 5)
 
     @classmethod
-    def _calc_checks_penalty(cls, checks: List[dict]) -> float:
+    def _calc_checks_penalty(cls, checks: list[dict]) -> float:
         """计算检查项扣分 (0-5)
 
         来自 alpha_checks.py AlphaCheckRegistry.evaluate() 逻辑
@@ -604,7 +603,7 @@ class OfficialScoringAdapter:
 
     def _generate_improvement_hints(
         self, metrics: dict, breakdown: dict
-    ) -> List[str]:
+    ) -> list[str]:
         """生成改进建议（来自 official_scoring.py _generate_improvement_hints）"""
         hints = []
 

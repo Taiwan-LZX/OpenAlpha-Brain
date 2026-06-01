@@ -7,15 +7,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 
-from openalpha_brain.core.models import ValidationResult
-from openalpha_brain.generation.ast_originality import OriginalityChecker
-from openalpha_brain.validation.complexity_control import ComplexityController, ComplexityMetrics
-from openalpha_brain.config.config import settings
 from openalpha_brain.cli.algo_monitor import AlgoMonitor
+from openalpha_brain.config.config import settings
+from openalpha_brain.core.models import ValidationResult
 from openalpha_brain.data import get_data_path
+from openalpha_brain.generation.ast_originality import OriginalityChecker
+from openalpha_brain.utils.algo_logger import algo_log
+from openalpha_brain.validation.complexity_control import ComplexityController
 
 logger = logging.getLogger(__name__)
 
@@ -434,23 +433,22 @@ def validate_metrics(parsed: dict) -> ValidationResult:
 
     Returns ValidationResult with any failing gates listed.
     """
-    import math
     failures: list[str] = []
     warnings: list[str] = []
     values: dict = {}
 
     metrics = parsed.get("metrics", {})
 
-    sharpe_min: Optional[float] = metrics.get("sharpe_min")
-    sharpe_max: Optional[float] = metrics.get("sharpe_max")
-    fitness_min: Optional[float] = metrics.get("fitness_min")
-    turnover_min: Optional[float] = metrics.get("turnover_min")
-    turnover_max: Optional[float] = metrics.get("turnover_max")
-    returns_pct: Optional[float] = metrics.get("returns_pct")
-    corr_risk: Optional[str] = metrics.get("corr_risk")
+    sharpe_min: float | None = metrics.get("sharpe_min")
+    sharpe_max: float | None = metrics.get("sharpe_max")
+    fitness_min: float | None = metrics.get("fitness_min")
+    turnover_min: float | None = metrics.get("turnover_min")
+    turnover_max: float | None = metrics.get("turnover_max")
+    returns_pct: float | None = metrics.get("returns_pct")
+    corr_risk: str | None = metrics.get("corr_risk")
 
-    fitness_computed: Optional[float] = None
-    fitness_breakdown: Optional[str] = None
+    fitness_computed: float | None = None
+    fitness_breakdown: str | None = None
 
     # Sharpe gate ≥ 1.25
     if sharpe_min is None:

@@ -741,7 +741,7 @@ class IdeaAgent:
                         rag_context_dict["field_ids"] = merged_fields
                     novelty = min(1.0, novelty + 0.3)
                     break
-                except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+                except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
                     logger.warning("IdeaAgent: supplementary RAG retrieval round %d failed: %s", _rag_round + 1, exc)
 
         _monitor.record("STEP", "idea_agent", "generate", hypothesis.natural_language[:80], session_id="idea_agent")
@@ -1105,7 +1105,7 @@ class FactorAgent:
             if not refined or len(refined) < 5:
                 return None
             return refined
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("FactorAgent: _refine_template_expression failed: %s", exc)
             return None
 
@@ -1146,7 +1146,7 @@ class FactorAgent:
                     operators = list(dict.fromkeys(rag_ops + (operators or [])))
                 if rag_fields:
                     fields = list(dict.fromkeys(rag_fields + (fields or [])))
-            except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+            except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
                 logger.warning("FactorAgent: RAG retrieval failed: %s", exc)
 
         if self._rag_engine and self._rag_engine.is_ready and rag_ops:
@@ -1653,7 +1653,7 @@ Return ONLY a JSON object:
                 }
         except TimeoutError:
             logger.warning("EvalAgent: LLM align check timed out after 30s")
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("EvalAgent: LLM align check failed: %s", exc)
 
         static_score = self._check_alignment(hypothesis, expression)
@@ -1712,7 +1712,7 @@ Return ONLY a JSON object:
                 is_dup = await self._llm_semantic_compare(expression, entry["expression"])
                 if is_dup:
                     semantic_duplicates.append(idx)
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
                 logger.warning("EvalAgent: LLM semantic compare failed: %s", exc)
                 if cos_sim > 0.95:
                     semantic_duplicates.append(idx)
@@ -1834,7 +1834,7 @@ Return ONLY a JSON:
                         parsed.get("changes_made", "?")[:80], simplified[:80],
                     )
                     return simplified
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("EvalAgent: LLM simplify failed: %s", exc)
         return None
 
@@ -2216,7 +2216,7 @@ Rules:
                         cleaned = cleaned[:-3].strip()
                     if cleaned and len(cleaned) >= 5:
                         revised_expr = cleaned
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
                 logger.warning("MultiAgent: revise LLM call failed r%d: %s", round_num, exc)
 
             result["revised_expressions"].append(revised_expr)

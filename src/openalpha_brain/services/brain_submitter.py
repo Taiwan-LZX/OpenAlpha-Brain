@@ -6,32 +6,22 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
 
-from openalpha_brain.services import brain_client
-from openalpha_brain.services import llm_client
-from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
-from openalpha_brain.cli import session_manager as sm
-from openalpha_brain.validation import validator as val
-from openalpha_brain.validation.validator import compute_hierarchical_reward, get_reward_level
-from openalpha_brain.validation.ast_repair import repair_expression
-from openalpha_brain.learning.param_optimizer import expression_hash
 from openalpha_brain.config.config import settings
 from openalpha_brain.core.models import (
-    AlphaFingerprint, AlphaMetrics, AlphaResult,
-    BrainSimStatus, BrainSubmissionResult,
-    PipelineStatus, SessionStatus,
+    BrainSimStatus,
+    BrainSubmissionResult,
 )
 from openalpha_brain.generation.prompts import (
-    get_system_prompt,
-    build_brain_failure_feedback,
     llm_diagnose_failure,
 )
-from openalpha_brain.validation.overfit_detector import detect_overfit
-from openalpha_brain.utils.volatility_detector import estimate_garch11
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
+from openalpha_brain.learning.param_optimizer import expression_hash
+from openalpha_brain.services import brain_client, llm_client
+from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
+from openalpha_brain.validation import validator as val
+
 try:
     from openalpha_brain.knowledge.dynamic_skill_library import DynamicSkillLibrary
     _dynamic_skill_lib: DynamicSkillLibrary | None = None
@@ -39,42 +29,37 @@ try:
 except ImportError:
     _dynamic_skill_lib = None
     _DYNAMIC_SKILL_ENABLED = False
+from openalpha_brain.agents.multi_agent import critique_revise_alpha
 from openalpha_brain.core.loop_state import (
-    MAX_BRAIN_MUTATIONS, _brain_cookies_lock, _pool,
-    _OPS_RE, _FIELDS_RE,
-    _param_optimizer, _monitor, _successful_brain_expressions,
+    MAX_BRAIN_MUTATIONS,
     _failure_lib,
-    _feature_map, _evo_db,
-    _reflection_engine, _tool_factory,
-    _algo_tick,
-    get_brain_cookies, set_brain_cookies,
-    _log, _build_global_blacklist_prompt,
+    _log,
+    _param_optimizer,
+    _successful_brain_expressions,
 )
+from openalpha_brain.evolution.crossover_mutation import _FIELD_SWAP_MAP, _OPERATOR_SWAP_MAP
 from openalpha_brain.generation.alpha_generator import (
-    _extract_expression_from_llm,
-    _extract_hallucinations_from_failures,
     _extract_brain_hallucinations,
 )
-from openalpha_brain.evolution.crossover_mutation import _OPERATOR_SWAP_MAP, _FIELD_SWAP_MAP
-from openalpha_brain.evolution.hypothesis_aligner import HypothesisAligner
-from openalpha_brain.agents.multi_agent import critique_revise_alpha
-from openalpha_brain.utils.paper_edge_enhancements import (
-    build_grammar_fallback_chain,
-    CrossAttemptTracker,
-)
-from openalpha_brain.utils.resilience import (
-    get_circuit_breaker, async_timeout, TaskHealthRegistry,
-)
 from openalpha_brain.knowledge.rag_engine import (
-    ExperienceReplayManager, FactorContext, RepairSuggestion,
+    ExperienceReplayManager,
 )
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
+from openalpha_brain.utils.resilience import (
+    async_timeout,
+    get_circuit_breaker,
+)
+
 logger = logging.getLogger(__name__)
 
 try:
     from openalpha_brain.evolution.ea_search import (
-        EASearchStrategy, EAConfig, EAMutationType, FactorIndividual,
-        extract_block_a, extract_block_c,
+        EAConfig,
+        EAMutationType,
+        EASearchStrategy,
+        FactorIndividual,
+        extract_block_a,
+        extract_block_c,
     )
     _EA_AVAILABLE = True
 except ImportError as _ea_exc:
@@ -83,7 +68,8 @@ except ImportError as _ea_exc:
 
 try:
     from openalpha_brain.evolution.tot_search import (
-        ToTSearchStrategy, ToTConfig,
+        ToTConfig,
+        ToTSearchStrategy,
     )
     _TOT_AVAILABLE = True
 except ImportError as _tot_exc:
@@ -553,7 +539,7 @@ def _apply_elite_crossover(
             if abs(elite_depth - current_depth) >= 2:
                 structural_diff += 0.15
 
-            has_new_fundamental = bool(elite_fields - current_fields & 
+            has_new_fundamental = bool(elite_fields - current_fields &
                                        {"cap", "earnings", "sales", "assets", "revenue"})
             if has_new_fundamental:
                 structural_diff += 0.10
@@ -589,7 +575,7 @@ def _apply_elite_crossover(
                 f"將根運算子從 '{current_root}' 替換為 '{elite_root}' "
                 f"(來自 Sharpe={best_elite['sharpe']:.2f} 的精英 alpha)"
             )
-            keep_parts.append(f"保留內部子表達式結構")
+            keep_parts.append("保留內部子表達式結構")
             expected_improvements.append(
                 f"運算子替換：'{current_root}'→'{elite_root}' 可能改變時序平滑特性"
             )
@@ -607,7 +593,7 @@ def _apply_elite_crossover(
                 f"引入精英 alpha 的基本面欄位：{fld_names}"
             )
             expected_improvements.append(
-                f"基本面欄位注入可能降低與價格因子的相關性"
+                "基本面欄位注入可能降低與價格因子的相關性"
             )
 
         new_price_fields = elite_fields - current_fields & \
@@ -646,7 +632,7 @@ def _apply_elite_crossover(
             return result
 
         if not keep_parts:
-            keep_parts.append(f"保留當前表達式的整體架構和中和層")
+            keep_parts.append("保留當前表達式的整體架構和中和層")
 
         result["crossover_possible"] = True
         result["elite_source"] = best_elite["expr"][:120]
@@ -905,14 +891,14 @@ Return ONLY a JSON object with the variant:
                     variant_expr[:80], parsed.get("reason", "")[:80],
                 )
                 return parsed
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
         logger.warning("dedup_mutation: LLM variant generation failed: %s", exc)
     return None
 
 
 async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
     from openalpha_brain.core import loop_state as _ls
-    from openalpha_brain.core.models import BrainSubmissionResult, BrainSimStatus
+    from openalpha_brain.core.models import BrainSimStatus, BrainSubmissionResult
 
     eid = None
     tel = AlgorithmTelemetryCollector.get_instance()
@@ -970,7 +956,7 @@ async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
                     )
                     _ls._brain_cookies = cookies
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     _auth_attempts += 1
                     if _auth_attempts >= _max_auth_retries:
                         logger.error("[%s] cycle=%d BRAIN_AUTH_TIMEOUT after %d retries", session_id, cycle_num, _max_auth_retries)
@@ -986,7 +972,7 @@ async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
                     _delay = _auth_base_delay * (2 ** (_auth_attempts - 1))
                     logger.warning("[%s] cycle=%d BRAIN_AUTH_RETRY %d/%d in %.1fs", session_id, cycle_num, _auth_attempts, _max_auth_retries, _delay)
                     await asyncio.sleep(_delay)
-                except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as e:
+                except (TimeoutError, aiohttp.ClientError, ConnectionError) as e:
                     _auth_attempts += 1
                     if _auth_attempts >= _max_auth_retries:
                         logger.error("[%s] cycle=%d BRAIN_AUTH_FAIL: %s", session_id, cycle_num, e)
@@ -1030,7 +1016,7 @@ async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
                 gate_failures=result.failures or [],
                 brain_checks=result.brain_checks,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("[%s] cycle=%d BRAIN_SUBMIT_TIMEOUT", session_id, cycle_num)
             _brain_cb.record_failure("Submit timeout")
             return BrainSubmissionResult(
@@ -1051,7 +1037,7 @@ async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
                 gate_warnings=[str(e)],
                 brain_checks=[],
             )
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as e:
             _brain_cb.record_failure(f"Submit error: {e}")
             return BrainSubmissionResult(
                 status=BrainSimStatus.ERROR,
@@ -1112,7 +1098,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
 
     best_result = initial_result
     current_expr = expression or initial_expression or ""
-    
+
     # Check if we should attempt improvements
     if getattr(initial_result, 'status', None) == BrainSimStatus.PASS:
         sharpe = getattr(initial_result, 'real_sharpe', 0) or 0
@@ -1208,7 +1194,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
         _fpm_instance = _FPM()
         if not _fpm_instance._loaded:
             _fpm_instance.load()
-    except (OSError, FileNotFoundError, ValueError) as exc:
+    except (OSError, FileNotFoundError, ValueError):
         _fpm_instance = None
 
     try:
@@ -1393,7 +1379,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
                                   "reason": reflexion_result.final_verdict.decision_reason[:100]})
                             proxy_evaluator.record_submission(new_expr)
                             continue
-                    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as refl_exc:
+                    except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as refl_exc:
                         logger.warning("[%s] cycle=%d REFLEXION_FAILED attempt=%d: %s",
                                        session_id, cycle_num, attempt + 1, refl_exc)
                         _log(session_id, "REFLEXION_FALLBACK",
@@ -1485,7 +1471,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
                                     )
                                     _graph_db_local.save()
                                     _log(session_id, "EA_EXPERIENCE_RECORDED",
-                                         f"EA result recorded to graph DB (category=near_pass/improved)",
+                                         "EA result recorded to graph DB (category=near_pass/improved)",
                                          {"cycle": cycle_num, "attempt": attempt + 1})
                                 except (OSError, ValueError, RuntimeError) as _graph_exc:
                                     logger.debug("[DEFENSIVE_LOG] EA graph_db recording failed: %s", _graph_exc)
@@ -1494,11 +1480,11 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
                                  f"EA completed but no better solution found (best_fitness={_ea_best.fitness if _ea_best else 0:.3f}), continuing standard loop",
                                  {"cycle": cycle_num, "attempt": attempt + 1})
 
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         _log(session_id, "EA_TIMEOUT",
                              f"⏰ EA search timed out after {getattr(_ea_strategy, 'config', type('', (), {'timeout_seconds': 180})).timeout_seconds}s, falling back",
                              {"cycle": cycle_num, "attempt": attempt + 1})
-                    except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError, ImportError) as exc:
+                    except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError, ImportError):
                         _log(session_id, "EA_ERROR",
                              f"EA search failed: {str(_ea_exc)[:100]}, continuing standard loop",
                              {"cycle": cycle_num, "attempt": attempt + 1, "error": str(_ea_exc)[:100]})
@@ -1581,7 +1567,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
                                     )
                                     _graph_db_tot.save()
                                     _log(session_id, "TOT_EXPERIENCE_RECORDED",
-                                         f"ToT result recorded to graph DB",
+                                         "ToT result recorded to graph DB",
                                          {"cycle": cycle_num, "attempt": attempt + 1})
                                 except (OSError, ValueError, RuntimeError) as _tot_graph_exc:
                                     logger.debug("[DEFENSIVE_LOG] ToT graph_db recording failed: %s", _tot_graph_exc)
@@ -1590,7 +1576,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
                                  f"ToT completed but no better solution (best_fitness={_tot_best_fitness:.3f}), continuing",
                                  {"cycle": cycle_num, "attempt": attempt + 1})
 
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         _log(session_id, "TOT_TIMEOUT",
                              f"⏰ ToT search timed out after {getattr(_tot_strategy, 'config', type('', (), {'timeout_seconds': 240})).timeout_seconds}s, falling back",
                              {"cycle": cycle_num, "attempt": attempt + 1})
@@ -1644,7 +1630,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
                      {"cycle": cycle_num})
                 break
 
-        except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError, ImportError) as exc:
+        except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError, ImportError):
             continue
 
     if _exp_replay is not None and _current_exp_card_id:
@@ -1703,7 +1689,7 @@ async def _brain_improvement_loop(*, initial_result, session_id, cycle_num=0, ex
     return best_result
 
 
-async def _run_param_optimization(expression: str, session_id: str, 
+async def _run_param_optimization(expression: str, session_id: str,
                                    cycle_num: int, **kwargs) -> dict | None:
     """Run parameter optimization on an alpha expression.
     
@@ -1718,13 +1704,13 @@ async def _run_param_optimization(expression: str, session_id: str,
     """
     if not expression or not expression.strip():
         return None
-    
+
     try:
         expr_hash = expression_hash(expression)
         _log(session_id, "PARAM_OPT_START",
              f"Starting param optimization for expr_hash={expr_hash[:12]}...",
              {"cycle": cycle_num})
-        
+
         # Use parameter optimizer if available
         if _param_optimizer is not None:
             optimized = await _param_optimizer.optimize(
@@ -1734,15 +1720,15 @@ async def _run_param_optimization(expression: str, session_id: str,
             )
             if optimized:
                 _log(session_id, "PARAM_OPT_COMPLETE",
-                     f"Param optimization completed successfully",
+                     "Param optimization completed successfully",
                      {"cycle": cycle_num, "expr_hash": expr_hash[:12]})
                 return optimized
-        
+
         _log(session_id, "PARAM_OPT_SKIPPED",
-             f"Param optimizer not available or returned None",
+             "Param optimizer not available or returned None",
              {"cycle": cycle_num})
         return None
-        
+
     except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError) as exc:
         logger.warning("[%s] cycle=%d PARAM_OPT_ERROR: %s", session_id, cycle_num, exc)
         return None
@@ -1884,7 +1870,7 @@ class ProxyEvaluator:
             parsed = val.validate_expression(expr, strict=False)
             if not parsed.get('is_valid', False):
                 score -= 40
-                issues.append(f"AST解析失败")
+                issues.append("AST解析失败")
         except (ValueError, SyntaxError, TypeError) as exc:
             score -= 40
             issues.append(f"AST解析异常: {str(exc)[:50]}")
@@ -2136,7 +2122,7 @@ class ReflexionEngine:
                         failure=failure,
                         previous_reflections=reflection_log,
                     )
-                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+                except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
                     logger.warning("[REFLEXION] Round %d: LLM reflect failed: %s", round_i + 1, exc)
                     reflection = Reflection(
                         round_num=round_i + 1,
@@ -2685,7 +2671,7 @@ class SignalQualityPreFilter:
             from openalpha_brain.knowledge.operator_registry import get_operator_registry
             self._op_reg = get_operator_registry()
             logger.info("[DEFENSIVE_LOG] SignalQualityPreFilter: OperatorRegistry initialized with %d operators", len(self._op_reg.get_all_operator_names()))
-        except (ImportError, OSError, ValueError) as exc:
+        except (ImportError, OSError, ValueError):
             self._op_reg = None
 
     def prefilter(self, expr: str, context: dict = None) -> PreFilterResult:
@@ -2832,14 +2818,14 @@ class SignalQualityPreFilter:
         if has_fundamental:
             return PreFilterResult(
                 passed=True,
-                reason=f"包含基本面字段，跨数据族使用良好",
+                reason="包含基本面字段，跨数据族使用良好",
                 confidence_score=0.88,
             )
 
         if core_price_vol_only:
             return PreFilterResult(
                 passed=True,
-                reason=f"仅包含价格/成交量字段 - 降低置信度",
+                reason="仅包含价格/成交量字段 - 降低置信度",
                 confidence_score=0.50,
             )
 
@@ -2962,7 +2948,7 @@ class SignalQualityPreFilter:
             if current_topology == failed_topo:
                 return PreFilterResult(
                     passed=False,
-                    reason=f"与最近失败表达式拓扑结构完全相同，拒绝重复提交",
+                    reason="与最近失败表达式拓扑结构完全相同，拒绝重复提交",
                     confidence_score=0.90,
                 )
 
@@ -2979,7 +2965,7 @@ class SignalQualityPreFilter:
 
         return PreFilterResult(
             passed=True,
-            reason=f"拓扑结构独特（与最近10个失败因子无高度相似）",
+            reason="拓扑结构独特（与最近10个失败因子无高度相似）",
             confidence_score=0.80,
         )
 

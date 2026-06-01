@@ -51,16 +51,11 @@ import asyncio
 import hashlib
 import json
 import logging
-import random
 import re
 import time
-import uuid
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from pathlib import Path
-from typing import Any, Optional
+from enum import Enum
 
-from openalpha_brain.utils.algo_logger import algo_log
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 
 logger = logging.getLogger(__name__)
@@ -81,7 +76,7 @@ class ToTNode:
     node_id: str
     expression: str
     depth: int
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     fitness: float = 0.0
     metrics: dict = field(default_factory=dict)
     state: ToTNodeState = ToTNodeState.EXPANDING
@@ -94,7 +89,7 @@ class ToTNode:
 @dataclass
 class ToTSearchResult:
     """Result of a ToT search operation."""
-    best_node: Optional[ToTNode] = None
+    best_node: ToTNode | None = None
     total_nodes_explored: int = 0
     total_depth_reached: int = 0
     search_duration_sec: float = 0.0
@@ -102,7 +97,7 @@ class ToTSearchResult:
     survival_rate_per_depth: dict[float, float] = field(default_factory=dict)
     tree_nodes: list[ToTNode] = field(default_factory=list)
 
-    def get_best_expression(self) -> Optional[str]:
+    def get_best_expression(self) -> str | None:
         return self.best_node.expression if self.best_node else None
 
     def get_best_fitness(self) -> float:
@@ -144,7 +139,7 @@ def extract_expression_fingerprint(expr: str) -> str:
     operators = sorted(set(re.findall(r'\b([a-z_]+)\(', normalized)))
     fields = sorted(set(re.findall(r'\b(close|open|high|low|volume|returns|market_cap)\b', normalized, re.I)))
     structure_hash = hashlib.md5(normalized.encode()).hexdigest()[:8]
-    
+
     return f"{'_'.join(operators)}_{'_'.join(fields)}_{structure_hash}"
 
 
@@ -162,25 +157,25 @@ def compute_expression_diversity(expressions: list[str]) -> float:
     n = len(expressions)
     if n < 2:
         return 1.0
-    
+
     fingerprints = [extract_expression_fingerprint(expr) for expr in expressions]
     total_distance = 0.0
     pair_count = 0
-    
+
     for i in range(n):
         for j in range(i + 1, n):
             fp_i = set(fingerprints[i].split('_'))
             fp_j = set(fingerprints[j].split('_'))
-            
+
             intersection = len(fp_i & fp_j)
             union = len(fp_i | fp_j)
-            
+
             jaccard_sim = intersection / union if union > 0 else 0
             jaccard_dist = 1.0 - jaccard_sim
-            
+
             total_distance += jaccard_dist
             pair_count += 1
-    
+
     return total_distance / max(pair_count, 1)
 
 
@@ -196,24 +191,24 @@ def select_diverse_subset(candidates: list[tuple[str, float]], k: int) -> list[t
     """
     if not candidates or k <= 0:
         return []
-    
+
     if len(candidates) <= k:
         return candidates.copy()
-    
+
     sorted_candidates = sorted(candidates, key=lambda x: x[1], reverse=True)
     selected: list[tuple[str, float]] = [sorted_candidates[0]]
     selected_fingerprints = {extract_expression_fingerprint(selected[0][0])}
-    
+
     remaining = sorted_candidates[1:]
-    
+
     while len(selected) < k and remaining:
         best_idx = 0
         best_min_distance = -1
-        
+
         for idx, (expr, fitness) in enumerate(remaining):
             fp = extract_expression_fingerprint(expr)
             fp_set = set(fp.split('_'))
-            
+
             min_distance = float('inf')
             for sel_fp in selected_fingerprints:
                 sel_fp_set = set(sel_fp.split('_'))
@@ -221,14 +216,14 @@ def select_diverse_subset(candidates: list[tuple[str, float]], k: int) -> list[t
                 union = len(fp_set | sel_fp_set)
                 distance = 1.0 - (intersection / union if union > 0 else 0)
                 min_distance = min(min_distance, distance)
-            
+
             if min_distance > best_min_distance:
                 best_min_distance = min_distance
                 best_idx = idx
-        
+
         selected.append(remaining.pop(best_idx))
         selected_fingerprints.add(extract_expression_fingerprint(selected[-1][0]))
-    
+
     return selected
 
 
@@ -317,7 +312,7 @@ class HybridFactorJudge:
             try:
                 llm_score = await self._llm_tier(expression, rule_score)
                 final_score = llm_score
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as e:
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as e:
                 logger.warning("[TOT-JUDGE] LLM tier failed, falling back to rule score: %s", e)
                 final_score = rule_score
 
@@ -495,7 +490,7 @@ class HybridFactorJudge:
                     self._llm_client_generate(prompt),
                     timeout=self._LLM_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("[TOT-JUDGE] LLM call timed out (%ds)", self._LLM_TIMEOUT)
                 ms = (time.perf_counter() - t0) * 1000
                 try:
@@ -535,13 +530,13 @@ class HybridFactorJudge:
 
     async def _llm_client_generate(self, prompt: str) -> str:
         """Thin wrapper around LLM client generate call."""
-        if hasattr(self._llm, 'generate') and callable(getattr(self._llm, 'generate')):
+        if hasattr(self._llm, 'generate') and callable(self._llm.generate):
             result = await self._llm.generate(prompt, temperature=0.3)
             return str(result).strip() if result else ""
         raise RuntimeError("[TOT-JUDGE] LLM client lacks generate() method")
 
     @staticmethod
-    def _parse_llm_response(response: str) -> Optional[float]:
+    def _parse_llm_response(response: str) -> float | None:
         """Extract numeric score from LLM response text."""
         match = re.search(r'SCORE:\s*([0-9]*\.?[0-9]+)', response, re.I)
         if match:
@@ -590,8 +585,8 @@ class ToTSearchStrategy:
     3. Stop at max_depth or no survivors
     4. Return global best node
     """
-    
-    def __init__(self, config: Optional[ToTConfig] = None):
+
+    def __init__(self, config: ToTConfig | None = None):
         self.config = config or ToTConfig()
         self._nodes: dict[str, ToTNode] = {}
         self._node_counter: int = 0
@@ -599,7 +594,7 @@ class ToTSearchStrategy:
         self._llm_client = None
         self._prefilter = None
         self._judge: HybridFactorJudge | None = None
-    
+
     def initialize_dependencies(
         self,
         near_pass_improver=None,
@@ -627,9 +622,9 @@ class ToTSearchStrategy:
             self._judge = None
             logger.info("[TOT-JUDGE] No LLM client, rule-only mode")
         logger.info("[TOT] Dependencies initialized")
-    
+
     @classmethod
-    def from_dict(cls, config_dict: dict) -> 'ToTSearchStrategy':
+    def from_dict(cls, config_dict: dict) -> ToTSearchStrategy:
         """Create instance from dictionary configuration.
         
         Args:
@@ -645,13 +640,13 @@ class ToTSearchStrategy:
         }
         config = ToTConfig(**filtered_config)
         return cls(config=config)
-    
+
     async def search(
         self,
         seed_expression: str,
         target_fitness: float = 1.25,
         initial_fitness: float = 0.0,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> ToTSearchResult:
         """Execute ToT tree search.
         
@@ -670,17 +665,17 @@ class ToTSearchStrategy:
         """
         if self._near_pass is None:
             raise RuntimeError("[TOT] Dependencies not initialized. Call initialize_dependencies() first.")
-        
+
         ctx = context or {}
         start_time = time.time()
         result = ToTSearchResult()
-        
+
         logger.info(
             "[TOT] Starting search: seed='%s…' target_fit=%.2f max_depth=%d branch=%d",
             seed_expression[:50], target_fitness,
             self.config.max_depth, self.config.branch_factor,
         )
-        
+
         root_node = self._create_node(
             expression=seed_expression,
             depth=1,
@@ -688,31 +683,31 @@ class ToTSearchStrategy:
         )
         root_node.fitness = initial_fitness
         root_node.state = ToTNodeState.EVALUATED
-        
+
         self._nodes[root_node.node_id] = root_node
         result.total_nodes_explored = 1
         result.nodes_per_depth[1] = 1
         result.tree_nodes.append(root_node)
-        
+
         result.best_node = root_node
-        
+
         try:
             await asyncio.wait_for(
                 self._expand_tree(root_node, target_fitness, ctx, result),
                 timeout=self.config.timeout_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("[TOT] Timeout reached (%ds)", self.config.timeout_seconds)
-        
+
         result.search_duration_sec = time.time() - start_time
         result.total_depth_reached = max(result.nodes_per_depth.keys()) if result.nodes_per_depth else 1
-        
+
         for depth, count in result.nodes_per_depth.items():
             if depth > 1:
                 parent_count = result.nodes_per_depth.get(depth - 1, 1)
                 survival_rate = count / max(parent_count * self.config.branch_factor, 1)
                 result.survival_rate_per_depth[depth] = survival_rate
-        
+
         logger.info(
             "[TOT] Search finished: best_fit=%.4f nodes=%d depth=%d time=%.1fs",
             result.get_best_fitness(),
@@ -720,9 +715,9 @@ class ToTSearchStrategy:
             result.total_depth_reached,
             result.search_duration_sec,
         )
-        
+
         return result
-    
+
     async def _expand_tree(
         self,
         node: ToTNode,
@@ -742,26 +737,26 @@ class ToTSearchStrategy:
             node.state = ToTNodeState.LEAF
             logger.info("[TOT] Max depth reached at node %s", node.node_id)
             return
-        
+
         if result.total_nodes_explored >= self.config.max_total_nodes:
             logger.warning("[TOT] Node limit reached (%d)", self.config.max_total_nodes)
             return
-        
+
         if node.fitness >= target_fitness:
             logger.info("[TOT] Target reached at node %s (fit=%.4f)", node.node_id, node.fitness)
             return
-        
+
         logger.info(
             "[TOT] Expanding node %s (depth=%d fit=%.4f)",
             node.node_id, node.depth, node.fitness,
         )
-        
+
         children = await self._expand_node(node)
-        
+
         if not children:
             node.state = ToTNodeState.LEAF
             return
-        
+
         evaluated_children = []
         for child in children:
             if self._judge is not None:
@@ -770,41 +765,41 @@ class ToTSearchStrategy:
                 child.fitness = self._quick_evaluate(child.expression)
             child.state = ToTNodeState.EVALUATED
             evaluated_children.append(child)
-            
+
             self._nodes[child.node_id] = child
             result.total_nodes_explored += 1
             result.tree_nodes.append(child)
-            
+
             depth = child.depth
             result.nodes_per_depth[depth] = result.nodes_per_depth.get(depth, 0) + 1
-            
+
             if child.fitness > result.best_node.fitness:
                 result.best_node = child
                 logger.info(
                     "[TOT] New best! node=%s fit=%.4f expr='%s…'",
                     child.node_id, child.fitness, child.expression[:50],
                 )
-        
+
         survivors = self._select_survivors(node, [
             (c.expression, c.fitness) for c in evaluated_children
         ])
-        
+
         node.children_ids = [s.node_id for s in survivors]
-        
+
         for survivor in survivors:
             survivor.state = ToTNodeState.SURVIVOR
-        
+
         for child in evaluated_children:
             if child.state != ToTNodeState.SURVIVOR:
                 child.state = ToTNodeState.PRUNED
-        
+
         if survivors:
             logger.info(
                 "[TOT] Depth %d: %d/%d survivors (best=%.4f)",
                 node.depth + 1, len(survivors), len(evaluated_children),
                 max(s.fitness for s in survivors),
             )
-            
+
             expand_tasks = [
                 self._expand_tree(survivor, target_fitness, context, result)
                 for survivor in survivors
@@ -812,7 +807,7 @@ class ToTSearchStrategy:
             await asyncio.gather(*expand_tasks, return_exceptions=True)
         else:
             logger.info("[TOT] No survivors at depth %d — pruning branch", node.depth + 1)
-    
+
     async def _expand_node(self, node: ToTNode) -> list[ToTNode]:
         """Expand single node generating N candidate children.
         
@@ -831,9 +826,9 @@ class ToTSearchStrategy:
         n_llm = max(1, int(n_candidates * self.config.llm_expand_ratio))
         n_mutation = max(1, int(n_candidates * self.config.mutation_ratio))
         n_crossover = max(0, n_candidates - n_llm - n_mutation)
-        
+
         candidates: list[ToTNode] = []
-        
+
         try:
             llm_candidates = await self._llm_expand(node.expression, n_llm)
             for expr in llm_candidates:
@@ -844,9 +839,9 @@ class ToTSearchStrategy:
                     method="llm_expand",
                 )
                 candidates.append(child)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as e:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as e:
             logger.warning("[TOT] LLM expand failed: %s", e)
-        
+
         try:
             mutation_candidates = self._mutation_expand(node.expression, n_mutation)
             for expr in mutation_candidates:
@@ -859,7 +854,7 @@ class ToTSearchStrategy:
                 candidates.append(child)
         except (ValueError, SyntaxError, TypeError) as e:
             logger.warning("[TOT] Mutation expand failed: %s", e)
-        
+
         if n_crossover > 0:
             try:
                 crossover_candidates = await self._crossover_expand(node, n_crossover)
@@ -873,13 +868,13 @@ class ToTSearchStrategy:
                     candidates.append(child)
             except (ValueError, SyntaxError, TypeError) as e:
                 logger.warning("[TOT] Crossover expand failed: %s", e)
-        
+
         if self.config.enforce_diversity:
             unique_exprs = self._check_diversity([c.expression for c in candidates])
             candidates = [c for c in candidates if c.expression in unique_exprs]
-        
+
         return candidates[:n_candidates]
-    
+
     async def _llm_expand(self, expression: str, n_candidates: int) -> list[str]:
         """Use LLM to generate candidate expressions.
         
@@ -897,7 +892,7 @@ class ToTSearchStrategy:
         if self._llm_client is None:
             logger.debug("[TOT] No LLM client available, skipping LLM expand")
             return []
-        
+
         prompt = (
             "You are an expert quantitative alpha factor researcher.\n\n"
             f"Given this base factor expression:\n{expression}\n\n"
@@ -915,20 +910,20 @@ class ToTSearchStrategy:
             "- Keep decay wrapper: ts_decay_linear(..., window)\n\n"
             'Output format: ["expr1", "expr2", ...]\n'
         )
-        
+
         try:
             response = await self._llm_client.generate(prompt, temperature=0.9)
             if response and isinstance(response, str):
                 import json
                 text = response.strip()
-                
+
                 if text.startswith('['):
                     expressions = json.loads(text)
                     if isinstance(expressions, list):
                         valid_exprs = [str(expr).strip().strip("'\"") for expr in expressions if expr]
                         logger.info("[TOT] LLM generated %d candidates", len(valid_exprs))
                         return valid_exprs[:n_candidates]
-                
+
                 lines = text.split('\n')
                 exprs = []
                 for line in lines:
@@ -937,13 +932,13 @@ class ToTSearchStrategy:
                         exprs.append(line)
                         if len(exprs) >= n_candidates:
                             break
-                
+
                 return exprs
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as e:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as e:
             logger.warning("[TOT] LLM call failed: %s", e)
-        
+
         return []
-    
+
     def _mutation_expand(self, expression: str, n_candidates: int) -> list[str]:
         """Generate candidates using deterministic mutations via NearPassImprover.
         
@@ -955,31 +950,31 @@ class ToTSearchStrategy:
             List of mutated expression strings.
         """
         variants = []
-        
+
         analysis = self._near_pass.analyze(
             sharpe=1.0,
             fitness=0.8,
         )
-        
+
         det_variants = self._near_pass.generate_deterministic_variants(
             expression, analysis, max_variants=n_candidates * 2,
         )
-        
+
         seen = {expression}
         for v in det_variants:
             if v.expression not in seen and len(variants) < n_candidates:
                 variants.append(v.expression)
                 seen.add(v.expression)
-        
+
         import re as _re
-        
+
         operator_swaps = [
             ("rank", "zscore"),
             ("zscore", "scale"),
             ("ts_mean", "ts_decay_linear"),
             ("ts_decay_linear", "ts_sum"),
         ]
-        
+
         for old_op, new_op in operator_swaps:
             if len(variants) >= n_candidates:
                 break
@@ -988,7 +983,7 @@ class ToTSearchStrategy:
             if mutated != expression and mutated not in seen:
                 variants.append(mutated)
                 seen.add(mutated)
-        
+
         windows_to_try = [5, 15, 20, 30]
         for w in windows_to_try:
             if len(variants) >= n_candidates:
@@ -998,7 +993,7 @@ class ToTSearchStrategy:
             if mutated != expression and mutated not in seen:
                 variants.append(mutated)
                 seen.add(mutated)
-        
+
         while len(variants) < n_candidates:
             random_variant = expression.replace("rank(", "zscore(", 1)
             if random_variant != expression and random_variant not in seen:
@@ -1006,9 +1001,9 @@ class ToTSearchStrategy:
                 seen.add(random_variant)
             else:
                 break
-        
+
         return variants[:n_candidates]
-    
+
     async def _crossover_expand(self, node: ToTNode, n_candidates: int) -> list[str]:
         """Generate candidates by crossing over with other surviving nodes.
         
@@ -1022,16 +1017,16 @@ class ToTSearchStrategy:
             List of crossed-over expression strings.
         """
         candidates = []
-        
+
         sibling_nodes = [
             self._nodes[sib_id]
             for sib_id in node.parent_id and self._nodes.get(node.parent_id, ToTNode("", "", 0)).children_ids or []
             if sib_id != node.node_id and sib_id in self._nodes
         ]
-        
+
         if not sibling_nodes:
             return candidates
-        
+
         for sibling in sibling_nodes[:n_candidates]:
             try:
                 from openalpha_brain.evolution.ea_search import swap_block_a
@@ -1040,9 +1035,9 @@ class ToTSearchStrategy:
                     candidates.append(child_expr)
             except (ValueError, AttributeError):
                 continue
-        
+
         return candidates[:n_candidates]
-    
+
     def _evaluate_candidates(self, candidates: list[str]) -> list[tuple[str, float]]:
         """Quick evaluation of candidate list.
         
@@ -1060,7 +1055,7 @@ class ToTSearchStrategy:
             fitness = self._quick_evaluate(expr)
             results.append((expr, fitness))
         return results
-    
+
     def _select_survivors(
         self,
         parent: ToTNode,
@@ -1082,13 +1077,13 @@ class ToTSearchStrategy:
         """
         if not candidates:
             return []
-        
+
         threshold = parent.fitness + self.config.accept_threshold
         qualified = [
             (expr, fitness) for expr, fitness in candidates
             if fitness > threshold
         ]
-        
+
         if qualified:
             qualified.sort(key=lambda x: x[1], reverse=True)
             top_survivors = qualified[:self.config.top_k_survivors]
@@ -1099,10 +1094,10 @@ class ToTSearchStrategy:
                 "[TOT] Best-of-node fallback: fit=%.4f (threshold was %.4f)",
                 best_candidate[1], threshold,
             )
-        
+
         if self.config.enforce_diversity:
             top_survivors = select_diverse_subset(top_survivors, self.config.top_k_survivors)
-        
+
         survivors = []
         for expr, fitness in top_survivors:
             existing_node = next(
@@ -1122,9 +1117,9 @@ class ToTSearchStrategy:
                 survivor_node.state = ToTNodeState.SURVIVOR
                 self._nodes[survivor_node.node_id] = survivor_node
                 survivors.append(survivor_node)
-        
+
         return survivors
-    
+
     def _check_diversity(self, candidates: list[str]) -> list[str]:
         """Enforce diversity constraints (dedup + different field families).
         
@@ -1139,39 +1134,39 @@ class ToTSearchStrategy:
         """
         if not candidates:
             return []
-        
+
         seen_fingerprints: set[str] = set()
         unique_candidates = []
-        
+
         for expr in candidates:
             fp = extract_expression_fingerprint(expr)
-            
+
             is_duplicate = False
             for seen_fp in seen_fingerprints:
                 fp_parts = set(fp.split('_'))
                 seen_parts = set(seen_fp.split('_'))
-                
+
                 common_operators = fp_parts & seen_parts
                 common_fields = {p for p in fp_parts if p in ['close', 'open', 'high', 'low', 'volume']} & \
                                {p for p in seen_parts if p in ['close', 'open', 'high', 'low', 'volume']}
-                
+
                 if len(common_operators) >= 2 and len(common_fields) >= 1:
                     similarity = len(common_operators) / max(len(fp_parts), len(seen_parts))
                     if similarity > self.config.dedup_similarity_threshold:
                         is_duplicate = True
                         break
-            
+
             if not is_duplicate:
                 seen_fingerprints.add(fp)
                 unique_candidates.append(expr)
-        
+
         return unique_candidates
-    
+
     def _create_node(
         self,
         expression: str,
         depth: int,
-        parent_id: Optional[str] = None,
+        parent_id: str | None = None,
         method: str = "mutation",
         reason: str = "",
     ) -> ToTNode:
@@ -1189,7 +1184,7 @@ class ToTSearchStrategy:
         """
         self._node_counter += 1
         node_id = f"{depth}_{self._node_counter}"
-        
+
         return ToTNode(
             node_id=node_id,
             expression=expression,
@@ -1198,7 +1193,7 @@ class ToTSearchStrategy:
             generation_method=method,
             reason=reason,
         )
-    
+
     def _quick_evaluate(self, expression: str) -> float:
         """Fast local evaluation without WQ submission.
         
@@ -1223,37 +1218,37 @@ class ToTSearchStrategy:
                     return float(result)
             except (OSError, ValueError, RuntimeError):
                 pass
-        
+
         score = 0.5
         depth = expression.count("(")
         if 3 <= depth <= 8:
             score += 0.15
         elif depth > 8:
             score -= 0.1
-        
+
         fields = set(re.findall(
             r'\b(close|open|high|low|volume|returns|bookvalue|market_cap|sales)\b',
             expression,
             re.I,
         ))
         score += min(len(fields) * 0.08, 0.24)
-        
+
         norm_ops = ["rank", "zscore", "group_neutralize", "group_zscore", "scale"]
         for op in norm_ops:
             if rf"\b{op}\b" in expression:
                 score += 0.05
                 break
-        
+
         if "ts_decay_linear" in expression:
             score += 0.05
-        
+
         if len(expression) > 200:
             score -= 0.1
         elif len(expression) < 20:
             score -= 0.05
-        
+
         return max(0.0, min(1.0, score))
-    
+
     def get_tree_stats(self) -> dict:
         """Return statistics about the current tree structure.
         
@@ -1263,19 +1258,19 @@ class ToTSearchStrategy:
         """
         if not self._nodes:
             return {"total_nodes": 0, "max_depth": 0}
-        
+
         states = {}
         for node in self._nodes.values():
             state_name = node.state.value
             states[state_name] = states.get(state_name, 0) + 1
-        
+
         depths = [node.depth for node in self._nodes.values()]
         branching_factors = [
             len(node.children_ids)
             for node in self._nodes.values()
             if node.children_ids
         ]
-        
+
         return {
             "total_nodes": len(self._nodes),
             "max_depth": max(depths) if depths else 0,
@@ -1285,7 +1280,7 @@ class ToTSearchStrategy:
                 if branching_factors else 0
             ),
         }
-    
+
     def reset(self):
         """Clear tree state for fresh search."""
         self._nodes.clear()

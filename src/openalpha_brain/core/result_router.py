@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 
@@ -74,7 +74,7 @@ class ParsedWQResult:
     passed: bool = False
 
     wq_metrics: dict = field(default_factory=dict)
-    stability_result: Optional[dict] = None
+    stability_result: dict | None = None
     is_stable: bool = True
     should_restrict: bool = False
 
@@ -91,20 +91,20 @@ class ParsedWQResult:
     is_efficient_alpha: bool = False
 
     processing_time_sec: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
     @property
-    def fitness(self) -> Optional[float]:
+    def fitness(self) -> float | None:
         """快捷访问 Fitness 值"""
         return self.wq_metrics.get("fitness")
 
     @property
-    def turnover(self) -> Optional[float]:
+    def turnover(self) -> float | None:
         """快捷访问 Turnover 值"""
         return self.wq_metrics.get("turnover")
 
     @property
-    def drawdown(self) -> Optional[float]:
+    def drawdown(self) -> float | None:
         """快捷访问 Drawdown 值"""
         return self.wq_metrics.get("drawdown")
 
@@ -146,7 +146,7 @@ class ResultRouter:
         anti_overfit: Any = None,
         scorer: Any = None,
         adaptive_neutralizer: Any = None,
-        telemetry: Optional[AlgorithmTelemetryCollector] = None,
+        telemetry: AlgorithmTelemetryCollector | None = None,
         cycle_num: int = 0,
     ):
         self._stability_guard = stability_guard
@@ -265,7 +265,7 @@ class ResultRouter:
         self,
         expression: str,
         current_sharpe: float,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """调用 StabilityGuard 评估因子稳定性"""
         if self._stability_guard is None:
             return None

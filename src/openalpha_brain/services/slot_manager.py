@@ -32,18 +32,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
 from openalpha_brain.services.brain_client import (
-    BrainGateResult,
-    BrainPollError,
-    BrainSubmitError,
     _SIM_DEFAULTS,
     _SIM_URL,
     BRAIN_BASE,
+    BrainGateResult,
+    BrainPollError,
+    BrainSubmitError,
     _extract_gate_result,
     _safe_json,
 )
@@ -100,13 +101,13 @@ class SlotInfo:
     slot_id: int
     state: SlotState = SlotState.IDLE
     expression: str = ""
-    sim_id: Optional[str] = None
-    alpha_id: Optional[str] = None
-    submitted_at: Optional[datetime] = None
+    sim_id: str | None = None
+    alpha_id: str | None = None
+    submitted_at: datetime | None = None
     elapsed_sec: float = 0.0
     poll_count: int = 0
-    result: Optional[BrainGateResult] = None
-    error: Optional[str] = None
+    result: BrainGateResult | None = None
+    error: str | None = None
     task_name: str = ""
     metadata: dict = field(default_factory=dict)
     source: str = "generated"
@@ -121,15 +122,15 @@ class SubmissionTask:
     name: str = ""
     strategy: str = ""
     priority: int = 10
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict = field(default_factory=dict)
-    simulation_payload: Optional[dict] = None
+    simulation_payload: dict | None = None
     task_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     tier: PriorityTier = PriorityTier.TIER_3_NORMAL
     predicted_pass_prob: float = 0.5
     improvement_generation: int = 0
-    parent_task_id: Optional[str] = None
-    wq_feedback: Optional[dict] = None
+    parent_task_id: str | None = None
+    wq_feedback: dict | None = None
     source: str = "generated"
 
     def build_priority_score(self) -> PriorityScore:
@@ -229,7 +230,7 @@ class SlotManager:
 
         self._running = False
         self._workers: list[asyncio.Task[None]] = []
-        self._start_time: Optional[datetime] = None
+        self._start_time: datetime | None = None
         self._queue_counter: int = 0
         self._stop_event: asyncio.Event = asyncio.Event()
 
@@ -247,7 +248,7 @@ class SlotManager:
             return
 
         self._running = True
-        self._start_time = datetime.now(timezone.utc)
+        self._start_time = datetime.now(UTC)
         self._stop_event.clear()
 
         logger.info("[SLOT-MGR] Starting %d slot workers...", self.max_slots)
@@ -282,13 +283,13 @@ class SlotManager:
         name: str = "",
         strategy: str = "",
         priority: int = 10,
-        metadata: Optional[dict] = None,
-        simulation_payload: Optional[dict] = None,
+        metadata: dict | None = None,
+        simulation_payload: dict | None = None,
         tier: PriorityTier = PriorityTier.TIER_3_NORMAL,
         predicted_pass_prob: float = 0.5,
         improvement_generation: int = 0,
-        parent_task_id: Optional[str] = None,
-        wq_feedback: Optional[dict] = None,
+        parent_task_id: str | None = None,
+        wq_feedback: dict | None = None,
         source: str = "generated",
     ) -> str:
         """
@@ -356,7 +357,7 @@ class SlotManager:
         """获取所有 slot 的实时状态快照"""
         for slot in self._slots:
             if slot.state in (SlotState.RUNNING, SlotState.POLLING_RESULT) and slot.submitted_at:
-                slot.elapsed_sec = (datetime.now(timezone.utc) - slot.submitted_at).total_seconds()
+                slot.elapsed_sec = (datetime.now(UTC) - slot.submitted_at).total_seconds()
 
         busy = sum(1 for s in self._slots if s.state not in (SlotState.IDLE, SlotState.ERROR))
         self._metrics.slot_utilization = busy / self.max_slots if self.max_slots > 0 else 0.0
@@ -368,7 +369,7 @@ class SlotManager:
         self._metrics.queue_depth = self._queue.qsize()
 
         if self._start_time:
-            self._metrics.uptime_seconds = (datetime.now(timezone.utc) - self._start_time).total_seconds()
+            self._metrics.uptime_seconds = (datetime.now(UTC) - self._start_time).total_seconds()
 
         busy = sum(1 for s in self._slots if s.state not in (SlotState.IDLE, SlotState.ERROR))
         self._metrics.slot_utilization = busy / self.max_slots if self.max_slots > 0 else 0.0
@@ -379,8 +380,8 @@ class SlotManager:
         self,
         task_id: str,
         new_tier: PriorityTier,
-        predicted_pass_prob: Optional[float] = None,
-        extra_metadata: Optional[dict] = None,
+        predicted_pass_prob: float | None = None,
+        extra_metadata: dict | None = None,
     ) -> bool:
         """
         提升已有任务的优先级 (用于改进后重新入队)
@@ -538,7 +539,7 @@ class SlotManager:
                     self._queue.get(),
                     timeout=1.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             try:
@@ -583,7 +584,7 @@ class SlotManager:
 
             slot.state = SlotState.RUNNING
             slot.sim_id = sim_id
-            slot.submitted_at = datetime.now(timezone.utc)
+            slot.submitted_at = datetime.now(UTC)
             self._metrics.total_submitted += 1
 
             logger.info(
@@ -640,7 +641,7 @@ class SlotManager:
 
     async def _submit_simulation(
         self, task: SubmissionTask
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         """
         提交 simulation 到 BRAIN API
 
@@ -694,7 +695,7 @@ class SlotManager:
         return sim_id, location
 
     async def _poll_simulation(
-        self, slot: SlotInfo, location: Optional[str]
+        self, slot: SlotInfo, location: str | None
     ) -> BrainGateResult:
         """
         单个 simulation 的轮询逻辑
@@ -761,8 +762,8 @@ class SlotManager:
 
                     if alpha_id:
                         from openalpha_brain.services.brain_client import (
-                            fetch_alpha_details,
                             check_alpha,
+                            fetch_alpha_details,
                         )
 
                         logger.info(

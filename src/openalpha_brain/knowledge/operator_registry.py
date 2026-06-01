@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class OperatorCategory(Enum):
@@ -25,7 +24,7 @@ class OperatorDef:
     max_args: int
     args_type: list[str] = field(default_factory=list)
     requires_lookback: bool = False
-    default_lookback: Optional[int] = None
+    default_lookback: int | None = None
     description: str = ""
     risk_level: str = "medium"
     alternatives: list[str] = field(default_factory=list)
@@ -596,7 +595,7 @@ class OperatorRegistry:
             self._by_category[cat] = []
         self._by_category[cat].append(op_def.name)
 
-    def get(self, name: str) -> Optional[OperatorDef]:
+    def get(self, name: str) -> OperatorDef | None:
         return self._operators.get(name)
 
     def get_by_category(self, cat: OperatorCategory) -> list[OperatorDef]:
@@ -674,7 +673,7 @@ class OperatorRegistry:
     def get_operators_requiring_lookback(self) -> list[OperatorDef]:
         return [op for op in self._operators.values() if op.requires_lookback]
 
-    def suggest_alternative_for_high_risk(self, op_name: str) -> Optional[str]:
+    def suggest_alternative_for_high_risk(self, op_name: str) -> str | None:
         op = self._operators.get(op_name)
         if op and op.risk_level == "high" and op.alternatives:
             low_risk_alts = [a for a in op.alternatives if a in self._operators]
@@ -684,7 +683,7 @@ class OperatorRegistry:
         return None
 
 
-_registry_instance: Optional[OperatorRegistry] = None
+_registry_instance: OperatorRegistry | None = None
 
 
 def get_operator_registry() -> OperatorRegistry:

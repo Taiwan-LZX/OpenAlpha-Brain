@@ -64,11 +64,11 @@ _COMMON_ENGLISH_WORDS = {
     "because", "but", "and", "or", "if", "while", "this", "that",
     "these", "those", "it", "its", "we", "our", "you", "your",
     "they", "them", "their", "what", "which", "who", "whom",
-    "often", "captures", "captures", "using", "uses", "used",
+    "often", "captures", "using", "uses", "used",
     "based", "applies", "apply", "applied", "computes", "compute",
     "calculates", "calculate", "measures", "measure", "returns",
     "return", "provides", "provide", "takes", "take", "generates",
-    "generate", "this", "expression", "alpha", "signal", "value",
+    "generate", "expression", "alpha", "signal", "value",
 }
 
 

@@ -4,22 +4,21 @@ import asyncio
 import json
 import logging
 import math
-import re
 import time
-from dataclasses import asdict, dataclass, field
-from enum import Enum, auto
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Awaitable, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 from openalpha_brain.utils.algo_logger import algo_log
 from openalpha_brain.utils.extract_json_from_llm import extract_json_from_llm
-from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 
 if TYPE_CHECKING:
-    from openalpha_brain.knowledge.evolution_db import EvolutionDatabase
     from openalpha_brain.evolution.quality_diversity import FeatureMap
+    from openalpha_brain.knowledge.evolution_db import EvolutionDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +139,7 @@ class ReflectionEngine:
                     ms = (time.perf_counter() - t0) * 1000
                     try:
                         await self._tel.record_exit("ReflectionEngine", eid, metrics={"diagnosis_success": False, "error": "parse_failed"}, duration_ms=ms)
-                    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+                    except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                         pass
                     return {}
 
@@ -165,7 +164,7 @@ class ReflectionEngine:
                     pass
                 return result
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("[LLM-DIAG] LLM diagnosis timed out after 20s")
                 ms = (time.perf_counter() - t0) * 1000
                 try:
@@ -173,7 +172,7 @@ class ReflectionEngine:
                 except (OSError, ValueError, RuntimeError):
                     pass
                 return {}
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 logger.warning("[LLM-DIAG] LLM diagnosis failed with exception", exc_info=True)
                 ms = (time.perf_counter() - t0) * 1000
                 try:
@@ -200,7 +199,7 @@ class ReflectionEngine:
         try:
             eid = await self._tel.record_enter("ReflectionEngine", cycle_id="unknown", expr_id=hash(expression) % 10000)
             t0 = time.perf_counter()
-            
+
             result = ReflectionResult()
             if brain_result is None:
                 result.failure_stage = "unknown"
@@ -281,7 +280,7 @@ class ReflectionEngine:
                             merged_avoid = list(set(result.avoid_patterns + llm_diag["avoid_patterns"]))
                             result.avoid_patterns = merged_avoid
                         logger.info("[LLM-DIAG] Merged LLM diagnosis into reflection result")
-                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+                except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                     logger.warning("[LLM-DIAG] LLM diagnosis integration failed, using rule-based fallback", exc_info=True)
 
             embedding = None
@@ -307,7 +306,7 @@ class ReflectionEngine:
                 "embedding": embedding,
             })
             self._save()
-            
+
             ms = (time.perf_counter() - t0) * 1000
             try:
                 await self._tel.record_exit("ReflectionEngine", eid, metrics={"failure_stage": result.failure_stage, "llm_available": self._llm_generate_fn is not None}, duration_ms=ms)
@@ -432,11 +431,11 @@ class ReflectionEngine:
                 _sugg_match = _re.search(r'(?:\*\*|\b)SUGGESTIONS(?:\*\*)?\s*[:：]\s*(.+)', text)
                 if _sugg_match:
                     result.suggestions = [s.strip() for s in _sugg_match.group(1).split(",") if s.strip()]
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("ReflectionEngine: self_critique timed out after 15s")
                 result.consistency_score = None
                 result.critique_available = False
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 logger.warning("ReflectionEngine: self_critique LLM call failed", exc_info=True)
                 result.consistency_score = None
                 result.critique_available = False

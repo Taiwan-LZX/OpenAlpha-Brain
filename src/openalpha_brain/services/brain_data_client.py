@@ -99,7 +99,7 @@ class BrainDataClient:
             result = await brain_client.fetch_correlations(alpha_id, cookies)
             if result is not None:
                 return result
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
             return None
 
     async def get_self_correlations(self, alpha_id: str) -> dict | None:
@@ -137,7 +137,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_yearly_stats(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
             return None
 
     async def get_daily_pnl(self, alpha_id: str) -> list[float] | None:
@@ -149,7 +149,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_daily_pnl(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
             return None
 
 

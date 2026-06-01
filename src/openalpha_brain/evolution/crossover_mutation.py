@@ -6,18 +6,20 @@ import logging
 import math
 import random
 import re
-from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Callable, Awaitable, cast
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
+from typing import Any, cast
 
-from openalpha_brain.generation.ast_originality import ASTNode, FASTEXPRParser, OriginalityChecker
-from openalpha_brain.evolution.trajectory_mutation import TrajectoryMutationV2, TrajectoryMutationResult
 from openalpha_brain.evolution.evolution_types import AlphaTrajectory
+from openalpha_brain.evolution.trajectory_mutation import TrajectoryMutationResult, TrajectoryMutationV2
+from openalpha_brain.generation.ast_originality import ASTNode, FASTEXPRParser, OriginalityChecker
 from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
 
 logger = logging.getLogger(__name__)
 
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 from openalpha_brain.cli.algo_monitor import AlgoMonitor
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 _monitor = AlgoMonitor.get_instance()
 
@@ -842,7 +844,7 @@ Output ONLY valid JSON. No explanations outside JSON."""
                 id2=context2.get("id", ""),
                 context=merged_context,
             )
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
             return []
 
 
@@ -1180,7 +1182,7 @@ class GradientMutation:
                 new_sub = ASTNode(value=str(new_val))
                 new_ast = _set_node_at_path(ast, path, new_sub)
                 new_expr = _ast_to_string(new_ast)
-            except (ValueError, SyntaxError, TypeError) as exc:
+            except (ValueError, SyntaxError, TypeError):
                 pass
                 continue
 
@@ -1255,7 +1257,7 @@ class GradientMutation:
                     mutation_description="added group_neutralize(..., industry)",
                     originality_score=orig_score3,
                 ))
-            except (ValueError, SyntaxError, TypeError) as exc:
+            except (ValueError, SyntaxError, TypeError):
                 pass
 
         if ast.op == "rank" and len(ast.children) >= 1:
@@ -1312,9 +1314,7 @@ class CrossoverMutationEngine:
         self._direction_rejections: dict[str, list[str]] = {
             d: [] for d in _DIRECTION_KEYS
         }
-        self._direction_alpha_count: dict[str, int] = {
-            d: 0 for d in _DIRECTION_KEYS
-        }
+        self._direction_alpha_count: dict[str, int] = dict.fromkeys(_DIRECTION_KEYS, 0)
 
     def _tournament_select(self, population: list[dict], k: int | None = None) -> dict:
         k = k or self.TOURNAMENT_SIZE

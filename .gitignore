@@ -1,10 +1,15 @@
-# OpenAlpha-Brain — Git ignore rules
+# OpenAlpha-Brain — Git Ignore Rules
 
-# Environment — NEVER commit your API key
+# ── Environment — NEVER commit secrets ──────────────────
 .env
+.env.local
+.env.*.local
 
-# Python
+# ── Python ───────────────────────────────────────────────
 __pycache__/
+*[Bb]in/
+[Ll]ib/
+*[Ss]cript*/
 *.py[cod]
 *.pyo
 *.pyd
@@ -18,30 +23,55 @@ build/
 .mypy_cache/
 .ruff_cache/
 
-# Virtual environments
+# ── Virtual environments ─────────────────────────────────
 venv/
 .venv/
 env/
 .env.bak
 
-# Session data (runtime-generated, can be large)
+# ── Runtime data (auto-generated, large, non-source) ─────
 sessions/
+sessions/*/
 runtime/
+logs/
+logs/*/
+*.log
 
-# IDE
+# Root-level runtime JSON artifacts (duplicates of src/ data)
+alpha_tools.json
+evolution_db.json
+rag_feedback_weights.json
+strategy_profiles.json
+ast_fingerprints.json
+experience_cards.json
+feature_map.json
+mab_state.json
+
+# Temp files
+*.tmp
+alpha_run_log.txt
+_last_session_id.txt
+
+# ── IDE ──────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# ── OS ───────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs
-*.log
+# ── Frontend ─────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 
-# Temp/runtime artifacts
-alpha_run_log.txt
-_last_session_id.txt
+# ── Trae / AI memory (local only) ─────────────────────────
 .trae/
+.trae-cn/
+
+# ── Misc ─────────────────────────────────────────────────
+*.bak
+*.orig

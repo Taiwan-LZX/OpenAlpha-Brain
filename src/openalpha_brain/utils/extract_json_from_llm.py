@@ -1,8 +1,9 @@
 """Extract JSON from LLM output — handles markdown code blocks, trailing commas, etc."""
 from __future__ import annotations
+
 import json
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 

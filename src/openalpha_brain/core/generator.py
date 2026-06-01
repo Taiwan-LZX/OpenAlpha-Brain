@@ -135,7 +135,7 @@ Output ONLY valid JSON:
     except TimeoutError:
         logger.warning("LLM variant generation timed out")
         return []
-    except (aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
+    except (aiohttp.ClientError, ValueError, json.JSONDecodeError):
         return []
 
 
@@ -404,7 +404,7 @@ async def _generate_single_alpha(
         result["success"] = True
         return result
 
-    except (Exception,) as exc:
+    except Exception as exc:
         result["error_msg"] = str(exc)
         logger.error("[%s] gen-%d cycle=%d unexpected error: %s", session_id, gen_idx, global_cycle, exc, exc_info=True)
         return result

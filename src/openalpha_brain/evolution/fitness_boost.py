@@ -23,15 +23,16 @@ Integration:
 from __future__ import annotations
 
 import asyncio
-import re
 import logging
+import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Callable, Awaitable, Any
+from typing import Any
 
+from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 from openalpha_brain.utils.algo_logger import algo_log
-from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector, telemetry_tracked
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class FitnessBoostResult:
     variants: list[FitnessVariant] = field(default_factory=list)
     analysis_summary: str = ""
 
-    def best_variant(self) -> Optional[FitnessVariant]:
+    def best_variant(self) -> FitnessVariant | None:
         if not self.variants:
             return None
         return max(self.variants, key=lambda v: v.expected_fitness_delta)
@@ -128,7 +129,7 @@ class FitnessBoostEngine:
         expression: str,
         sharpe: float,
         fitness: float,
-        turnover: Optional[float] = None,
+        turnover: float | None = None,
     ) -> dict:
         eid = None
         try:
@@ -296,7 +297,7 @@ class FitnessBoostEngine:
                 except (OSError, ValueError, RuntimeError):
                     pass
                 return result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("[FIT-BOOST-LLM] LLM timed out after 12s, using rule-based result")
                 result = dict(rule_analysis)
                 result["llm_prioritized"] = False
@@ -330,9 +331,9 @@ class FitnessBoostEngine:
         expression: str,
         sharpe: float,
         fitness: float,
-        turnover: Optional[float] = None,
+        turnover: float | None = None,
         max_variants: int = 15,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> FitnessBoostResult:
         eid = None
         try:
@@ -440,7 +441,7 @@ class FitnessBoostEngine:
         }
 
     @staticmethod
-    def _extract_signed_power_value(expr: str) -> Optional[float]:
+    def _extract_signed_power_value(expr: str) -> float | None:
         """Extract signed_power parameter value, handling arbitrary nesting depth.
 
         Uses bracket-matching to find the correct closing paren for signed_power(...).
@@ -712,7 +713,7 @@ class FitnessBoostEngine:
                     variants.append(FitnessVariant(
                         expression=subindustry_upgrade,
                         boost_tier="neutralization_balance",
-                        mutation_description=f"升级 subindustry 精细中性化 (B4)",
+                        mutation_description="升级 subindustry 精细中性化 (B4)",
                         expected_fitness_delta=0.10,
                         risk_level="medium",
                     ))

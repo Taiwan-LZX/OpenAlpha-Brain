@@ -18,10 +18,10 @@ Tests:
     4. Half-life Estimation — IC decay across forward periods
 """
 
-import math
 import logging
+import math
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class LightweightAntiOverfitDetector:
         historical_sharpes: Optional list of historical Sharpe ratios for consistency checking.
     """
 
-    def __init__(self, historical_sharpes: Optional[list[float]] = None):
+    def __init__(self, historical_sharpes: list[float] | None = None):
         self._historical_sharpes: list[float] = list(historical_sharpes) if historical_sharpes else []
 
     def evaluate(self, metrics: dict) -> AntiOverfitResult:
@@ -126,7 +126,7 @@ class LightweightAntiOverfitDetector:
 
         return result
 
-    def _test_sharpe_consistency(self, sharpe: Optional[float]) -> TestResult:
+    def _test_sharpe_consistency(self, sharpe: float | None) -> TestResult:
         """Test 1: Sharpe ratio consistency with historical average.
 
         If current Sharpe deviates > 2σ from historical mean → potential overfitting.
@@ -172,7 +172,7 @@ class LightweightAntiOverfitDetector:
             "threshold_sigma": threshold,
         })
 
-    def _test_turnover_sanity(self, turnover: Optional[float]) -> TestResult:
+    def _test_turnover_sanity(self, turnover: float | None) -> TestResult:
         """Test 2: Turnover rate sanity check.
 
         Rules:
@@ -221,9 +221,9 @@ class LightweightAntiOverfitDetector:
 
     def _test_fitness_efficiency(
         self,
-        fitness: Optional[float],
-        sharpe: Optional[float],
-        turnover: Optional[float],
+        fitness: float | None,
+        sharpe: float | None,
+        turnover: float | None,
     ) -> TestResult:
         """Test 3: Fitness efficiency analysis.
 
@@ -273,8 +273,8 @@ class LightweightAntiOverfitDetector:
 
     def _test_drawdown_stability(
         self,
-        drawdown: Optional[float],
-        sharpe: Optional[float],
+        drawdown: float | None,
+        sharpe: float | None,
     ) -> TestResult:
         """Test 4: Drawdown stability check.
 
@@ -317,7 +317,7 @@ class LightweightAntiOverfitDetector:
             "warnings": warnings,
         })
 
-    def _test_check_pattern(self, checks: Optional[list]) -> TestResult:
+    def _test_check_pattern(self, checks: list | None) -> TestResult:
         """Test 5: Failed-check pattern analysis.
 
         Pattern detection:
@@ -385,7 +385,7 @@ class FullAntiOverfitDetector:
             holding_period: Holding period in trading days.
         """
         self._detector = None
-        self._import_error: Optional[str] = None
+        self._import_error: str | None = None
         self._holding_period = holding_period
 
         if factor_df is not None:
@@ -417,7 +417,7 @@ class FullAntiOverfitDetector:
         return self._detector is not None
 
     @property
-    def import_error(self) -> Optional[str]:
+    def import_error(self) -> str | None:
         """Return import error message if any."""
         return self._import_error
 
@@ -455,10 +455,7 @@ class _QuantGPTAntiOverfitDetector:
     """
 
     def __init__(self, factor_df: Any, holding_period: int = 5):
-        import numpy as np
         import pandas as pd
-        from scipy import stats as sp_stats
-        from scipy.optimize import curve_fit
 
         if not hasattr(factor_df, 'copy') or not hasattr(factor_df, 'columns'):
             raise ValueError("factor_df must be a pandas DataFrame")
@@ -469,7 +466,6 @@ class _QuantGPTAntiOverfitDetector:
         self._prepare_forward_returns()
 
     def _prepare_forward_returns(self):
-        import pandas as pd
         self.df = self.df.sort_values(["stock_code", "trade_date"])
         self.df["fwd_ret"] = (
             self.df.groupby("stock_code")["daily_ret"]
@@ -552,7 +548,6 @@ class _QuantGPTAntiOverfitDetector:
 
     def test_subsample_stress(self) -> TestResult:
         import numpy as np
-        import pandas as pd
 
         ic_series = self._calc_daily_ic()
         if len(ic_series) < 40:
@@ -603,7 +598,6 @@ class _QuantGPTAntiOverfitDetector:
 
     def test_placebo(self, n_permutations: int = 20) -> TestResult:
         import numpy as np
-        import pandas as pd
 
         ic_series = self._calc_daily_ic()
         if len(ic_series) < 20:
@@ -658,7 +652,6 @@ class _QuantGPTAntiOverfitDetector:
 
     def test_half_life(self) -> TestResult:
         import numpy as np
-        import pandas as pd
         from scipy.optimize import curve_fit
 
         periods = [1, 2, 5, 10, 20, 40]

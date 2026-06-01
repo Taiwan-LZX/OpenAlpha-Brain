@@ -426,7 +426,7 @@ def build_memory_injection(state) -> str:
 
     lines = [
         "\n\nSESSION MEMORY STATE:",
-        f"Explored fingerprints:",
+        "Explored fingerprints:",
     ]
     lines.extend(explored or ["  None yet"])
     lines.append(f"Topology map: {topo_summary or 'empty'}")
@@ -434,7 +434,7 @@ def build_memory_injection(state) -> str:
     lines.append(f"Dataset usage: {dataset_usage}")
     lines.append(f"Last 3 families: {last_3_families or 'None'}")
     lines.append(f"Open frontiers: {frontiers or 'Not yet initialized'}")
-    lines.append(f"Failure catalog (last 5):")
+    lines.append("Failure catalog (last 5):")
     lines.extend(failure_lines or ["  None yet"])
     lines.append(f"Rejected motifs: {[m.get('topology') for m in state.rejected_motifs if m.get('topology')]}")
 

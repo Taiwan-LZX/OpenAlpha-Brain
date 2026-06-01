@@ -7,37 +7,37 @@ import sys
 import time
 import types
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
-from openalpha_brain.services import llm_client
-from openalpha_brain.validation import validator as val
+from openalpha_brain.cli.algo_monitor import AlgoMonitor
+from openalpha_brain.cli.alpha_channel import AlphaChannel
 from openalpha_brain.cli.heartbeat import SessionHeartbeat
-from openalpha_brain.knowledge.conversation_summarizer import ConversationSummarizer
 from openalpha_brain.config.config import settings
-from openalpha_brain.knowledge.rag_tools import RAGBudgetTracker
-from openalpha_brain.evolution.strategy_classifier import StrategyClassifier
-from openalpha_brain.evolution.semantic_mutator import SemanticMutator
+from openalpha_brain.core.pipeline import AlphaCachePool
+from openalpha_brain.core.scheduler import ExplorationScheduler
+from openalpha_brain.data import get_data_path
 from openalpha_brain.evolution.hypothesis_aligner import HypothesisAligner
 from openalpha_brain.evolution.quality_diversity import FeatureMap
+from openalpha_brain.evolution.semantic_mutator import SemanticMutator
+from openalpha_brain.evolution.strategy_classifier import StrategyClassifier
 from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
-from openalpha_brain.knowledge.global_knowledge import GlobalKnowledge
-from openalpha_brain.cli.algo_monitor import AlgoMonitor
+from openalpha_brain.knowledge.conversation_summarizer import ConversationSummarizer
 from openalpha_brain.knowledge.evolution_db import EvolutionDatabase
-from openalpha_brain.learning.reflection_engine import ReflectionEngine
-from openalpha_brain.utils.tool_factory import ToolFactory
-from openalpha_brain.data import get_data_path
+from openalpha_brain.knowledge.global_knowledge import GlobalKnowledge
+from openalpha_brain.knowledge.rag_tools import RAGBudgetTracker
 from openalpha_brain.learning.experience_distiller import ExperienceDistiller
+from openalpha_brain.learning.mab import save_mab_state
+from openalpha_brain.learning.param_optimizer import ParamOptimizer
+from openalpha_brain.learning.reflection_engine import ReflectionEngine
+from openalpha_brain.services import llm_client
 from openalpha_brain.utils.market_state import MarketStateInferencer
 from openalpha_brain.utils.pnl_analyzer import PnLAnalyzer
-from openalpha_brain.validation.signal_arbiter import SignalArbiter
+from openalpha_brain.utils.tool_factory import ToolFactory
+from openalpha_brain.validation import validator as val
 from openalpha_brain.validation.decay_detector import AlphaDecayDetector
-from openalpha_brain.cli.alpha_channel import AlphaChannel
-from openalpha_brain.learning.param_optimizer import ParamOptimizer
-from openalpha_brain.core.pipeline import AlphaCachePool
-from openalpha_brain.learning.mab import save_mab_state, TemplateFamilyBandit
-from openalpha_brain.core.scheduler import ExplorationScheduler
+from openalpha_brain.validation.signal_arbiter import SignalArbiter
 
 MAX_BRAIN_MUTATIONS = 10
 
@@ -257,7 +257,7 @@ class LoopContext:
         else:
             self._feature_map = None
 
-        from openalpha_brain.knowledge.rag_engine import SuccessCaseLibrary, FailureFixLibrary, auto_debug_loop
+        from openalpha_brain.knowledge.rag_engine import FailureFixLibrary, SuccessCaseLibrary
 
         if settings.SUCCESS_CASE_LIBRARY_ENABLED:
             self._success_lib = SuccessCaseLibrary(embed_fn=llm_client.embed)
@@ -330,9 +330,14 @@ class LoopContext:
                     field_proxy_map=_fpm,
                 )
             return
-        from openalpha_brain.learning.mab import HierarchicalMAB, AssociationMatrix, TemplateFamilyBandit, load_mab_state
-        from openalpha_brain.utils.whitelist import WhitelistManager
         from openalpha_brain.knowledge.rag_engine import RAGEngine
+        from openalpha_brain.learning.mab import (
+            AssociationMatrix,
+            HierarchicalMAB,
+            TemplateFamilyBandit,
+            load_mab_state,
+        )
+        from openalpha_brain.utils.whitelist import WhitelistManager
 
         self._whitelist_mgr = WhitelistManager()
         val.set_whitelist_manager(self._whitelist_mgr)
@@ -445,23 +450,24 @@ class LoopContext:
                 template_family_bandit=self._scheduler.bandit if self._scheduler else None,
             )
             if self._scheduler is not None:
-                from openalpha_brain.learning.mab import _MAB_STATE_PATH
                 import json as _json
+
+                from openalpha_brain.learning.mab import _MAB_STATE_PATH
                 _saved = _json.loads(_MAB_STATE_PATH.read_text(encoding="utf-8"))
                 _saved["scheduler"] = self._scheduler.to_dict()
                 _MAB_STATE_PATH.write_text(_json.dumps(_saved, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("Intelligent search state persisted to mab_state.json")
-        except (OSError, IOError, RuntimeError):
+        except (OSError, RuntimeError):
             logger.warning("Failed to save intelligent search state", exc_info=True)
         if self._rag_engine and hasattr(self._rag_engine, 'save_feedback_weights'):
             try:
                 self._rag_engine.save_feedback_weights("rag_feedback_weights.json")
-            except (OSError, IOError, RuntimeError):
+            except (OSError, RuntimeError):
                 logger.warning("Failed to save RAG feedback weights", exc_info=True)
 
     def log(self, state, log_type: str, message: str, detail: dict | None = None) -> None:
         entry = {
-            "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "time": datetime.now(UTC).strftime("%H:%M:%S"),
             "type": log_type,
             "message": message,
         }

@@ -26,7 +26,6 @@ WQ 反馈接收、LLM 改进串联成真正的自主闭环。
 from __future__ import annotations
 
 import asyncio
-import aiohttp
 import json
 import logging
 import time
@@ -34,6 +33,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+
+import aiohttp
 
 from openalpha_brain.core.decision_engine import DecisionEngine
 from openalpha_brain.core.result_router import ResultRouter
@@ -1036,7 +1037,7 @@ class FeedbackLoopOrchestrator:
                                         variant.confidence,
                                         variant.expression[:60],
                                     )
-                                except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as to_exc:
+                                except (TimeoutError, aiohttp.ClientError, ConnectionError) as to_exc:
                                     logger.warning("[ORCH] [TURNOVER-OPT] Submit failed: %s", to_exc)
 
                         if to_submitted > 0:
@@ -1107,7 +1108,7 @@ class FeedbackLoopOrchestrator:
                             submitted_count, variant.mutation_type,
                             variant.expression[:60],
                         )
-                    except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as submit_exc:
+                    except (TimeoutError, aiohttp.ClientError, ConnectionError) as submit_exc:
                         logger.warning("[ORCH] [NEAR-PASS] Submit failed: %s", submit_exc)
 
             if submitted_count > 0:
@@ -1151,7 +1152,7 @@ class FeedbackLoopOrchestrator:
                                     fb_submitted, fv.boost_tier,
                                     fv.expected_fitness_delta, fv.expression[:60],
                                 )
-                            except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as fb_exc:
+                            except (TimeoutError, aiohttp.ClientError, ConnectionError) as fb_exc:
                                 logger.warning("[ORCH] [FITNESS-BOOST] Submit failed: %s", fb_exc)
 
                     if fb_submitted > 0:
@@ -1163,7 +1164,7 @@ class FeedbackLoopOrchestrator:
                             task_id,
                         )
                         self.stats.total_improved += fb_submitted
-                except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as fb_err:
+                except (TimeoutError, aiohttp.ClientError, ConnectionError) as fb_err:
                     logger.warning("[ORCH] [FITNESS-BOOST] Engine error: %s", fb_err)
 
         if self._graph_db is not None:
@@ -1773,7 +1774,7 @@ class FeedbackLoopOrchestrator:
                             repaired_expr,
                         )
                         return
-                    except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as exc:
+                    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
                         logger.error("[ORCH] Auto-repair submit failed: %s", exc)
 
         try:
@@ -1879,7 +1880,7 @@ class FeedbackLoopOrchestrator:
                 'openalpha_brain.services.brain_submitter',
                 fromlist=['FailureType'],
             )
-            _FailureType = getattr(_ft_module, 'FailureType')
+            _FailureType = _ft_module.FailureType
             _failure_value = getattr(_FailureType, 'LOW_SHARPE', None)
 
             if decision_type == "WEAK_IMPROVE":
@@ -1936,7 +1937,7 @@ class FeedbackLoopOrchestrator:
                 logger.warning("[ORCH] ReflexionEngine returned empty expression")
                 return None
 
-        except (ConnectionError, asyncio.TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, ConnectionError, OSError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("[ORCH] ReflexionEngine failed: %s, fallback to simple LLM", exc)
             improved_expr = await self._simple_llm_improve(expression, wq_feedback, decision_type)
             if not improved_expr:
@@ -1974,7 +1975,7 @@ class FeedbackLoopOrchestrator:
             self.stats.successful_improvements += 1
             return improved_expr
 
-        except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[ORCH] Failed to submit improved expression: %s", exc)
             return None
 
@@ -2117,7 +2118,7 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
             return None
 
         except Exception as exc:  # noqa: BLE001
-            logger.error("[ORCH] Simple LLM improve failed: %s", exc)    
+            logger.error("[ORCH] Simple LLM improve failed: %s", exc)
             return None
 
     def _build_field_recommendation(self, focus_area: str, cycle: int) -> dict:
@@ -2489,7 +2490,7 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
 
             except asyncio.QueueFull:
                 logger.warning("[ORCH] SlotManager queue full, skipping alpha")
-            except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as exc:
+            except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
                 logger.error("[ORCH] Submit failed: %s", exc)
 
         return submitted

@@ -52,7 +52,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -573,7 +572,7 @@ class EASearchStrategy:
                 else:
                     logger.warning("[EA] LLM semantic mutation returned empty — falling back to fast mutate")
                     offspring.extend(self._fast_mutate(individual))
-            except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError, RuntimeError) as e:
+            except (TimeoutError, ValueError, TypeError, ConnectionError, OSError, RuntimeError) as e:
                 logger.warning("[EA] LLM semantic mutation failed: %s", e)
                 offspring.extend(self._fast_mutate(individual))
         else:
@@ -673,7 +672,7 @@ class EASearchStrategy:
                         mutation_type=EAMutationType.LLM_SEMANTIC,
                         metadata={"llm_response": response[:200]},
                     )]
-        except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError, RuntimeError) as e:
+        except (TimeoutError, ValueError, TypeError, ConnectionError, OSError, RuntimeError) as e:
             logger.warning("[EA] LLM mutation call failed: %s", e)
         return []
 
@@ -889,7 +888,7 @@ class EASearchStrategy:
                 individual.metadata["wq_result"] = result
             else:
                 individual.fitness = self._quick_evaluate(individual.expression)
-        except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError, RuntimeError) as e:
+        except (TimeoutError, ValueError, TypeError, ConnectionError, OSError, RuntimeError) as e:
             logger.warning("[EA] WQ submission failed: %s — using quick eval", e)
             individual.fitness = self._quick_evaluate(individual.expression)
 

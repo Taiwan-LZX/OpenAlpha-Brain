@@ -51,9 +51,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
 
 from openalpha_brain.core.result_router import ParsedWQResult
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
@@ -85,8 +84,8 @@ class DecisionContext:
     """
     sharpe: float = 0.0
     passed: bool = False
-    anti_fit_score: Optional[float] = None
-    parsed_result: Optional[ParsedWQResult] = None
+    anti_fit_score: float | None = None
+    parsed_result: ParsedWQResult | None = None
     is_high_icir_low_fitness: bool = False
     is_efficient_alpha: bool = False
 
@@ -164,8 +163,8 @@ class DecisionEngine:
 
     def __init__(
         self,
-        config: Optional[dict] = None,
-        telemetry: Optional[AlgorithmTelemetryCollector] = None,
+        config: dict | None = None,
+        telemetry: AlgorithmTelemetryCollector | None = None,
     ):
         self.config = {**self.DEFAULT_CONFIG, **(config or {})}
         self._tel = telemetry or AlgorithmTelemetryCollector.get_instance()
@@ -219,7 +218,7 @@ class DecisionEngine:
     def decide_from_parsed_result(
         self,
         parsed_result: ParsedWQResult,
-        anti_fit_score: Optional[float] = None,
+        anti_fit_score: float | None = None,
     ) -> DecisionOutcome:
         """便捷方法：直接从 ParsedWQResult 创建决策
 

@@ -1,0 +1,211 @@
+import type { BacktestRequest, Task, Session } from "../types/backtest";
+
+export const BASE = "";
+
+export function setAuthDisabled(_v: boolean) {}
+export function getAuthDisabled() { return true; }
+
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string> ?? {}) };
+  return fetch(url, { ...options, headers });
+}
+
+export async function parseError(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    const detail = body.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg || JSON.stringify(d)).join("; ");
+    if (detail && typeof detail === "object") return JSON.stringify(detail);
+    return `请求失败 (${res.status})`;
+  } catch {
+    if (res.status === 429) return "请求过于频繁，请稍后再试";
+    if (res.status === 503) return "服务繁忙，请稍后再试";
+    return `请求失败 (${res.status})`;
+  }
+}
+
+export async function submitBacktest(req: BacktestRequest, sessionId?: string): Promise<{ task_id: string; status: string }> {
+  const body = sessionId ? { ...req, session_id: sessionId } : req;
+  const res = await authFetch(`${BASE}/api/v1/auto_backtest`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function cancelTask(taskId: string): Promise<void> {
+  const res = await authFetch(`${BASE}/api/v1/tasks/${taskId}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function getTask(taskId: string): Promise<Task> {
+  const res = await authFetch(`${BASE}/api/v1/tasks/${taskId}`);
+  if (!res.ok) throw new Error(`Task fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export function streamTask(
+  taskId: string,
+  onUpdate: (task: Task) => void,
+  onDone: () => void,
+  _onError?: (err: Event) => void,
+): () => void {
+  let closed = false;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
+
+  function cleanup() {
+    closed = true;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function startPolling() {
+    if (closed || pollTimer) return;
+    pollTimer = setInterval(async () => {
+      if (closed) { cleanup(); return; }
+      try {
+        const task = await getTask(taskId);
+        onUpdate(task);
+        if (task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "iteration_completed") {
+          cleanup();
+          onDone();
+        }
+      } catch {
+        // keep polling
+      }
+    }, 3000);
+  }
+
+  function connect() {
+    if (closed) return;
+
+    const url = `${BASE}/api/v1/tasks/${taskId}/stream`;
+    const es = new EventSource(url);
+
+    es.addEventListener("update", (e) => {
+      retryCount = 0;
+      const task: Task = JSON.parse(e.data);
+      onUpdate(task);
+    });
+
+    es.addEventListener("done", () => {
+      es.close();
+      cleanup();
+      onDone();
+    });
+
+    es.addEventListener("error", () => {
+      es.close();
+      if (closed) return;
+      retryCount++;
+      if (retryCount <= MAX_RETRIES) {
+        setTimeout(connect, 2000 * retryCount);
+      } else {
+        startPolling();
+      }
+    });
+
+    closeFn = () => { es.close(); cleanup(); };
+  }
+
+  let closeFn = () => { cleanup(); };
+  connect();
+
+  return () => closeFn();
+}
+
+export function getReportUrl(reportUrl: string): string {
+  return `${BASE}${reportUrl}`;
+}
+
+export async function fetchTasks(page = 1, pageSize = 20, sessionId?: string, taskType?: string): Promise<{ tasks: Task[]; page: number; page_size: number }> {
+  let url = `${BASE}/api/v1/tasks?page=${page}&page_size=${pageSize}`;
+  if (sessionId) url += `&session_id=${sessionId}`;
+  if (taskType) url += `&task_type=${taskType}`;
+  const res = await authFetch(url);
+  if (!res.ok) throw new Error(`Tasks fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function submitIteration(
+  taskId: string,
+  nCandidates = 5,
+  direction?: string,
+): Promise<{ task_id: string; status: string }> {
+  const body: Record<string, unknown> = { n_candidates: nCandidates };
+  if (direction) body.direction = direction;
+  const res = await authFetch(`${BASE}/api/v1/tasks/${taskId}/iterate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function selectCandidate(
+  taskId: string,
+  candidateIndex: number,
+): Promise<Record<string, unknown>> {
+  const res = await authFetch(`${BASE}/api/v1/tasks/${taskId}/select_candidate`, {
+    method: "POST",
+    body: JSON.stringify({ candidate_index: candidateIndex }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+// ---- Sessions ----
+
+export async function createSession(name?: string): Promise<Session> {
+  const res = await authFetch(`${BASE}/api/v1/sessions`, {
+    method: "POST",
+    body: JSON.stringify({ name: name ?? null }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function fetchSessions(): Promise<{ sessions: Session[] }> {
+  const url = `${BASE}/api/v1/sessions`;
+  const res = await authFetch(url);
+  if (!res.ok) throw new Error(`Sessions fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function renameSession(sessionId: string, name: string): Promise<Session> {
+  const res = await authFetch(`${BASE}/api/v1/sessions/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await authFetch(`${BASE}/api/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) throw new Error(await parseError(res));
+}
+
+export interface FeedbackPayload {
+  description: string;
+  screenshot?: string | null;
+  task_id?: string | null;
+  page_url?: string | null;
+  user_agent?: string | null;
+}
+
+export async function submitFeedback(payload: FeedbackPayload): Promise<{ id: string; status: string; webhook_sent: boolean }> {
+  const res = await authFetch(`${BASE}/api/v1/feedback`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}

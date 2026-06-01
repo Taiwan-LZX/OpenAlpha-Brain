@@ -51,7 +51,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +70,7 @@ class MABOutput:
     weight_vector: dict[str, float] = field(default_factory=dict)  # 完整权重向量
     confidence: float = 0.5              # UCB置信度或exploitation概率
     exploration_rate: float = 0.3       # 当前探索率
-    
+
     @property
     def is_valid(self) -> bool:
         return len(self.selected_family) > 0 and self.confidence > 0
@@ -86,7 +85,7 @@ class ClassifierOutput:
     is_ambiguous: bool = False          # 是否模糊/不确定
     is_tied: bool = False                # 是否平局
     calibration_details: dict = field(default_factory=dict)  # LLM校准详情
-    
+
     @property
     def is_valid(self) -> bool:
         return len(self.direction) > 0 and self.confidence > 0
@@ -100,15 +99,15 @@ class AlignerOutput:
     offset_magnitude: float = 0.0       # 偏移量大小
     suggested_adjustment: str = ""       # 建议的方向调整
     diagnosis: str = ""                  # 诊断信息
-    
+
     @property
     def is_valid(self) -> bool:
         return len(self.alignment_level) > 0 and self.r2_score >= 0
-    
+
     @property
     def is_aligned(self) -> bool:
         return self.alignment_level in ("aligned", "strongly_aligned")
-    
+
     @property
     def alignment_strength(self) -> float:
         if self.r2_score >= 0.7:
@@ -132,14 +131,14 @@ class FusionResult:
     disagreement_score: float = 0.0      # 模块间不一致程度 (0-1, 高=冲突)
     processing_time_ms: float = 0.0
     metadata: dict = field(default_factory=dict)
-    
+
     @property
     def has_consensus(self) -> bool:
         """三个模块是否达成一致"""
         votes = list(self.raw_votes.values())
         unique_votes = set(v for v in votes if v)
         return len(unique_votes) == 1 or self.disagreement_score < 0.3
-    
+
     def to_log_dict(self) -> dict:
         return {
             "direction": self.final_direction,
@@ -179,7 +178,7 @@ class NavigationFusion:
 
     def __init__(
         self,
-        config: Optional[dict] = None,
+        config: dict | None = None,
     ):
         self.config = {**self.DEFAULT_CONFIG, **(config or {})}
         self._success_history: dict[str, list[bool]] = {
@@ -190,9 +189,9 @@ class NavigationFusion:
 
     def fuse(
         self,
-        mab_output: Optional[MABOutput] = None,
-        classifier_output: Optional[ClassifierOutput] = None,
-        aligner_output: Optional[AlignerOutput] = None,
+        mab_output: MABOutput | None = None,
+        classifier_output: ClassifierOutput | None = None,
+        aligner_output: AlignerOutput | None = None,
         cycle_num: int = 0,
     ) -> FusionResult:
         """执行三模块融合
@@ -207,31 +206,31 @@ class NavigationFusion:
             FusionResult: 融合后的最终方向和置信度
         """
         t0 = time.perf_counter()
-        
+
         result = FusionResult()
-        
+
         # Step 1: 收集各模块的"投票"
         votes = self._collect_votes(mab_output, classifier_output, aligner_output)
         result.raw_votes = votes
-        
+
         # Step 2: 检测可用性和有效性
         availability = self._check_availability(
             mab_output, classifier_output, aligner_output
         )
-        
+
         # Step 3: 计算动态权重
         weights = self._compute_dynamic_weights(
             mab_output, classifier_output, aligner_output, availability
         )
         result.weight_distribution = weights
-        
+
         # Step 4: 检测不一致性
         result.disagreement_score = self._compute_disagreement(votes)
-        
+
         # Step 5: 执行融合策略
         strategy = FusionStrategy(self.config.get("fusion_strategy", "weighted_average"))
         result.strategy = strategy
-        
+
         if strategy == FusionStrategy.WEIGHTED_AVERAGE:
             final_dir, conf = self._weighted_average_fuse(
                 votes, weights, availability
@@ -246,7 +245,7 @@ class NavigationFusion:
             final_dir, conf = self._winner_takes_all_fuse(
                 votes, mab_output, classifier_output, aligner_output, availability
             )
-        
+
         result.final_direction = final_dir
         result.confidence = conf
         result.processing_time_ms = (time.perf_counter() - t0) * 1000
@@ -255,7 +254,7 @@ class NavigationFusion:
             "availability": availability,
             "valid_votes_count": sum(1 for v in votes.values() if v),
         }
-        
+
         logger.info(
             "[FUSION] ◆ RESULT | cycle=%d direction=%s confidence=%.3f "
             "disagreement=%.3f consensus=%s weights=%s",
@@ -266,7 +265,7 @@ class NavigationFusion:
             result.has_consensus,
             {k: round(v, 2) for k, v in weights.items()},
         )
-        
+
         if not result.has_consensus and result.disagreement_score > 0.6:
             logger.warning(
                 "[FUSION] ⚠ HIGH DISAGREEMENT | cycle=%d score=%.3f "
@@ -275,24 +274,24 @@ class NavigationFusion:
                 result.disagreement_score,
                 votes,
             )
-        
+
         return result
 
     def _collect_votes(
         self,
-        mab: Optional[MABOutput],
-        classifier: Optional[ClassifierOutput],
-        aligner: Optional[AlignerOutput],
+        mab: MABOutput | None,
+        classifier: ClassifierOutput | None,
+        aligner: AlignerOutput | None,
     ) -> dict[str, str]:
         """收集各模块的投票 (提取方向字符串)"""
         votes = {}
-        
+
         if mab is not None and mab.is_valid:
             votes["mab"] = mab.selected_family
-        
+
         if classifier is not None and classifier.is_valid:
             votes["classifier"] = classifier.direction
-            
+
         if aligner is not None and aligner.is_valid:
             if aligner.is_aligned and aligner.suggested_adjustment:
                 votes["aligner"] = aligner.suggested_adjustment
@@ -300,14 +299,14 @@ class NavigationFusion:
                 votes["aligner"] = "continue_current"  # 对齐良好，保持当前方向
             else:
                 votes["aligner"] = f"adjust_{aligner.alignment_level}"
-        
+
         return votes
 
     def _check_availability(
         self,
-        mab: Optional[MABOutput],
-        classifier: Optional[ClassifierOutput],
-        aligner: Optional[AlignerOutput],
+        mab: MABOutput | None,
+        classifier: ClassifierOutput | None,
+        aligner: AlignerOutput | None,
     ) -> dict[str, bool]:
         """检查各模块是否可用且有效"""
         return {
@@ -318,19 +317,19 @@ class NavigationFusion:
 
     def _compute_dynamic_weights(
         self,
-        mab: Optional[MABOutput],
-        classifier: Optional[ClassifierOutput],
-        aligner: Optional[AlignerOutput],
+        mab: MABOutput | None,
+        classifier: ClassifierOutput | None,
+        aligner: AlignerOutput | None,
         availability: dict[str, bool],
     ) -> dict[str, float]:
         """计算动态权重 (基础权重 × 可用性 × 置信度调整 × 历史成功率)"""
         base = self.config["base_weights"].copy()
-        
+
         for module_name in ["mab", "classifier", "aligner"]:
             if not availability.get(module_name, False):
                 base[module_name] = 0.0
                 continue
-            
+
             # 置信度调整
             conf = 0.5  # 默认中等置信度
             if module_name == "mab" and mab is not None:
@@ -339,22 +338,22 @@ class NavigationFusion:
                 conf = max(classifier.confidence, 0.3)
             elif module_name == "aligner" and aligner is not None:
                 conf = max(aligner.alignment_strength, 0.3)
-            
+
             min_conf = self.config.get("min_confidence_threshold", 0.3)
             if conf < min_conf:
                 base[module_name] *= (conf / min_conf)  # 低置信度降权
-            
+
             # 历史成功率调整 (如果启用)
             if self.config.get("adaptive_enabled", True):
                 success_rate = self._get_success_rate(module_name)
                 if success_rate is not None:
                     base[module_name] *= (0.5 + success_rate)  # 成功率高则增权
-        
+
         # 归一化
         total = sum(base.values())
         if total > 0:
             base = {k: v / total for k, v in base.items()}
-        
+
         return base
 
     def _compute_disagreement(self, votes: dict[str, str]) -> float:
@@ -362,11 +361,11 @@ class NavigationFusion:
         valid_votes = [v for v in votes.values() if v]
         if len(valid_votes) <= 1:
             return 0.0
-        
+
         from collections import Counter
         counts = Counter(valid_votes)
         most_common_count = counts.most_common(1)[0][1]
-        
+
         # 不一致度 = 1 - (最多投票数 / 总投票数)
         return 1.0 - (most_common_count / len(valid_votes))
 
@@ -378,48 +377,48 @@ class NavigationFusion:
     ) -> tuple[str, float]:
         """加权平均融合"""
         direction_scores: dict[str, float] = {}
-        
+
         for module_name, direction in votes.items():
             w = weights.get(module_name, 0)
             direction_scores[direction] = direction_scores.get(direction, 0) + w
-        
+
         if not direction_scores:
             return "", 0.0
-        
+
         best_dir = max(direction_scores.items(), key=lambda x: x[1])[0]
         best_score = direction_scores[best_dir]
-        
+
         # 置信度 = 最高分 × 一致性加成
         confidence = best_score
         if len(direction_scores) == 1:
             confidence = min(confidence * 1.2, 1.0)  # 一致性加成
-        
+
         return best_dir, confidence
 
     def _confidence_weighted_fuse(
         self,
         votes: dict[str, str],
-        mab: Optional[MABOutput],
-        classifier: Optional[ClassifierOutput],
-        aligner: Optional[AlignerOutput],
+        mab: MABOutput | None,
+        classifier: ClassifierOutput | None,
+        aligner: AlignerOutput | None,
         availability: dict[str, bool],
     ) -> tuple[str, float]:
         """基于各模块自身置信度的加权融合"""
         confidences = {}
-        
+
         if availability.get("mab", False) and mab is not None:
             confidences["mab"] = mab.confidence
         if availability.get("classifier", False) and classifier is not None:
             confidences["classifier"] = classifier.confidence
         if availability.get("aligner", False) and aligner is not None:
             confidences["aligner"] = aligner.alignment_strength
-        
+
         if not confidences:
             return self._weighted_average_fuse(votes, {"mab": 0.34, "classifier": 0.33, "aligner": 0.33}, availability)
-        
+
         total_conf = sum(confidences.values())
         weights = {k: v / total_conf for k, v in confidences.items()}
-        
+
         return self._weighted_average_fuse(votes, weights, availability)
 
     def _majority_vote_fuse(
@@ -430,40 +429,40 @@ class NavigationFusion:
         """多数投票融合"""
         from collections import Counter
         counter = Counter(votes.values())
-        
+
         if not counter:
             return "", 0.0
-        
+
         best_dir, count = counter.most_common(1)[0]
         total = len(votes)
-        
+
         confidence = count / total
         if count == total:
             confidence = 0.95  # 全一致给高置信度
-        
+
         return best_dir, confidence
 
     def _winner_takes_all_fuse(
         self,
         votes: dict[str, str],
-        mab: Optional[MABOutput],
-        classifier: Optional[ClassifierOutput],
-        aligner: Optional[AlignerOutput],
+        mab: MABOutput | None,
+        classifier: ClassifierOutput | None,
+        aligner: AlignerOutput | None,
         availability: dict[str, bool],
     ) -> tuple[str, float]:
         """最高置信度者胜出"""
         candidates = []
-        
+
         if availability.get("mab", False) and mab is not None and mab.is_valid:
             candidates.append(("mab", mab.selected_family, mab.confidence))
         if availability.get("classifier", False) and classifier is not None and classifier.is_valid:
             candidates.append(("classifier", classifier.direction, classifier.confidence))
         if availability.get("aligner", False) and aligner is not None and aligner.is_valid:
             candidates.append(("aligner", aligner.suggested_adjustment or "continue", aligner.alignment_strength))
-        
+
         if not candidates:
             return "", 0.0
-        
+
         winner = max(candidates, key=lambda x: x[2])
         return winner[1], winner[2]
 
@@ -471,18 +470,18 @@ class NavigationFusion:
         """记录某模块的成功/失败 (用于自适应权重调整)"""
         if module_name not in self._success_history:
             return
-        
+
         history = self._success_history[module_name]
         history.append(success)
-        
+
         window = self.config.get("history_window", 20)
         if len(history) > window:
             self._success_history[module_name] = history[-window:]
 
-    def _get_success_rate(self, module_name: str) -> Optional[float]:
+    def _get_success_rate(self, module_name: str) -> float | None:
         """获取某模块的历史成功率"""
         history = self._success_history.get(module_name, [])
         if len(history) < 5:
             return None  # 数据不足，不调整
-        
+
         return sum(history) / len(history)

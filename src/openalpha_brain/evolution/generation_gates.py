@@ -14,15 +14,15 @@ Gate Dimensions:
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
 
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
-from openalpha_brain.validation.ast_validator import ASTValidator
 from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
+from openalpha_brain.utils.algo_logger import algo_log, log_call
+from openalpha_brain.validation.ast_validator import ASTValidator
 
 logger = logging.getLogger(__name__)
 
@@ -460,7 +460,7 @@ class GenerationGates:
         diagnosis_parts = [
             f"ops={op_count}",
             f"ast_depth={ast_depth}",
-            f"balanced=True",
+            "balanced=True",
             f"neutralize={has_neutralize}",
             f"decay={has_decay}",
             f"score_breakdown={dict(sub_scores)}",

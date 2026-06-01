@@ -22,9 +22,9 @@ from __future__ import annotations
 import ast
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     structure_info: dict[str, Any] = field(default_factory=dict)
-    signal_segment: Optional[str] = None
+    signal_segment: str | None = None
     fix_suggestions: list[str] = field(default_factory=list)
 
 
@@ -104,7 +104,7 @@ class _ExprVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     @staticmethod
-    def _call_name(node: ast.Call) -> Optional[str]:
+    def _call_name(node: ast.Call) -> str | None:
         if isinstance(node.func, ast.Name):
             return node.func.id
         return None
@@ -133,7 +133,7 @@ class ASTValidator:
 
     def __init__(
         self,
-        operator_whitelist: Optional[frozenset[str]] = None,
+        operator_whitelist: frozenset[str] | None = None,
         max_nesting_depth: int = 8,
     ) -> None:
         self._whitelist = operator_whitelist or OPERATOR_WHITELIST
@@ -310,7 +310,7 @@ class ASTValidator:
         return result
 
     @staticmethod
-    def _get_first_arg(node: ast.expr) -> Optional[ast.expr]:
+    def _get_first_arg(node: ast.expr) -> ast.expr | None:
         if isinstance(node, ast.Call) and node.args:
             return node.args[0]
         return None
@@ -330,7 +330,7 @@ class ASTValidator:
     @staticmethod
     def _extract_signal_segment(
         expr: str, three_block: _ThreeBlockStructure,
-    ) -> Optional[str]:
+    ) -> str | None:
         if three_block.is_valid_three_block:
             try:
                 gn_start = expr.index(three_block.neutralize_op)

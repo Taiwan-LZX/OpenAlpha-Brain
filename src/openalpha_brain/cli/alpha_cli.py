@@ -245,7 +245,7 @@ class AlphaCLI:
             from openalpha_brain.services.llm_client import generate
             reply = await generate(system_prompt="Reply with exactly: OK", history=[], user_msg="ping")
             checks["llm"] = {"status": "OK", "response": reply.strip()[:50], "latency_ms": round((time.perf_counter() - t0) * 1000)}
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             checks["llm"] = {"status": "FAIL", "error": str(e)[:80]}
 
         t0 = time.perf_counter()
@@ -253,7 +253,7 @@ class AlphaCLI:
             from openalpha_brain.services.llm_client import embed
             vec = await embed("test")
             checks["embedding"] = {"status": "OK", "dim": len(vec), "latency_ms": round((time.perf_counter() - t0) * 1000)}
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             checks["embedding"] = {"status": "FAIL", "error": str(e)[:80]}
 
         modules_ok, modules_fail = [], []
@@ -291,7 +291,7 @@ class AlphaCLI:
                     checks["brain_auth"] = {"status": "OK", "has_cookies": bool(cookies), "latency_ms": round((time.perf_counter() - t0) * 1000)}
                 else:
                     checks["brain_auth"] = {"status": "SKIP", "reason": "No credentials"}
-            except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError, ValueError) as e:
+            except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError, ValueError) as e:
                 checks["brain_auth"] = {"status": "FAIL", "error": str(e)[:80]}
         else:
             checks["brain_auth"] = {"status": "DISABLED"}

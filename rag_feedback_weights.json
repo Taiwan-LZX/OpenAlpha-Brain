@@ -1,8 +1,8 @@
 {
   "momentum": {
     "alternative_ops_boost": 3.375,
-    "ts_ops_boost": 6.274851700000003,
-    "normalization_ops_boost": 3.7129300000000014
+    "ts_ops_boost": 39.37376385699292,
+    "normalization_ops_boost": 13.785849184900009
   },
   "interaction": {
     "ts_ops_boost": 1.3,

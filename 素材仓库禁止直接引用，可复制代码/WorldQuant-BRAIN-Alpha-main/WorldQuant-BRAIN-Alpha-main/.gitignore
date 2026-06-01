@@ -1,0 +1,104 @@
+# ============================================================================
+# BRAIN Alpha Ops — .gitignore
+# ============================================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+*.spec
+!BrainAlphaOps.spec
+.pytest_cache/
+.pytest_cache_runtime/
+.mypy_cache/
+.ruff_cache/
+.pip_audit_cache/
+
+# ---- Virtual environments ----
+venv/
+.venv/
+env/
+.env
+.codex_pydeps/
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Data & Logs (large / sensitive / runtime-generated) ----
+data/*.jsonl
+data/api_cache/
+data/_codex_bench*/
+data/jobs_sync.json
+data/jobs_production.json
+data/jobs_check.json
+data/jobs_async.json
+data/e2e_screenshots/
+data/run_history/
+data/knowledge/
+data/*.sqlite
+data/checkpoints/
+data/*.log
+*.log
+*.err.log
+*.out.log
+
+# ---- Cache & Temp ----
+*.tmp
+*.bak
+*.cache
+
+# ---- Build artifacts ----
+node_modules/
+build/
+dist/
+!brain_alpha_ops/web/react_app/dist/
+!brain_alpha_ops/web/react_app/dist/index.html
+
+# ---- Archive ----
+_archive_before_rebuild_*/
+
+# ---- Temp / External source copies ----
+.codex_tmp_quantgpt_src/
+.pytest_tmp*/
+
+# ---- Output artifacts ----
+output/
+
+# ---- Credentials (NEVER commit) ----
+.env
+.env.*
+credentials.json
+secrets.json
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+*.ipynb
+
+# ---- OS ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.codex_tmp_quantgpt.zip
+
+# ---- Project-specific runtime data (local-only) ----
+.codebuddy/
+
+# ---- Test output artifacts ----
+.playwright-cli/
+test_results.txt
+_run_new_tests.py
+_coverage/
+htmlcov/
+.coverage

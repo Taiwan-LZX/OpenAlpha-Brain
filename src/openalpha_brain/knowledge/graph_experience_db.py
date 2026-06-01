@@ -21,7 +21,6 @@ Usage:
 """
 from __future__ import annotations
 
-import copy
 import logging
 import os
 import pickle
@@ -32,7 +31,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from openalpha_brain.utils.algo_logger import algo_log
 
@@ -130,7 +129,7 @@ class SimpleDiGraph:
         self._adj[edge.source_id][edge.target_id] = edge
         self._pred[edge.target_id][edge.source_id] = edge
 
-    def get_node(self, node_id: str) -> Optional[ExperienceNode]:
+    def get_node(self, node_id: str) -> ExperienceNode | None:
         return self._nodes.get(node_id)
 
     def get_successors(self, node_id: str) -> list[ExperienceNode]:
@@ -210,7 +209,7 @@ class GraphBasedExperienceDB:
         self,
         expression: str,
         wq_feedback: dict,
-        improvement_result: Optional[dict] = None,
+        improvement_result: dict | None = None,
         category: str = "general"
     ) -> str:
         """Record a complete factor→feedback→improvement experience triplet.
@@ -508,7 +507,7 @@ class GraphBasedExperienceDB:
         )
 
     @algo_log()
-    def get_improvement_suggestion(self, expression: str) -> Optional[dict]:
+    def get_improvement_suggestion(self, expression: str) -> dict | None:
         """Get improvement suggestion for an expression based on historical patterns.
 
         This method is designed to be used by A2 Prompt Injection module.
@@ -584,7 +583,7 @@ class GraphBasedExperienceDB:
                 "[GRAPH-DB] Saved %d nodes to %s",
                 self.graph.size(), self.db_path,
             )
-        except OSError as e:
+        except OSError:
             if Path(temp_path).exists():
                 Path(temp_path).unlink(missing_ok=True)
             raise
@@ -773,7 +772,7 @@ class GraphBasedExperienceDB:
 
         return max(0.0, min(1.0, total))
 
-    def _get_node_feedback(self, node_id: str) -> Optional[dict]:
+    def _get_node_feedback(self, node_id: str) -> dict | None:
         """Get feedback data associated with an expression node."""
         successors = self.graph.get_successors(node_id)
         for succ in successors:
@@ -781,7 +780,7 @@ class GraphBasedExperienceDB:
                 return succ.content
         return None
 
-    def _get_node_improvement(self, node_id: str) -> Optional[dict]:
+    def _get_node_improvement(self, node_id: str) -> dict | None:
         """Get improvement data associated with an expression node."""
         successors = self.graph.get_successors(node_id)
         for succ in successors:
@@ -801,7 +800,7 @@ class GraphBasedExperienceDB:
                 break
         return None
 
-    def _classify_error(self, feedback: Optional[dict]) -> str:
+    def _classify_error(self, feedback: dict | None) -> str:
         """Classify error type from feedback metrics.
 
         Args:

@@ -17,12 +17,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 from openalpha_brain.generation.alpha_logics import (
     AlphaLogicLibrary,
-    ThreeBlockTemplate,
 )
 from openalpha_brain.knowledge.field_proxy_map import FieldProxyMap
 
@@ -122,7 +122,7 @@ class TemplateReasoningGenerator:
             )
             selected_template_id = phase1_result.get("selected_template", "")
             logger.info("[REASONING] Phase 1 complete: selected_template=%s", selected_template_id)
-        except (ConnectionError, OSError, TimeoutError) as exc:
+        except (ConnectionError, OSError, TimeoutError):
             phase1_result = self._fallback_phase1(templates_info)
             selected_template_id = phase1_result.get("selected_template", "")
 
@@ -209,7 +209,7 @@ class TemplateReasoningGenerator:
 
         parsed = self._parse_json_response(raw_response)
         if not parsed or "selected_template" not in parsed:
-            raise ValueError(f"Invalid Phase 1 response: missing 'selected_template'")
+            raise ValueError("Invalid Phase 1 response: missing 'selected_template'")
 
         template_id = parsed["selected_template"]
         if template_id not in [t["id"] for t in templates_info]:
@@ -330,7 +330,7 @@ class TemplateReasoningGenerator:
 
         parsed = self._parse_json_response(raw_response)
         if not parsed or "field_mapping" not in parsed:
-            raise ValueError(f"Invalid Phase 2 response: missing 'field_mapping'")
+            raise ValueError("Invalid Phase 2 response: missing 'field_mapping'")
 
         field_mapping = parsed["field_mapping"]
 
@@ -517,7 +517,7 @@ class TemplateReasoningGenerator:
 
         parsed = self._parse_json_response(raw_response)
         if not parsed or "critique" not in parsed:
-            raise ValueError(f"Invalid Phase 4 response: missing 'critique'")
+            raise ValueError("Invalid Phase 4 response: missing 'critique'")
 
         critique = parsed["critique"]
         overall = critique.get("overall_verdict", "REJECT")
@@ -614,11 +614,7 @@ class TemplateReasoningGenerator:
 
             is_cross_family = False
             params = template.block_a.editable_params
-            if "price_field" in params and "fundamental_field" in params:
-                is_cross_family = True
-            elif "price_field" in params and any(p in params for p in ["earnings_field", "revenue_field", "asset_field"]):
-                is_cross_family = True
-            elif "volume_field" in params and any(p in params for p in ["cap_field", "fundamental_field"]):
+            if "price_field" in params and "fundamental_field" in params or "price_field" in params and any(p in params for p in ["earnings_field", "revenue_field", "asset_field"]) or "volume_field" in params and any(p in params for p in ["cap_field", "fundamental_field"]):
                 is_cross_family = True
 
             summaries.append({

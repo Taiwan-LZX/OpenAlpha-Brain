@@ -1,13 +1,13 @@
 # learning package
 from openalpha_brain.learning.mab import (
-    HierarchicalMAB,
-    TemplateFamilyBandit,
     AssociationMatrix,
-    SlidingWindowUCB,
-    MABPriorInitializer,
-    ComputeAllocator,
-    ThompsonBandit,
     BetaArm,
+    ComputeAllocator,
+    HierarchicalMAB,
+    MABPriorInitializer,
+    SlidingWindowUCB,
+    TemplateFamilyBandit,
+    ThompsonBandit,
 )
 
 __all__ = [

@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time as _time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 from tenacity import (
@@ -801,7 +802,6 @@ async def _call_lmstudio_native(
     client = get_client()
     resp = await client.post(url, headers=headers, json=payload, timeout=90.0)
     resp.raise_for_status()
-    import json
     data = resp.json()
     return data.get("output", [{}])[0].get("content", "").strip()
 

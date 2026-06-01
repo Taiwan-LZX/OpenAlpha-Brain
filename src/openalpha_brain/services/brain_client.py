@@ -262,7 +262,7 @@ async def fetch_alpha_details(
             return _safe_json(resp)
         logger.warning("[brain] Failed to fetch alpha %s details: HTTP %d", alpha_id, resp.status_code)
         return None
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error fetching alpha %s details: %s", alpha_id, exc)
         return None
 
@@ -278,7 +278,7 @@ async def check_alpha(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(check_url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error checking alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:
@@ -335,7 +335,7 @@ async def patch_properties(
         return False
     except BrainAuthError:
         raise
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error patching properties of alpha %s: %s", alpha_id, exc)
         return False
 
@@ -362,7 +362,7 @@ async def list_alphas(
         return None
     except BrainAuthError:
         raise
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error listing alphas: %s", exc)
         return None
 
@@ -376,7 +376,7 @@ async def submit_alpha_for_review(
     submit_url = f"{BRAIN_BASE}/alphas/{alpha_id}/submit"
     try:
         resp = await client.post(submit_url, cookies=cookies, timeout=30.0)
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error submitting alpha %s for review: %s", alpha_id, exc)
         return False
     if resp.status_code == 401:
@@ -401,7 +401,7 @@ async def submit_alpha_for_review(
     while elapsed < max_poll_seconds:
         try:
             poll_resp = await client.get(poll_url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
+        except (TimeoutError, aiohttp.ClientError, ConnectionError):
             await asyncio.sleep(5.0)
             elapsed += 5.0
             continue
@@ -455,7 +455,7 @@ async def fetch_yearly_performance(
             break
     except BrainAuthError:
         raise
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.debug("[brain] /yearly-stats endpoint failed for alpha %s: %s", alpha_id, exc)
 
     url = f"{BRAIN_BASE}/alphas/{alpha_id}/recordsets/yearly"
@@ -469,7 +469,7 @@ async def fetch_yearly_performance(
             raise BrainAuthError(f"Cookie expired fetching yearly performance for alpha {alpha_id}")
     except BrainAuthError:
         raise
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error fetching yearly endpoint for alpha %s: %s", alpha_id, exc)
 
     logger.info("[brain] Yearly endpoint not available for alpha %s — computing from PnL data", alpha_id)
@@ -478,7 +478,7 @@ async def fetch_yearly_performance(
     while pnl_elapsed < max_poll_seconds:
         try:
             resp = await client.get(url_pnl, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching PnL for yearly computation of alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 404:
@@ -538,7 +538,7 @@ async def fetch_pnl_curve(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(daily_url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching daily PnL for alpha %s: %s", alpha_id, exc)
             break
         if resp.status_code == 404:
@@ -569,7 +569,7 @@ async def fetch_pnl_curve(
     while submit_elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching PnL curve for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 404:
@@ -614,7 +614,7 @@ async def fetch_correlations(
             raise BrainAuthError(f"Cookie expired fetching correlations for alpha {alpha_id}")
     except BrainAuthError:
         raise
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error fetching correlations endpoint for alpha %s: %s", alpha_id, exc)
 
     logger.info("[brain] Correlations endpoint not available for alpha %s — falling back to /correlations/self", alpha_id)
@@ -651,7 +651,7 @@ async def fetch_correlations(
             break
     except BrainAuthError:
         raise
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error fetching /correlations/self for alpha %s: %s", alpha_id, exc)
 
     logger.info("[brain] /correlations/self not available for alpha %s — falling back to check API", alpha_id)
@@ -666,7 +666,7 @@ async def fetch_correlations(
                     val = chk.get("value")
                     if isinstance(val, (int, float)):
                         return {"self_correlation": float(val)}
-    except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error fetching correlations from check API for alpha %s: %s", alpha_id, exc)
     return None
 
@@ -682,7 +682,7 @@ async def fetch_self_correlations(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching self correlations for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:
@@ -718,7 +718,7 @@ async def fetch_prod_correlations(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching prod correlations for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:
@@ -754,7 +754,7 @@ async def fetch_yearly_stats(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching yearly-stats for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:
@@ -793,7 +793,7 @@ async def fetch_daily_pnl(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
             logger.error("[brain] Error fetching daily-pnl for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:

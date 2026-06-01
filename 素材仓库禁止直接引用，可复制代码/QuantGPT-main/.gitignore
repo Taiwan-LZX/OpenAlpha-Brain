@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Data & reports (generated)
+data/
+reports/
+feedback/
+
+# Deploy (removed — local project only)
+deploy/
+
+# Alembic config (contains DB URL)
+alembic.ini
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Logs
+logs/
+
+# MCP config (local paths)
+.mcp.json
+
+# Build cache
+*.tsbuildinfo
+
+# Marketing (local only)
+marketing/
+
+# Claude Code
+.claude/
+
+# Research notes (runtime artifacts, not source code)
+research_notes/
+docs/factor_research/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+engine/target/
+engine/Cargo.lock
+
+# Database
+*.db
+
+# Coverage
+.coverage
+htmlcov/

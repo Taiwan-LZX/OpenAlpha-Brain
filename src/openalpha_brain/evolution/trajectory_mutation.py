@@ -20,14 +20,14 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import re
-from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from openalpha_brain.evolution.evolution_types import AlphaTrajectory
 from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 logger = logging.getLogger(__name__)
 

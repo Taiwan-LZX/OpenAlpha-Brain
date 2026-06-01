@@ -13,95 +13,125 @@ import logging
 import random
 from typing import Any, cast
 
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
-from openalpha_brain.core.events import get_event_bus, EVENT_CYCLE_START, EVENT_ALPHA_GENERATED, EVENT_ALPHA_VALIDATED, EVENT_ALPHA_REJECTED, EVENT_BRAIN_SUBMIT, EVENT_BRAIN_RESULT, EVENT_MAB_FEEDBACK, EVENT_CYCLE_COMPLETE, EVENT_MINING_COMPLETE, EVENT_ERROR
-
-from openalpha_brain.generation import alpha_parser as parser
-from openalpha_brain.generation.alpha_parser import parse_alpha_json
-from openalpha_brain.services import brain_client
-from openalpha_brain.services import llm_client
+from openalpha_brain.agents.multi_agent import (
+    EvalAgent,
+    FactorAgent,
+    Hypothesis,
+    IdeaAgent,
+    MultiAgentOrchestrator,
+    _check_semantic_alignment,
+)
 from openalpha_brain.cli import session_manager as sm
-from openalpha_brain.validation import validator as val
-from openalpha_brain.validation.validator import compute_hierarchical_reward, get_reward_level
-from openalpha_brain.validation.ast_repair import repair_expression
-from openalpha_brain.learning.param_optimizer import expression_hash
-from openalpha_brain.learning.mab import (
-    REWARD_VALIDATOR_PASS,
-    REWARD_SHARPE_05,
-    PENALTY_BRAIN_FAIL, PENALTY_BRAIN_ERROR,
-)
-from openalpha_brain.core.scheduler import ExplorationScheduler
 from openalpha_brain.config.config import settings
-from openalpha_brain.knowledge.rag_tools import (
-    RAG_TOOL_SCHEMAS,
-    validate_expression_fields,
-    auto_repair_expression,
+from openalpha_brain.core import loop_state as _ls
+from openalpha_brain.core.events import (
+    EVENT_ALPHA_GENERATED,
+    EVENT_ALPHA_REJECTED,
+    EVENT_ALPHA_VALIDATED,
+    EVENT_BRAIN_RESULT,
+    EVENT_BRAIN_SUBMIT,
+    EVENT_CYCLE_START,
+    EVENT_MAB_FEEDBACK,
+    EVENT_MINING_COMPLETE,
+    get_event_bus,
 )
-from openalpha_brain.agents.multi_agent import MultiAgentOrchestrator, IdeaAgent, FactorAgent, EvalAgent, _check_semantic_alignment, Hypothesis
-from openalpha_brain.services.brain_submitter import create_dedup_mutation_callback
-from openalpha_brain.validation.decay_detector import AlphaDecayDetector, DecayLevel, AlphaDecayRecord, create_alpha_decay_handler
-from openalpha_brain.evolution.crossover_mutation import GradientMutation, SemanticCrossover, CrossoverMutationEngine, AlphaTrajectory
-from openalpha_brain.evolution.generation_gates import GenerationGates, GenerationGateReport, GATE_HYPOTHESIS_EXPRESSION, GATE_EXPRESSION_CODE, GATE_HOLISTIC
-from openalpha_brain.evolution.hypothesis_aligner import HypothesisAligner
-from openalpha_brain.utils.resilience import TaskHealthRegistry, async_timeout
-from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
+from openalpha_brain.core.generator import (
+    _apply_generation_gates,
+    _build_continuation_msg,
+    _filter_variants_by_field_overlap,
+    _generate_llm_variants,
+    _generate_one_and_enqueue,
+)
 from openalpha_brain.core.models import (
-    AlphaFingerprint, AlphaMetrics, AlphaResult,
-    BrainSimStatus, BrainSubmissionResult,
-    PipelineStatus, SessionStatus,
+    AlphaFingerprint,
+    AlphaMetrics,
+    AlphaResult,
+    BrainSimStatus,
+    PipelineStatus,
+    SessionStatus,
 )
+from openalpha_brain.core.periodic_tasks import _periodic_decay_check, _periodic_trajectory_crossover
 from openalpha_brain.core.pipeline import AlphaCachePool
+from openalpha_brain.core.post_processor import _merge_session_hallucinations, _post_process_brain_result
+from openalpha_brain.evolution.crossover_mutation import (
+    AlphaTrajectory,
+    CrossoverMutationEngine,
+)
+from openalpha_brain.evolution.generation_gates import (
+    GenerationGates,
+)
+from openalpha_brain.evolution.hypothesis_aligner import HypothesisAligner
+from openalpha_brain.generation import alpha_parser as parser
+from openalpha_brain.generation.alpha_generator import (
+    _apply_economic_rationale_verification,
+    _build_alpha,
+    _extract_brain_feedback_from_state,
+    _extract_economic_rationale,
+    _extract_expression_from_llm,
+    _extract_hallucinations_from_failures,
+    _handle_iterate,
+    _handle_parse_failure,
+    _handle_reject,
+)
+from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
+from openalpha_brain.generation.alpha_parser import parse_alpha_json
 from openalpha_brain.generation.prompts import (
-    get_system_prompt,
-    build_brain_failure_feedback,
     build_dynamic_context,
     build_failure_feedback,
     build_family_switch_warning,
     build_memory_injection,
-    build_restart_trigger,
     build_start_trigger,
     build_success_feedback,
+    get_system_prompt,
 )
-from openalpha_brain.core import loop_state as _ls
-from openalpha_brain.core.generator import (
-    _generate_one_and_enqueue, _generate_single_alpha,
-    _apply_generation_gates, _generate_llm_variants,
-    _filter_variants_by_field_overlap, _build_continuation_msg,
+from openalpha_brain.knowledge.rag_tools import (
+    RAG_TOOL_SCHEMAS,
+    auto_repair_expression,
+    validate_expression_fields,
 )
-from openalpha_brain.generation.alpha_generator import (
-    _extract_hallucinations_from_failures,
-    _extract_brain_feedback_from_state,
-    _extract_economic_rationale, _apply_economic_rationale_verification,
-    _extract_expression_from_llm, _build_alpha,
-    _handle_parse_failure, _handle_reject, _handle_iterate,
-    _summarise_rejected,
+from openalpha_brain.learning.mab import (
+    PENALTY_BRAIN_ERROR,
+    PENALTY_BRAIN_FAIL,
+    REWARD_VALIDATOR_PASS,
 )
+from openalpha_brain.learning.param_optimizer import expression_hash
 from openalpha_brain.learning.reward_updater import (
-    _get_operators_from_context, _get_fields_from_context,
     _arbiter_rerank,
-    _make_tool_executor, _extract_allowed_fields_from_tool_results,
+    _extract_allowed_fields_from_tool_results,
     _extract_strategy_features,
-    _refill_eliminated_fields, _sync_mab_bias_from_evidence,
+    _get_fields_from_context,
+    _get_operators_from_context,
+    _make_tool_executor,
+    _refill_eliminated_fields,
+    _sync_mab_bias_from_evidence,
     _run_logic_evolution,
 )
-from openalpha_brain.services.brain_submitter import (
-    _submit_to_brain, _brain_improvement_loop,
-    _run_param_optimization,
-    _build_brain_result_dict, _log_brain_result,
-)
+from openalpha_brain.services import brain_client, llm_client
 from openalpha_brain.services.brain_result_processor import (
-    compute_hierarchical_reward_with_penalties,
     check_margin_efficiency,
-    record_pass_feedback,
-    submit_for_review,
-    run_stability_analysis,
+    compute_hierarchical_reward_with_penalties,
     fetch_correlation_analysis,
     record_evo_and_success,
     record_fail_feedback,
+    record_pass_feedback,
     run_post_brain_processing,
+    run_stability_analysis,
+    submit_for_review,
 )
-from openalpha_brain.core.post_processor import _post_process_brain_result, _merge_session_hallucinations
-from openalpha_brain.core.periodic_tasks import _periodic_decay_check, _periodic_trajectory_crossover
+from openalpha_brain.services.brain_submitter import (
+    _brain_improvement_loop,
+    _log_brain_result,
+    _run_param_optimization,
+    _submit_to_brain,
+    create_dedup_mutation_callback,
+)
+from openalpha_brain.utils.algo_logger import algo_log
+from openalpha_brain.validation import validator as val
+from openalpha_brain.validation.ast_repair import repair_expression
+from openalpha_brain.validation.decay_detector import (
+    AlphaDecayDetector,
+    create_alpha_decay_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -720,7 +750,11 @@ async def run_loop(session_id: str) -> None:
                         _run_loop_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_sched_recommended_fields)}"
 
                     try:
-                        from openalpha_brain.core.loop_state import _last_unexplored_directions, _last_diversity_stats, _diversity_last_cycle
+                        from openalpha_brain.core.loop_state import (
+                            _diversity_last_cycle,
+                            _last_diversity_stats,
+                            _last_unexplored_directions,
+                        )
                         if (_last_unexplored_directions and global_cycle > 1
                                 and _diversity_last_cycle > 0
                                 and (global_cycle - _diversity_last_cycle) <= 15):
@@ -1183,8 +1217,12 @@ async def run_loop(session_id: str) -> None:
                 try:
                     _diversity_stats = _ls._feature_map.get_diversity_stats()
                     _unexplored = _ls._feature_map.get_unexplored_directions()
-                    from openalpha_brain.core.loop_state import _last_diversity_stats, _last_unexplored_directions, _diversity_last_cycle
                     from openalpha_brain.core import loop_state as _ls_mod
+                    from openalpha_brain.core.loop_state import (
+                        _diversity_last_cycle,
+                        _last_diversity_stats,
+                        _last_unexplored_directions,
+                    )
                     _ls_mod._last_diversity_stats = _diversity_stats
                     _ls_mod._last_unexplored_directions = list(_unexplored) if _unexplored else []
                     _ls_mod._diversity_last_cycle = global_cycle

@@ -19,14 +19,14 @@ R² Hypothesis Alignment Scorer for AlphaAgent (KDD'25)
 from __future__ import annotations
 
 import asyncio
-import re
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 logger = logging.getLogger(__name__)
 
@@ -694,7 +694,7 @@ class HypothesisAligner:
             conflict_type = "field_mismatch"
             confidence -= 0.35
             issues.append(
-                f"動量策略通常使用價格/成交量欄位，但表達式使用了基本面欄位"
+                "動量策略通常使用價格/成交量欄位，但表達式使用了基本面欄位"
             )
 
         if (is_value or is_quality) and not has_fundamental_field and has_price:
@@ -1153,10 +1153,10 @@ class HypothesisAligner:
                     llm_fn(prompt),
                     timeout=10.0,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("[HYP-ALIGN-LLM] LLM call timed out after 10s, using rule-only result")
                 return base
-            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 return base
 
             response_text = str(raw_response).strip() if raw_response is not None else ""
@@ -1236,7 +1236,6 @@ class HypothesisAligner:
 # ========== 內嵌測試用例 ==========
 
 if __name__ == "__main__":
-    import sys
 
     aligner = HypothesisAligner()
 

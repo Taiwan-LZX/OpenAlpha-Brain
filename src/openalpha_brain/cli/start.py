@@ -15,7 +15,6 @@ Usage:
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import threading
 import webbrowser
@@ -39,7 +38,7 @@ def launch_web(host: str = "0.0.0.0", port: int = 8000, open_browser: bool = Tru
     _print_banner()
     url = f"http://127.0.0.1:{port}"
     print(f"  🌐  Web Mode  —  {url}")
-    print(f"  ▶ Starting FastAPI server...")
+    print("  ▶ Starting FastAPI server...")
     if open_browser:
         timer = threading.Timer(1.5, lambda: webbrowser.open(url))
         timer.daemon = True
@@ -70,7 +69,6 @@ def main():
         for i, a in enumerate(args):
             if a in ("--port", "-p") and i + 1 < len(args):
                 port = int(args[i + 1])
-        import threading
         launch_web(port=port)
     elif "--run" in args or "-r" in args:
         rest = []

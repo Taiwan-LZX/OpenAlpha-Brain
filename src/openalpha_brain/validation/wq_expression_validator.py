@@ -18,10 +18,7 @@ from __future__ import annotations
 
 import ast
 import re
-import math
 from dataclasses import dataclass, field
-from typing import Any, Optional, Set
-
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────
 
@@ -140,8 +137,8 @@ class WQExpressionValidator:
 
     def __init__(
         self,
-        operator_registry: Optional[Set[str]] = None,
-        allowed_fields: Optional[Set[str]] = None,
+        operator_registry: set[str] | None = None,
+        allowed_fields: set[str] | None = None,
         max_depth: int = DEFAULT_MAX_DEPTH,
         max_node_count: int = DEFAULT_MAX_NODE_COUNT,
         max_window: int = DEFAULT_MAX_WINDOW,

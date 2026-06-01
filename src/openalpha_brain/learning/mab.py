@@ -8,16 +8,15 @@ from __future__ import annotations
 import json
 import logging
 import math
-import random
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional, cast
-from openalpha_brain.utils.algo_logger import algo_log
+from typing import Any, cast
 
 import numpy as np
 
 from openalpha_brain.config.config import settings
+from openalpha_brain.utils.algo_logger import algo_log
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +105,7 @@ class BetaArm:
         return {"alpha": self.alpha, "beta": self.beta, "total_updates": self._total_updates}
 
     @classmethod
-    def from_dict(cls, d: dict[str, float]) -> "BetaArm":
+    def from_dict(cls, d: dict[str, float]) -> BetaArm:
         """[Brief description of function purpose.]
 
             Args:
@@ -224,7 +223,7 @@ class ThompsonBandit:
         return {aid: arm.to_dict() for aid, arm in self._arms.items()}
 
     @classmethod
-    def from_dict(cls, d: dict[str, dict[str, float]]) -> "ThompsonBandit":
+    def from_dict(cls, d: dict[str, dict[str, float]]) -> ThompsonBandit:
         """[Brief description of function purpose.]
 
             Args:
@@ -275,12 +274,12 @@ class SlidingWindowUCB:
 
         self._rewards: deque[tuple[float, datetime]] = deque(maxlen=window_size)
         self._total_pulls: int = 0
-        self._last_reward_time: Optional[datetime] = None
+        self._last_reward_time: datetime | None = None
         self._prior_weight: float = 0.05
 
     @algo_log()
     def update(self, reward: float) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self._rewards.append((reward, now))
         self._total_pulls += 1
         self._last_reward_time = now
@@ -292,7 +291,7 @@ class SlidingWindowUCB:
         from openalpha_brain.utils.algo_logger import Timer
 
         with Timer("sw_ucb_weighted_mean"):
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             weights: list[float] = []
             values: list[float] = []
             for rew, ts in sorted(self._rewards, key=lambda x: x[1]):
@@ -348,7 +347,7 @@ class SlidingWindowUCB:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SlidingWindowUCB":
+    def from_dict(cls, d: dict[str, Any]) -> SlidingWindowUCB:
         arm = cls(
             arm_id=d.get("arm_id", ""),
             window_size=d.get("window_size", 20),
@@ -576,7 +575,7 @@ class HierarchicalMAB:
 
     def initialize_template_family_bandit(
         self,
-        tf_bandit: "TemplateFamilyBandit",
+        tf_bandit: TemplateFamilyBandit,
         prior_initializer: MABPriorInitializer,
     ) -> None:
         tf_bandit.initialize_priors(prior_initializer)
@@ -743,7 +742,7 @@ class HierarchicalMAB:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "HierarchicalMAB":
+    def from_dict(cls, d: dict[str, Any]) -> HierarchicalMAB:
         """[Brief description of function purpose.]
 
             Args:
@@ -931,7 +930,7 @@ class AssociationMatrix:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AssociationMatrix":
+    def from_dict(cls, d: dict[str, Any]) -> AssociationMatrix:
         """[Brief description of function purpose.]
 
             Args:
@@ -1126,7 +1125,7 @@ class TemplateFamilyBandit:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TemplateFamilyBandit":
+    def from_dict(cls, d: dict[str, Any]) -> TemplateFamilyBandit:
         tf = cls(
             window_size=d.get("window_size", 20),
             decay_factor=d.get("decay_factor", 0.95),

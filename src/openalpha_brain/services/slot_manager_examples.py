@@ -14,16 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from openalpha_brain.services.brain_client import BrainGateResult, authenticate
 from openalpha_brain.services.slot_manager import (
     SlotInfo,
     SlotManager,
-    SubmissionTask,
-    create_slot_manager,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +91,7 @@ async def basic_usage_example():
 
     # 6. 查看指标
     metrics = manager.get_metrics()
-    print(f"\n📊 Metrics:")
+    print("\n📊 Metrics:")
     print(f"   Submitted: {metrics.total_submitted}")
     print(f"   Completed: {metrics.total_completed}")
     print(f"   Passed:    {metrics.total_passed}")
@@ -175,7 +172,6 @@ class IntegratedSlotManager:
         - 记录特征指纹
         - 触发进化算法
         """
-        from openalpha_brain.learning.mab import HierarchicalMAB
 
         # 示例：更新 MAB reward
         if result.sharpe is not None:
@@ -194,7 +190,7 @@ class IntegratedSlotManager:
     async def _log_result(self, slot: SlotInfo, result: BrainGateResult):
         """记录结果到缓存"""
         self._results_cache.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "slot_id": slot.slot_id,
             "expression": slot.expression,
             "sharpe": result.sharpe,

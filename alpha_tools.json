@@ -1,6 +1,9 @@
 {
   "tools": {},
   "pattern_counter": {
-    "[]::": 60
+    "[]::": 70,
+    "['BRAIN gate LOW_SHARPE FAIL: value=0.56 limit=1.25', 'BRAIN gate LOW_FITNESS FAIL: value=0.21 limit=1.0']::": 1,
+    "['BRAIN gate LOW_SHARPE FAIL: value=0.02 limit=1.25', 'BRAIN gate LOW_FITNESS FAIL: value=0.0 limit=1.0']::": 1,
+    "['BRAIN gate LOW_SHARPE FAIL: value=-0.31 limit=1.25', 'BRAIN gate LOW_FITNESS FAIL: value=-0.1 limit=1.0']::": 1
   }
 }
