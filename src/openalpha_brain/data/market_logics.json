@@ -1,0 +1,1429 @@
+{
+  "momentum_short_term_reversal": {
+    "logic_id": "momentum_short_term_reversal",
+    "category": "momentum",
+    "hypothesis": "Short-term winners reverse: stocks with high recent returns underperform going forward",
+    "mechanism": "Overreaction and profit-taking by short-term traders create mean-reversion pressure",
+    "factor_templates": [
+      "-rank(ts_delta({price_field}, {short_lb}))",
+      "-rank(ts_returns({price_field}, {short_lb}))",
+      "-ts_zscore(ts_delta({price_field}, {short_lb}), {zscore_lb})"
+    ],
+    "time_horizon": "short",
+    "evidence_count": 45,
+    "last_updated": 1780290371.5985277,
+    "evidence_records": [
+      {
+        "expression": "group_neutralize(rank(ts_decay_linear(close - vwap, 5)), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "auto",
+        "failure_type": "",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780195996.735713
+      },
+      {
+        "expression": "-group_neutralize(ts_zscore(ts_delta(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780199991.04773
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780200283.4123013
+      },
+      {
+        "expression": "-group_neutralize(ts_zscore(ts_sum(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780200298.3517957
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 20), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201082.4917452
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 5), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201115.793595
+      },
+      {
+        "expression": "group_neutralize(-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 20), industry), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201157.7306454
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": 0.56,
+        "fitness": 0.21,
+        "turnover": 22.05,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201162.4716902
+      },
+      {
+        "expression": "rank(-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 20), industry))",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201180.0919547
+      },
+      {
+        "expression": "-group_zscore(normalize(ts_delta(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201201.6894078
+      },
+      {
+        "expression": "-group_neutralize(zscore(ts_delta(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201205.3202455
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_sum(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201207.352427
+      },
+      {
+        "expression": "rank(-group_neutralize(ts_zscore(ts_sum(yield_curve_spread, 5), 20), industry))",
+        "sharpe": -0.2,
+        "fitness": -0.05,
+        "turnover": 18.96,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201295.1101923
+      },
+      {
+        "expression": "-group_neutralize(ts_zscore(ts_sum(yield_curve_spread, 5), 3), industry)",
+        "sharpe": 0.22,
+        "fitness": 0.04,
+        "turnover": 101.44999999999999,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201360.549511
+      },
+      {
+        "expression": "-group_neutralize(ts_zscore(ts_sum(yield_curve_spread, 30), 20), industry)",
+        "sharpe": 0.39,
+        "fitness": 0.19,
+        "turnover": 11.34,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201401.9699311
+      },
+      {
+        "expression": "-group_neutralize(ts_std_dev(ts_sum(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201408.2756712
+      },
+      {
+        "expression": "group_neutralize(-group_neutralize(ts_zscore(ts_sum(yield_curve_spread, 5), 20), industry), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201450.9829233
+      },
+      {
+        "expression": "-group_zscore(ts_zscore(ts_sum(yield_curve_spread, 5), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201463.573441
+      },
+      {
+        "expression": "-group_neutralize(ts_zscore(ts_decay_linear(yield_curve_spread, 5), 20), industry)",
+        "sharpe": -0.26,
+        "fitness": -0.07,
+        "turnover": 22.12,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201820.2009485
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 20), 3), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201864.3163145
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 3), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201893.2964928
+      },
+      {
+        "expression": "rank(-group_neutralize(normalize(ts_delta(yield_curve_spread, 20), 20), industry))",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201925.9024272
+      },
+      {
+        "expression": "group_neutralize(-group_neutralize(normalize(ts_delta(yield_curve_spread, 20), 20), industry), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780201948.7110853
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_sum(yield_curve_spread, 20), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202030.9840343
+      },
+      {
+        "expression": "-group_zscore(normalize(ts_delta(yield_curve_spread, 20), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202057.257081
+      },
+      {
+        "expression": "-group_neutralize(scale(ts_delta(yield_curve_spread, 20), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202062.5011048
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202069.369205
+      },
+      {
+        "expression": "rank(-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 5), industry))",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202071.7498019
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_delta(yield_curve_spread, 60), 5), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202073.8299305
+      },
+      {
+        "expression": "group_neutralize(-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 5), industry), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202115.6390228
+      },
+      {
+        "expression": "-group_zscore(normalize(ts_delta(yield_curve_spread, 5), 5), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202118.086487
+      },
+      {
+        "expression": "-group_neutralize(zscore(ts_delta(yield_curve_spread, 5), 5), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202119.485151
+      },
+      {
+        "expression": "-group_neutralize(normalize(ts_sum(yield_curve_spread, 5), 5), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202123.5939426
+      },
+      {
+        "expression": "group_neutralize(-group_neutralize(normalize(ts_delta(yield_curve_spread, 10), 20), industry), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202146.0487008
+      },
+      {
+        "expression": "group_neutralize(-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 3), industry), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202148.7635865
+      },
+      {
+        "expression": "rank(group_neutralize(-group_neutralize(normalize(ts_delta(yield_curve_spread, 5), 20), industry), industry))",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780202173.9007804
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780204681.5029252
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780204685.39066
+      },
+      {
+        "expression": "group_neutralize(ts_mean(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780204685.7196636
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 3)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780204685.7269824
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 60), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780204686.0517561
+      },
+      {
+        "expression": "rank(group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry))",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780204686.0973775
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780213612.7540662
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780213622.1400306
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780213653.474022
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780213671.202892
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": 0.56,
+        "fitness": 0.21,
+        "turnover": 22.05,
+        "direction": "momentum",
+        "failure_type": "['BRAIN gate LOW_SHARPE FAIL: value=0.56 limit=1.25', 'BRAIN gate LOW_FITNESS FAIL: value=0.21 limit=1.0']",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780214359.5186598
+      },
+      {
+        "expression": "group_neutralize(ts_zscore(ts_decay_linear(rank(yield_curve_spread), 10), 20), industry)",
+        "sharpe": 0.02,
+        "fitness": 0.0,
+        "turnover": 35.21,
+        "direction": "momentum",
+        "failure_type": "['BRAIN gate LOW_SHARPE FAIL: value=0.02 limit=1.25', 'BRAIN gate LOW_FITNESS FAIL: value=0.0 limit=1.0']",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780214363.9264572
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": -0.31,
+        "fitness": -0.1,
+        "turnover": 19.0,
+        "direction": "momentum",
+        "failure_type": "['BRAIN gate LOW_SHARPE FAIL: value=-0.31 limit=1.25', 'BRAIN gate LOW_FITNESS FAIL: value=-0.1 limit=1.0', 'BRAIN gate LOW_SUB_UNIVERSE_SHARPE FAIL: value=-0.24 limit=-0.13']",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780214374.3458474
+      },
+      {
+        "expression": "group_neutralize(ts_zscore(ts_decay_linear(rank(yield_curve_spread), 10), 20), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780214538.6806755
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(rank(ts_delta(yield_curve_spread, 10)), 20), 10), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780214787.9180672
+      },
+      {
+        "expression": "group_neutralize(ts_mean(ts_zscore(ts_delta(close, 20), 20), 60), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244266.9400132
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(zscore(ts_delta(close, 20), 20), 60), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244266.9795918
+      },
+      {
+        "expression": "rank(group_neutralize(ts_decay_linear(ts_zscore(ts_delta(close, 20), 20), 60), industry))",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244284.7258747
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(ts_delta(close, 20), 60), 60), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244297.8315787
+      },
+      {
+        "expression": "group_zscore(ts_decay_linear(ts_zscore(ts_delta(close, 20), 20), 60), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244297.857281
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(ts_delta(close, 5), 20), 60), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244399.399867
+      },
+      {
+        "expression": "group_neutralize(ts_zscore(ts_decay_linear(rank(ts_delta(close, 10)), 10), 30), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244402.5360608
+      },
+      {
+        "expression": "group_neutralize(ts_decay_linear(ts_zscore(ts_delta(open, 20), 20), 60), industry)",
+        "sharpe": null,
+        "fitness": null,
+        "turnover": null,
+        "direction": "momentum",
+        "failure_type": "[]",
+        "fix_attempt": "",
+        "fix_success": false,
+        "timestamp": 1780244456.6912417
+      }
+    ],
+    "accumulated_diagnoses": [
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      }
+    ]
+  },
+  "momentum_medium_term_continuation": {
+    "logic_id": "momentum_medium_term_continuation",
+    "category": "momentum",
+    "hypothesis": "Medium-term trends persist: stocks with sustained momentum continue to outperform",
+    "mechanism": "Gradual information diffusion and herding behavior sustain price trends",
+    "factor_templates": [
+      "rank(ts_delta({price_field}, {medium_lb}))",
+      "rank(ts_decay_linear({price_field}, {medium_lb}))",
+      "rank(ts_mean(ts_delta({price_field}, 1), {medium_lb}))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "momentum_volume_confirmed": {
+    "logic_id": "momentum_volume_confirmed",
+    "category": "momentum",
+    "hypothesis": "Volume change confirms price trend: price moves backed by volume are more reliable",
+    "mechanism": "Volume reflects conviction; price-volume divergence signals weak trends",
+    "factor_templates": [
+      "rank(ts_corr(ts_delta({price_field}, {lb}), ts_delta({volume_field}, {lb}), {corr_lb}))",
+      "rank(ts_delta({price_field}, {lb}) * ts_delta({volume_field}, {lb}))",
+      "rank(sign(ts_delta({price_field}, {lb})) * ts_delta({volume_field}, {lb}))"
+    ],
+    "time_horizon": "short",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "value_regression": {
+    "logic_id": "value_regression",
+    "category": "value",
+    "hypothesis": "Low valuation stocks earn higher future returns due to mean reversion in valuation multiples",
+    "mechanism": "Value premium from risk compensation and mispricing correction over time",
+    "factor_templates": [
+      "-rank({price_field} / {fundamental_field})",
+      "-rank(group_zscore({price_field} / {fundamental_field}, sector))",
+      "-ts_zscore({price_field} / {fundamental_field}, {zscore_lb})"
+    ],
+    "time_horizon": "long",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "value_earnings_quality": {
+    "logic_id": "value_earnings_quality",
+    "category": "value",
+    "hypothesis": "High earnings-to-price ratio indicates undervaluation and predicts higher returns",
+    "mechanism": "Earnings yield captures profitability relative to price; high yield signals underpricing",
+    "factor_templates": [
+      "rank(ts_sum({earnings_field}, {sum_lb}) / {price_field})",
+      "rank(ts_decay_linear({earnings_field}, {sum_lb}) / {price_field})",
+      "rank(ts_mean({earnings_field}, {sum_lb}) / {price_field})"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "quality_earnings_stability": {
+    "logic_id": "quality_earnings_stability",
+    "category": "quality",
+    "hypothesis": "Companies with stable earnings outperform due to lower uncertainty and risk premium",
+    "mechanism": "Earnings stability reduces discount rates and attracts risk-averse institutional capital",
+    "factor_templates": [
+      "-rank(ts_std_dev({earnings_field}, {std_lb}))",
+      "-rank(ts_std_dev(ts_delta({earnings_field}, 1), {std_lb}))",
+      "rank(-ts_std_dev({earnings_field}, {std_lb}) / ts_mean(abs({earnings_field}), {std_lb}))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "quality_asset_turnover": {
+    "logic_id": "quality_asset_turnover",
+    "category": "quality",
+    "hypothesis": "High asset turnover indicates operational efficiency and predicts superior returns",
+    "mechanism": "Efficient resource utilization signals competitive advantage and management quality",
+    "factor_templates": [
+      "rank({revenue_field} / {asset_field})",
+      "rank(ts_delta({revenue_field} / {asset_field}, {delta_lb}))",
+      "rank(group_zscore({revenue_field} / {asset_field}, sector))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "size_small_cap_premium": {
+    "logic_id": "size_small_cap_premium",
+    "category": "size",
+    "hypothesis": "Small-cap stocks earn higher returns due to higher risk and lower analyst coverage",
+    "mechanism": "Size premium from liquidity risk, information asymmetry, and neglected-firm effect",
+    "factor_templates": [
+      "-rank({cap_field})",
+      "-rank(log({cap_field}))",
+      "-rank(group_zscore({cap_field}, sector))"
+    ],
+    "time_horizon": "long",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "volatility_low_vol_anomaly": {
+    "logic_id": "volatility_low_vol_anomaly",
+    "category": "volatility",
+    "hypothesis": "Low-volatility stocks deliver superior risk-adjusted returns due to leverage constraints and lottery preferences",
+    "mechanism": "Investors overpay for lottery-like payoffs in high-vol stocks, depressing their risk-adjusted returns",
+    "factor_templates": [
+      "-rank(ts_std_dev({price_field}, {vol_lb}))",
+      "-rank(ts_std_dev(ts_returns({price_field}, 1), {vol_lb}))",
+      "-rank(ts_mean(abs(ts_delta({price_field}, 1)), {vol_lb}))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "volatility_change_signal": {
+    "logic_id": "volatility_change_signal",
+    "category": "volatility",
+    "hypothesis": "Declining volatility predicts positive returns as uncertainty resolves favorably",
+    "mechanism": "Volatility compression signals market consensus and reduced risk premium",
+    "factor_templates": [
+      "-rank(ts_delta(ts_std_dev({price_field}, {vol_lb}), {delta_lb}))",
+      "-rank(ts_delta(ts_std_dev(ts_returns({price_field}, 1), {vol_lb}), {delta_lb}))",
+      "rank(-ts_delta(ts_std_dev({price_field}, {vol_lb}), {delta_lb}) / ts_std_dev({price_field}, {vol_lb}))"
+    ],
+    "time_horizon": "short",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "liquidity_premium": {
+    "logic_id": "liquidity_premium",
+    "category": "liquidity",
+    "hypothesis": "Illiquid stocks earn higher returns as compensation for higher transaction costs and difficulty of exit",
+    "mechanism": "Liquidity premium compensates for the risk of being unable to sell quickly at fair value",
+    "factor_templates": [
+      "-rank({volume_field} / {cap_field})",
+      "-rank(ts_mean({volume_field}, {liq_lb}) / {cap_field})",
+      "-rank(adv20 / {cap_field})"
+    ],
+    "time_horizon": "long",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "liquidity_improvement_signal": {
+    "logic_id": "liquidity_improvement_signal",
+    "category": "liquidity",
+    "hypothesis": "Improving liquidity signals growing institutional interest and predicts positive returns",
+    "mechanism": "Increasing volume attracts more market participants, reducing information asymmetry",
+    "factor_templates": [
+      "rank(ts_delta({volume_field}, {liq_lb}))",
+      "rank(ts_delta({volume_field} / {cap_field}, {liq_lb}))",
+      "rank(ts_delta(adv20, {liq_lb}))"
+    ],
+    "time_horizon": "short",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "lead_lag_price_volume": {
+    "logic_id": "lead_lag_price_volume",
+    "category": "lead_lag",
+    "hypothesis": "Price changes lead volume changes: price moves predict subsequent volume reaction",
+    "mechanism": "Informed traders move prices first; uninformed traders react with volume lag",
+    "factor_templates": [
+      "rank(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}))",
+      "rank(ts_corr(ts_delta({price_field}, 1), ts_delta({volume_field}, 1), {corr_lb}))",
+      "rank(group_neutralize(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}), industry))"
+    ],
+    "time_horizon": "short",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "lead_lag_cross_field": {
+    "logic_id": "lead_lag_cross_field",
+    "category": "lead_lag",
+    "hypothesis": "One data field's movement precedes another: cross-field lead-lag captures information diffusion delay",
+    "mechanism": "Different data sources update at different speeds, creating exploitable temporal gaps",
+    "factor_templates": [
+      "rank(ts_delta({lead_field}, {short_lb}) - ts_delta({lag_field}, {short_lb}))",
+      "rank(ts_corr(ts_delta({lead_field}, 1), ts_delta({lag_field}, 1), {corr_lb}))",
+      "rank(group_neutralize(ts_delta({lead_field}, {short_lb}) / ts_std_dev({lag_field}, {vol_lb}), industry))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "momentum_long_term_reversal": {
+    "logic_id": "momentum_long_term_reversal",
+    "category": "momentum",
+    "hypothesis": "Long-term winners underperform long-term losers over multi-year horizons due to overreaction correction",
+    "mechanism": "De Bondt & Thaler overreaction: extreme past returns predict reversal over 3-5 year horizons",
+    "factor_templates": [
+      "-rank(ts_delta({price_field}, {long_lb}))",
+      "-rank(ts_decay_linear(ts_delta({price_field}, 1), {long_lb}))",
+      "-rank(group_zscore(ts_delta({price_field}, {long_lb}), sector))"
+    ],
+    "time_horizon": "long",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "lead_lag_industry_rotation": {
+    "logic_id": "lead_lag_industry_rotation",
+    "category": "lead_lag",
+    "hypothesis": "Industry rotation follows predictable patterns: leading industries' returns predict lagging industries",
+    "mechanism": "Sector fund flows and economic cycle create temporal lead-lag across industries",
+    "factor_templates": [
+      "rank(ts_corr(ts_delta({price_field}, {short_lb}), ts_delta(group_mean({price_field}, sector), {short_lb}), {corr_lb}))",
+      "rank(ts_delta({price_field}, {medium_lb}) - ts_delta(group_mean({price_field}, sector), {medium_lb}))",
+      "rank(group_neutralize(ts_delta({price_field}, {long_lb}) - ts_delta({cap_field}, {long_lb}), sector))"
+    ],
+    "time_horizon": "long",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "mean_reversion_zscore": {
+    "logic_id": "mean_reversion_zscore",
+    "category": "mean_reversion",
+    "hypothesis": "Extreme Z-score deviations from short-term mean predict reversion to mean",
+    "mechanism": "Prices deviate from statistical mean due to noise traders; rational arbitrageurs push back",
+    "factor_templates": [
+      "-rank(ts_zscore(ts_delta({price_field}, {short_lb}), {zscore_lb}))",
+      "-rank(ts_zscore(ts_returns({price_field}, {short_lb}), {zscore_lb}))",
+      "-rank(ts_zscore({price_field}, {zscore_lb}))"
+    ],
+    "time_horizon": "short",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "mean_reversion_bollinger": {
+    "logic_id": "mean_reversion_bollinger",
+    "category": "mean_reversion",
+    "hypothesis": "Prices revert to moving average after breaching Bollinger-style bands",
+    "mechanism": "Overbought/oversold signals from statistical boundaries create predictable reversion",
+    "factor_templates": [
+      "-rank(({price_field} - ts_mean({price_field}, {medium_lb})) / ts_std_dev({price_field}, {medium_lb}))",
+      "rank((ts_mean({price_field}, {short_lb}) - {price_field}) / ts_std_dev({price_field}, {medium_lb}))",
+      "-rank(ts_zscore({price_field} - ts_mean({price_field}, {medium_lb}), {zscore_lb}))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "mean_reversion_valuation": {
+    "logic_id": "mean_reversion_valuation",
+    "category": "mean_reversion",
+    "hypothesis": "Extreme valuation multiples revert toward long-term sector median",
+    "mechanism": "Sector-relative valuation extremes reflect temporary mispricing that corrects over time",
+    "factor_templates": [
+      "-rank(group_zscore({price_field} / {fundamental_field}, sector))",
+      "-rank(ts_zscore(group_zscore({price_field} / {fundamental_field}, sector), {long_lb}))",
+      "rank(-abs(group_zscore({price_field} / {fundamental_field}, sector)))"
+    ],
+    "time_horizon": "long",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  },
+  "volatility_clustering": {
+    "logic_id": "volatility_clustering",
+    "category": "volatility",
+    "hypothesis": "Volatility clusters persist: periods of high (low) volatility tend to be followed by high (low) volatility",
+    "mechanism": "Volatility regime persistence creates predictable risk premium variation",
+    "factor_templates": [
+      "rank(ts_mean(ts_std_dev({price_field}, {short_lb}), {medium_lb}) - ts_std_dev({price_field}, {medium_lb}))",
+      "rank(ts_corr(ts_std_dev({price_field}, {short_lb}), ts_std_dev({price_field}, {medium_lb}), {corr_lb}))",
+      "-rank(ts_delta(ts_std_dev({price_field}, {short_lb}), {medium_lb}))"
+    ],
+    "time_horizon": "medium",
+    "evidence_count": 0,
+    "last_updated": 1780160564.6993756,
+    "evidence_records": [],
+    "accumulated_diagnoses": []
+  }
+}

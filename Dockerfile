@@ -1,23 +1,28 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS builder
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install dependencies first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
+COPY src/ src/
 
-# Copy project files
-COPY . .
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+RUN pip install --no-cache-dir -e .
 
-# Ensure sessions directory exists
-RUN mkdir -p sessions
+FROM python:3.11-slim AS runtime
 
-# Expose the application port
-EXPOSE 8000
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Run the FastAPI server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /app/src /app/src
+COPY pyproject.toml .
+
+ENV PATH=/opt/venv/bin:$PATH
+
+ENTRYPOINT ["openalpha"]

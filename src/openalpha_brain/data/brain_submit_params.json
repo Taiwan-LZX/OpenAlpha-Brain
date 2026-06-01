@@ -1,0 +1,10 @@
+{
+  "instrumentType": "EQUITY",
+  "delay": 1,
+  "decay": 5,
+  "neutralization": "INDUSTRY",
+  "truncation": 0.05,
+  "nanHandling": "OFF",
+  "pasteurization": "ON",
+  "universe": "TOP3000"
+}

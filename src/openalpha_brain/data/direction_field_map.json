@@ -1,0 +1,11 @@
+{
+  "momentum": ["close", "open", "high", "low", "vwap", "volume", "adv20", "returns"],
+  "value": ["cap", "sales", "assets", "equity", "revenue", "earnings_per_share_reported"],
+  "volatility": ["close", "high", "low", "vwap", "returns", "volume"],
+  "mean_reversion": ["close", "vwap", "returns", "adv20"],
+  "lead_lag": ["close", "volume", "vwap", "adv20", "returns"],
+  "liquidity": ["volume", "adv20", "cap", "sharesout"],
+  "quality": ["earnings_per_share_reported", "revenue", "assets", "equity", "debt"],
+  "size": ["cap", "volume", "adv20", "sharesout"],
+  "interaction": ["close", "volume", "returns", "vwap"]
+}

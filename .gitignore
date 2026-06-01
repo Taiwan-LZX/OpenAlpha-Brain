@@ -1,4 +1,4 @@
-# AlphaForge — Git ignore rules
+# OpenAlpha-Brain — Git ignore rules
 
 # Environment — NEVER commit your API key
 .env
@@ -14,6 +14,9 @@ dist/
 build/
 .eggs/
 *.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Virtual environments
 venv/
@@ -21,8 +24,9 @@ venv/
 env/
 .env.bak
 
-# Session data (can be large; regenerate locally)
+# Session data (runtime-generated, can be large)
 sessions/
+runtime/
 
 # IDE
 .vscode/
@@ -36,3 +40,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Temp/runtime artifacts
+alpha_run_log.txt
+_last_session_id.txt
+.trae/

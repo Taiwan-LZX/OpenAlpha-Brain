@@ -1,0 +1,51 @@
+root ::= "group_neutralize(" ws expr ws "," ws group-field ws ")"
+
+ws ::= " "?
+
+group-field ::= "industry" | "sector" | "subindustry" | "market"
+
+expr ::= atom (ws arith-op ws atom)*
+
+atom ::= func-call | group-mean-call | group-backfill-call | data-field | integer
+
+integer ::= [1-9] [0-9]* | "0"
+
+arith-op ::= "+" | "-" | "*" | "/"
+
+func-call ::= unary-op "(" ws expr ws ")"
+            | binary-expr-op "(" ws expr ws "," ws expr ws ")"
+            | ternary-expr-op "(" ws expr ws "," ws expr ws "," ws expr ws ")"
+            | ts-op "(" ws expr ws "," ws integer ws ")"
+            | ts-dual-op "(" ws expr ws "," ws expr ws "," ws integer ws ")"
+            | group-op "(" ws expr ws "," ws group-field ws ")"
+
+group-mean-call ::= "group_mean(" ws expr ws "," ws expr ws "," ws group-field ws ")"
+
+group-backfill-call ::= "group_backfill(" ws expr ws "," ws group-field ws "," ws integer ws ")"
+
+unary-op ::= "rank" | "zscore" | "normalize" | "scale" | "winsorize" | "quantile"
+           | "abs" | "log" | "sign" | "sqrt" | "inverse" | "reverse" | "densify"
+           | "not" | "is_nan" | "vec_sum" | "vec_avg" | "days_from_last_change"
+           | "kth_element" | "bucket"
+
+binary-expr-op ::= "add" | "subtract" | "multiply" | "divide"
+                 | "signed_power" | "power" | "min" | "max"
+                 | "and" | "or" | "equal" | "not_equal"
+                 | "greater" | "greater_equal" | "less" | "less_equal"
+
+ternary-expr-op ::= "if_else" | "trade_when"
+
+ts-op ::= "ts_sum" | "ts_mean" | "ts_std_dev" | "ts_zscore" | "ts_rank"
+        | "ts_delta" | "ts_delay" | "ts_decay_linear" | "ts_product"
+        | "ts_scale" | "ts_quantile" | "ts_av_diff" | "ts_count_nans"
+        | "ts_arg_max" | "ts_arg_min" | "last_diff_value" | "hump" | "ts_step"
+        | "ts_backfill"
+
+ts-dual-op ::= "ts_corr" | "ts_covariance" | "ts_regression"
+
+group-op ::= "group_rank" | "group_zscore" | "group_scale"
+
+data-field ::= "close" | "open" | "high" | "low" | "vwap" | "volume"
+             | "adv20" | "returns" | "cap" | "sales" | "assets"
+             | "liabilities" | "revenue" | "equity" | "debt"
+             | "rnd" | "cash" | "depreciation" | "ppe" | "inventory"

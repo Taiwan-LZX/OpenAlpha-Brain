@@ -4,9 +4,11 @@
 > LLM-powered closed-loop pipeline — Generate → Validate → Submit → Mutate → Repeat until BRAIN approves
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green?logo=fastapi)](https://fastapi.tiangolo.com)
-[![WorldQuant BRAIN](https://img.shields.io/badge/WorldQuant-BRAIN-orange)](https://worldquantbrain.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-pytest-%23646464?logo=githubactions)](https://github.com/openalpha-brain/openalpha-brain/actions)
+[![Ruff](https://img.shields.io/badge/lint-ruff-%23261230)](https://docs.astral.sh/ruff/)
+[![Mypy](https://img.shields.io/badge/type--check-mypy-%232B5B84)](https://mypy-lang.org)
+[![WorldQuant BRAIN](https://img.shields.io/badge/WorldQuant-BRAIN-orange)](https://worldquantbrain.com)
 
 ---
 
@@ -24,51 +26,106 @@ OpenAlpha-Quant runs as a fully autonomous agent that:
 
 ---
 
+## v0.9.0 核心特性
+
+### 🧠 Neuro-Symbolic 融合架构
+LLM 的语义理解能力与 AST 结构化约束深度融合——LLM 负责 Block A（信号段）的金融语义创新，ASTValidator 以 66 算子白名单 + 嵌套深度 ≤4 硬约束保证表达式合法性，ThreeBlockTemplate 强制锁死 B/C 段（neutralize / decay）不被 LLM 破坏。
+
+### 📚 基于 SOTA 论文的算法选择
+| 能力 | 参考论文 | 核心思想 |
+|------|---------|---------|
+| Semantic Crossover | CodeEvolve 2025 / CogAlpha | LLM 理解代码语义后重组，非随机子树交换 |
+| Reflexion 反思闭环 | Reflexion 2024 (Shinn et al.) | Action→Observation→Reflection→Updated Memory 自我修正 |
+| MAB 冷启动先验 | R&D-Agent-Quant 2025 | 三源加权先验解决冷启动探索效率问题 |
+| Quality-Diversity | AlphaBench 2026 | MAP-Elites + CMA-ES 连续参数优化 |
+| Experience Replay | AlphaBench 2026 | 成功修复模式自动沉淀与复用 |
+
+### 💾 经验回放系统（Experience Replay）
+每次 BRAIN 失败→修复→重提交的完整链路自动沉淀为 ExperienceCard。后续遇到相似失败类型时，4 维加权检索（failure_type 0.35 / structure 0.25 / metrics 0.20 / field 0.20）自动匹配历史成功修复方案，置信度 >0.7 时直接应用，跳过 LLM 推理环节。
+
+### 🔍 本地代理验证器（ProxyEvaluator）
+5 维度本地预验证在提交 BRAIN 前拦截低质量 alpha：语法存活率(30%) + 结构合规性(25%) + 字段合理性(20%) + 参数合理性(15%) + 历史相似度(10%)。三级决策门控（≥0.75 直接提 / 0.55-0.75 边界提 / <0.55 拒绝），显著节省 WQ Slot 资源。
+
+---
+
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     OpenAlpha - Quant                           │
-│                                                                 │
-│   LLM (Groq/Gemini/OpenAI)                                      │
-│        │                                                        │
-│        ▼                                                        │
-│   [GENERATION]  Alpha expression + metrics + fingerprint        │
-│        │                                                        │
-│        ▼                                                        │
-│   [LOCAL VALIDATION]                                            │
-│   • Syntax (operators, parens, variable whitelist)              │
-│   • Fingerprint anti-crowding (5-dim POMDP memory)              │
-│   • Estimated IQC gate check (Sharpe/Fitness/Turnover)          │
-│        │ PASS                                                   │
-│        ▼                                                        │
-│   [BRAIN SUBMISSION]  POST /simulations → poll → COMPLETE       │
-│        │                                                        │
-│        ▼                                                        │
-│   [REAL GATE CHECKS]  checks[] from BRAIN API                   │
-│   • LOW_SHARPE → ts_zscore + volatility norm + subindustry      │
-│   • LOW_FITNESS → ts_decay_linear(expr, 10)                     │
-│   • LOW_SUB_UNIVERSE_SHARPE → subindustry + interaction factors │
-│   • SELF_CORRELATION → full structural pivot (3+ dims)          │
-│   • HIGH_TURNOVER → increase decay d=6→10→15→20                 │
-│   • SIMULATION ERROR → enforce variable whitelist               │
-│        │ FAIL → inject targeted mutation → back to LLM          │
-│        │ PASS ──────────────────────────────────────────────►   │
-│                    Alpha saved in BRAIN "My Alphas" ✓           │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                   OpenAlpha-Brain v0.9.0                           │
+│                                                                     │
+│  LLM (Groq/Gemini/OpenAI/LM Studio)                                 │
+│       │                                                             │
+│       ▼                                                             │
+│  [IDEA AGENT]  Hypothesis generation (MAB-directed)                 │
+│       │                                                             │
+│       ▼                                                             │
+│  [FACTOR AGENT]  Template-constrained alpha expression               │
+│       │  (ThreeBlockTemplate: A=signal 🟢 / B=neutralize 🔒 / C=decay 🔒)│
+│       ▼                                                             │
+│  [AST VALIDATOR]  Hard gate: 66-operator whitelist + depth≤4       │
+│       │  PASS                                                       │
+│       ▼                                                             │
+│  [GENERATION GATES]  H↔E / E↔C / Holistic alignment               │
+│       │  PASS                                                       │
+│       ▼                                                             │
+│  [PROXY EVALUATOR]  5-dimension pre-validation                       │
+│       │  (syntax 30% / structure 25% / field 20% / param 15% / history 10%)│
+│       │  score ≥ 0.75 → submit                                     │
+│       ▼                                                             │
+│  [BRAIN SUBMISSION]  POST /simulations → poll → COMPLETE           │
+│       │                                                             │
+│       ▼                                                             │
+│  [FAILURE CLASSIFIER]  Pure rule engine (no LLM!)                   │
+│       │  HIGH_TURNOVER / LOW_SHARPE / OVERFIT / ...                │
+│       ▼                                                             │
+│  [EXPERIENCE REPLAY]  Query historical repair patterns              │
+│       │  confidence > 0.7 → apply directly                          │
+│       ▼                                                             │
+│  [SEGMENT-LOCKED MUTATOR]  Only mutate Block A (signal segment)     │
+│       ▼                                                             │
+│  [REFLEXION ENGINE]  2-round self-reflection loop                  │
+│       │  LLM analyzes why proxy score is low                        │
+│       ▼                                                             │
+│  [PROXY EVALUATOR]  Re-validate after reflection                    │
+│       │  PASS → back to BRAIN SUBMISSION                            │
+│       │  FAIL → next improvement round (max N rounds)               │
+│                                                                     │
+│  ─── Parallel Systems ───                                          │
+│  [MAB Scheduler]  Non-stationary UCB + Cold-start Prior            │
+│  [SEMANTIC CROSSOVER]  LLM-understood code recombination (Block A only)│
+│  [DECAY PARAMETER TUNER]  CMA-ES for Block C continuous params    │
+│  [FIELD PROXY MAP]  30 field families with semantic clustering    │
+│  [RAG ENGINE]  Directed retrieval + Experience Replay fusion      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Quick Start
 
-### Option 1: Docker (Recommended)
+### Option 1: pip install (Recommended)
+
+```bash
+pip install openalpha-brain
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/openalpha-brain/openalpha-brain.git
+cd openalpha-brain
+pip install -e .
+```
+
+### Option 2: Full Web Dashboard (Docker)
+
 1. Clone the repository:
    ```bash
-   git clone git@github.com:hitendras510/OpenAlpha-Brain.git
-   cd OpenAlpha-Brain
+   git clone https://github.com/openalpha-brain/openalpha-brain.git
+   cd openalpha-brain
    ```
-2. Configure your credentials in `.env` (WorldQuant + LLM).
+2. Configure `.env`:
    ```bash
    cp .env.example .env
    # Edit .env with your credentials
@@ -79,42 +136,40 @@ OpenAlpha-Quant runs as a fully autonomous agent that:
    ```
 4. Open the UI Dashboard: **http://localhost:8000/static/index.html**
 
-### Option 2: Local Python Execution
+---
 
-1. **Install dependencies:**
-   ```bash
-   git clone git@github.com:hitendras510/OpenAlpha-Brain.git
-   cd OpenAlpha-Brain
-   pip install -r requirements.txt
-   ```
+### Run a Quick Alpha Generation Session
 
-2. **Configure `.env`:**
-   ```bash
-   cp .env.example .env
-   ```
+After installing, run a local-only session (no BRAIN submission):
 
-   Edit `.env`:
+```bash
+openalpha run --cycles 10 --no-brain
+```
 
-   | Variable | Required | Description |
-   |---|---|---|
-   | `LLM_PROVIDER` | ✅ | `groq` / `gemini` / `openai` / `anthropic` |
-   | `LLM_MODEL` | ✅ | e.g. `llama-3.3-70b-versatile` (Groq), `gemini-1.5-flash` |
-   | `LLM_API_KEY` | ✅ | Your LLM provider API key |
-   | `BRAIN_EMAIL` | ✅ | Your worldquantbrain.com account email |
-   | `BRAIN_PASSWORD` | ✅ | Your worldquantbrain.com account password |
-   | `BRAIN_SUBMIT_ENABLED` | ✅ | `true` to enable auto-submission to BRAIN |
+This generates 10 alpha expressions using the LLM, validates locally, and saves results — no WorldQuant account needed.
 
-   > **Free LLM Keys**  
-   > - Groq (30 RPM free): [console.groq.com](https://console.groq.com)  
-   > - Gemini (generous free tier, recommended): [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+To submit alphas to BRAIN for real simulation, configure `.env` with your BRAIN credentials and run:
 
-3. **Run the Backend:**
-   ```bash
-   uvicorn main:app --port 8000
-   ```
+```bash
+openalpha run --cycles 20
+```
 
-4. **Launch Dashboard:**
-   Navigate to **http://localhost:8000/static/index.html** and click **Start**.
+### Required Environment Variables
+
+Edit `.env` (copy from `.env.example`):
+
+| Variable | Required | Description |
+|---|---|---|
+| `LLM_PROVIDER` | ✅ | `groq` / `gemini` / `openai` / `anthropic` |
+| `LLM_MODEL` | ✅ | e.g. `llama-3.3-70b-versatile` (Groq), `gemini-1.5-flash` |
+| `LLM_API_KEY` | ✅ | Your LLM provider API key |
+| `BRAIN_EMAIL` | BRAIN | Your worldquantbrain.com account email |
+| `BRAIN_PASSWORD` | BRAIN | Your worldquantbrain.com account password |
+| `BRAIN_SUBMIT_ENABLED` | BRAIN | `true` to enable auto-submission to BRAIN |
+
+> **Free LLM Keys**  
+> - Groq (30 RPM free): [console.groq.com](https://console.groq.com)  
+> - Gemini (generous free tier, recommended): [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 
 ---
 
@@ -162,6 +217,51 @@ Turnover 1%–70%   Sweet spot: 15%–35%
 
 ---
 
+## Development
+
+### Set Up Dev Environment
+
+```bash
+git clone https://github.com/openalpha-brain/openalpha-brain.git
+cd openalpha-brain
+pip install -e ".[dev,web]"
+```
+
+This installs the package in editable mode plus development tools (pytest, ruff, mypy) and web server dependencies (FastAPI, uvicorn).
+
+### Code Style
+
+We use **ruff** for linting and formatting, and **mypy** for static type checking:
+
+```bash
+ruff check src/ tests/
+ruff format --check src/ tests/
+mypy src/
+```
+
+### Running Tests
+
+```bash
+pytest tests/ -v
+```
+
+For a quick smoke test with 10 cycles:
+
+```bash
+pytest tests/test_e2e.py -v -k "10cycle"
+```
+
+### Pre-Commit Hooks (Recommended)
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+This runs ruff and mypy checks automatically before each commit.
+
+---
+
 ## API Reference
 
 | Endpoint | Method | Description |
@@ -188,20 +288,30 @@ Turnover 1%–70%   Sweet spot: 15%–35%
 ## Project Structure
 
 ```
-OpenAlpha-Brain/
-├── main.py              # FastAPI server + session routes
-├── loop_engine.py       # Core autonomous research loop
-├── brain_client.py      # WorldQuant BRAIN REST API client
-├── prompts.py           # LLM system prompt + ELM mutation feedback builders
-├── llm_client.py        # Multi-provider LLM client (Groq/Gemini/OpenAI)
-├── validator.py         # Local syntax + IQC metric validator
-├── alpha_parser.py      # Parses LLM output into structured AlphaResult
-├── session_manager.py   # JSON-backed session persistence
-├── models.py            # Pydantic models (AlphaResult, BrainSubmissionResult, etc.)
-├── config.py            # Settings loaded from .env
-├── watch_session.py     # CLI watcher — runs until BRAIN PASS
-├── static/index.html    # Real-time dashboard
-├── .env.example         # Environment template
+openalpha-brain/
+├── src/
+│   └── openalpha_brain/
+│       ├── cli/                # CLI entry points (openalpha command)
+│       │   ├── alpha_cli.py    # Main CLI: openalpha run, openalpha status
+│       │   ├── start.py        # Legacy session launcher
+│       │   └── ...
+│       ├── config/             # Settings loaded from .env
+│       ├── core/               # Loop engine, models, pipeline
+│       ├── generation/         # LLM prompts, alpha parser, logics
+│       ├── validation/         # Syntax validator, AST repair, stability
+│       ├── evolution/          # Mutation, crossover, trajectory
+│       ├── services/           # BRAIN client, LLM client, HTTP pool
+│       ├── knowledge/          # RAG engine, vector index, skill library
+│       ├── learning/           # Experience distiller, MAB, parametric optimizer
+│       ├── agents/             # Multi-agent coordination
+│       ├── data/               # Static data files (operators, grammar, etc.)
+│       └── utils/              # Logging, auditing, market state
+├── tests/                      # Test suite (pytest)
+├── docs/                       # Extended documentation
+├── pyproject.toml              # Package metadata, build config, tool settings
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example                # Environment template
 └── requirements.txt
 ```
 
@@ -216,6 +326,7 @@ Each research session maintains a **belief state** that prevents redundant explo
 - **Failure Catalog** — logs each failure with fingerprint, metric values, mutation attempted
 - **Open Frontiers** — unexplored 5-dimensional fingerprint combinations
 - **Rejected Motifs** — topologies permanently retired for this session
+- **Decay Detection & Blacklisting** — directions with sustained failure are automatically blacklisted and filtered from future exploration
 
 ---
 

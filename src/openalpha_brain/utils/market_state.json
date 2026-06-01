@@ -1,0 +1,62 @@
+{
+  "yearly_states": {
+    "2026": {
+      "year": 2026,
+      "momentum_sharpe": 0.8,
+      "mean_reversion_sharpe": 0.4,
+      "volatility_sharpe": 0.3,
+      "value_sharpe": 0.5,
+      "quality_sharpe": 0.6,
+      "liquidity_sharpe": 0.2,
+      "size_sharpe": 0.3,
+      "dominant_strategy": "momentum"
+    }
+  },
+  "direction_sharpes": {
+    "momentum": [
+      0.8,
+      1.0,
+      0.6,
+      0.9,
+      0.41,
+      0.56,
+      -0.2,
+      0.22,
+      0.39,
+      -0.26,
+      0.56,
+      0.02,
+      -0.31
+    ],
+    "mean_reversion": [
+      0.4,
+      0.3,
+      0.5
+    ],
+    "value": [
+      0.5,
+      0.4,
+      0.6
+    ],
+    "quality": [
+      0.6,
+      0.7,
+      0.5
+    ],
+    "low_volatility": [
+      0.3,
+      0.4
+    ],
+    "cross_sectional": [
+      0.5,
+      0.6
+    ],
+    "temporal": [
+      0.4,
+      0.5
+    ],
+    "interaction": [
+      0.43
+    ]
+  }
+}

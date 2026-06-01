@@ -3,16 +3,10 @@ version: '3.8'
 services:
   openalpha:
     build: .
-    container_name: openalpha-quant
-    ports:
-      - "8000:8000"
+    container_name: openalpha-brain
     env_file:
       - .env
     volumes:
       - ./sessions:/app/sessions
+      - ./runtime:/app/runtime
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3

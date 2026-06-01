@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openalpha-brain"
+version = "0.1.0"
+description = "Autonomous alpha research platform for WorldQuant BRAIN — LLM-powered closed-loop pipeline"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "OpenAlpha Contributors"},
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic>=2.7.1",
+    "pydantic-settings>=2.2.1",
+    "python-dotenv>=1.0.1",
+    "tenacity>=8.3.0",
+    "aiofiles>=23.2.1",
+    "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.6",
+    "ruff>=0.4.0",
+    "mypy>=1.9.0",
+]
+
+[project.scripts]
+openalpha = "openalpha_brain.cli.alpha_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/openalpha-brain/openalpha-brain"
+Repository = "https://github.com/openalpha-brain/openalpha-brain.git"
+Issues = "https://github.com/openalpha-brain/openalpha-brain/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"openalpha_brain.data" = ["*.json", "*.gbnf", "vec_store/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["openalpha_brain"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

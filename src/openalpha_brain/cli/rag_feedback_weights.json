@@ -1,0 +1,8 @@
+{
+  "momentum": {
+    "ts_ops_boost": 30.287510659225322,
+    "normalization_ops_boost": 13.785849184900009,
+    "smoothing_ops_boost": 1.3,
+    "diversification_ops_boost": 1.3
+  }
+}

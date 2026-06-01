@@ -1,0 +1,11 @@
+{
+  "momentum": ["ts_delta", "ts_zscore", "ts_rank", "ts_regression", "ts_decay_linear"],
+  "value": ["rank", "group_rank", "zscore", "group_zscore"],
+  "volatility": ["ts_std_dev", "ts_av_diff", "ts_zscore"],
+  "mean_reversion": ["ts_mean", "ts_decay_linear", "ts_sum"],
+  "lead_lag": ["ts_delta", "ts_delay", "ts_corr", "ts_regression"],
+  "liquidity": ["rank", "scale", "normalize", "winsorize"],
+  "quality": ["group_zscore", "group_rank", "zscore"],
+  "size": ["rank", "scale", "normalize"],
+  "interaction": ["ts_corr", "ts_regression", "ts_av_diff"]
+}
