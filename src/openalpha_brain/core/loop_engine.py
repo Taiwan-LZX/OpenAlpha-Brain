@@ -332,7 +332,7 @@ async def run_loop(session_id: str) -> None:
         logger.info("[%s] HierarchicalMAB initialized (standard loop)", session_id)
 
     if not hasattr(_ls, "_tot_search") or _ls._tot_search is None:
-        _ls._tot_search = ToTSearchStrategy.from_config(
+        _ls._tot_search = ToTSearchStrategy.from_dict(
             {
                 "max_depth": 3,
                 "branch_factor": 4,
@@ -3745,7 +3745,7 @@ async def run_loop_pipeline(session_id: str) -> None:
         logger.info("[%s] HierarchicalMAB initialized (pipeline loop)", session_id)
 
     if not hasattr(_ls, "_tot_search") or _ls._tot_search is None:
-        _ls._tot_search = ToTSearchStrategy.from_config(
+        _ls._tot_search = ToTSearchStrategy.from_dict(
             {
                 "max_depth": 3,
                 "branch_factor": 4,

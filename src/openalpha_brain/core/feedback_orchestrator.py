@@ -30,6 +30,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from pathlib import Path
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -3577,9 +3578,11 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
         object.__setattr__(obj, "cookies", None)
         object.__setattr__(obj, "slot_manager", _dummy_slot_mgr)
         object.__setattr__(obj, "config", config or {})
-        from openalpha_brain.validation.signal_quality_pre_filter import SignalQualityPreFilter
-
-        object.__setattr__(obj, "prefilter", SignalQualityPreFilter())
+        try:
+            from openalpha_brain.validation.signal_quality_pre_filter import SignalQualityPreFilter
+            object.__setattr__(obj, "prefilter", SignalQualityPreFilter())
+        except (ImportError, ModuleNotFoundError):
+            object.__setattr__(obj, "prefilter", None)
         object.__setattr__(obj, "_reflexion_engine", None)
         object.__setattr__(obj, "_mab", None)
         try:
@@ -3588,9 +3591,11 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
             object.__setattr__(obj, "_field_proxy_map", get_field_proxy_map())
         except (ImportError, AttributeError, RuntimeError, OSError):
             object.__setattr__(obj, "_field_proxy_map", None)
-        from openalpha_brain.core.orchestrator_stats import OrchestratorStats
-
-        object.__setattr__(obj, "stats", OrchestratorStats())
+        try:
+            from openalpha_brain.core.orchestrator_stats import OrchestratorStats
+            object.__setattr__(obj, "stats", OrchestratorStats())
+        except (ImportError, ModuleNotFoundError):
+            object.__setattr__(obj, "stats", None)
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
         from openalpha_brain.validation.anti_overfit_detector import LightweightAntiOverfitDetector
 
@@ -3612,12 +3617,13 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
             from openalpha_brain.evolution.adaptive_neutralizer import AdaptiveNeutralizer
 
             if AdaptiveNeutralizer is not None:
+                _temp_exp_path = Path(__file__).parent.parent / "data" / "neutralization_experiences.json"
                 object.__setattr__(
                     obj,
                     "_adaptive_neutralizer",
-                    AdaptiveNeutralizer(directions=["momentum", "mean_reversion", "volatility"]),
+                    AdaptiveNeutralizer(experience_path=_temp_exp_path),
                 )
-        except (ImportError, AttributeError, RuntimeError, OSError):
+        except (ImportError, AttributeError, RuntimeError, OSError, TypeError) as exc:
             object.__setattr__(obj, "_adaptive_neutralizer", None)
         try:
             from openalpha_brain.services.brain_submitter import ReflexionEngine
