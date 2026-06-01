@@ -8,6 +8,7 @@
   5. AlphaBench (ICLR'26) — Cross-Attempt Progress Metric
   6. Alpha-GPT (EMNLP'25) — Failure Pattern Clustering
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -26,18 +27,18 @@ logger = logging.getLogger(__name__)
 # ── 共用 regex 模式 ──────────────────────────────────────────────
 
 _OPERATOR_RE = re.compile(
-    r'\b(ts_\w+|rank|group_neutralize|group_rank|zscore|group_zscore|'
-    r'scale|signed_power|abs|log|sign|delta|correlation|covariance|'
-    r'ts_product|ts_sum|ts_min|ts_max|ts_argmax|ts_argmin|'
-    r'ts_skewness|ts_kurtosis|ts_av_diff|ts_std_dev|regression)\b',
+    r"\b(ts_\w+|rank|group_neutralize|group_rank|zscore|group_zscore|"
+    r"scale|signed_power|abs|log|sign|delta|correlation|covariance|"
+    r"ts_product|ts_sum|ts_min|ts_max|ts_argmax|ts_argmin|"
+    r"ts_skewness|ts_kurtosis|ts_av_diff|ts_std_dev|regression)\b",
     re.IGNORECASE,
 )
 _FIELD_RE = re.compile(
-    r'\b(close|open|high|low|vwap|volume|adv\d+|returns|cap|sales|'
-    r'assets|equity|revenue|earnings|sharesout|vwap\d+)\b',
+    r"\b(close|open|high|low|vwap|volume|adv\d+|returns|cap|sales|"
+    r"assets|equity|revenue|earnings|sharesout|vwap\d+)\b",
     re.IGNORECASE,
 )
-_NUMBER_RE = re.compile(r'\b(\d+)\b')
+_NUMBER_RE = re.compile(r"\b(\d+)\b")
 
 # 欄位類別映射
 _PRICE_FIELDS = {"close", "open", "high", "low", "vwap", "returns"}
@@ -46,19 +47,30 @@ _FUNDAMENTAL_FIELDS = {"cap", "sales", "assets", "equity", "revenue", "earnings"
 
 # 技術面運算子（時序差分/排名類）
 _TECHNICAL_OPS = {
-    "ts_delta", "ts_decay_linear", "ts_rank", "ts_regression",
-    "ts_corr", "ts_covariance",
+    "ts_delta",
+    "ts_decay_linear",
+    "ts_rank",
+    "ts_regression",
+    "ts_corr",
+    "ts_covariance",
 }
 # 基本面運算子（統計/均值類）
 _FUNDAMENTAL_OPS = {
-    "ts_mean", "ts_std_dev", "ts_zscore", "ts_sum", "ts_product",
-    "ts_av_diff", "ts_skewness", "ts_kurtosis",
+    "ts_mean",
+    "ts_std_dev",
+    "ts_zscore",
+    "ts_sum",
+    "ts_product",
+    "ts_av_diff",
+    "ts_skewness",
+    "ts_kurtosis",
 }
 
 
 # =====================================================================
 # 2. CRANE: Grammar Fallback Chain
 # =====================================================================
+
 
 def build_grammar_fallback_chain(strict_grammar: str) -> list[str]:
     """建立 GBNF grammar fallback chain。
@@ -105,16 +117,16 @@ def _relax_group_neutralize(grammar: str) -> str:
     relaxed = grammar
 
     relaxed = re.sub(
-        r'root\s*::=.*',
-        'root ::= expr',
+        r"root\s*::=.*",
+        "root ::= expr",
         relaxed,
         count=1,
     )
 
-    if 'group_neutralize(' not in relaxed:
+    if "group_neutralize(" not in relaxed:
         relaxed += (
-            '\n\n'
-            '# Relaxed: group_neutralize is optional at root\n'
+            "\n\n"
+            "# Relaxed: group_neutralize is optional at root\n"
             'root ::= "group_neutralize(" ws expr ws "," ws group-field ws ")" | expr'
         )
 
@@ -125,10 +137,10 @@ def _relax_root_operator(grammar: str) -> str:
     """Level 2: 允許任意 unary-op 作為 root operator。"""
     relaxed = grammar
 
-    root_match = re.search(r'root\s*::=.+', relaxed, re.MULTILINE)
+    root_match = re.search(r"root\s*::=.+", relaxed, re.MULTILINE)
     if root_match:
         existing_root = root_match.group(0)
-        if 'unary-op' not in existing_root:
+        if "unary-op" not in existing_root:
             new_root = existing_root.rstrip() + ' | unary-op "(" ws expr ws ")"'
             relaxed = relaxed.replace(existing_root, new_root, 1)
 
@@ -140,21 +152,21 @@ def _allow_simplified_binary(grammar: str) -> str:
     relaxed = grammar
 
     simplified_rule = (
-        '\n\n'
-        '# Level 3 relaxation: simplified expressions allowed\n'
-        'simple-expr ::= data-field\n'
+        "\n\n"
+        "# Level 3 relaxation: simplified expressions allowed\n"
+        "simple-expr ::= data-field\n"
         '            | unary-op "(" ws simple-expr ws ")"\n'
-        '            | simple-expr ws arith-op ws simple-expr\n'
+        "            | simple-expr ws arith-op ws simple-expr\n"
         '            | ts-op "(" ws simple-expr ws "," ws integer ws ")"'
     )
 
-    if 'simple-expr' not in relaxed:
+    if "simple-expr" not in relaxed:
         relaxed += simplified_rule
 
-    root_match = re.search(r'root\s*::=.+', relaxed, re.MULTILINE)
-    if root_match and 'simple-expr' not in root_match.group(0):
+    root_match = re.search(r"root\s*::=.+", relaxed, re.MULTILINE)
+    if root_match and "simple-expr" not in root_match.group(0):
         existing_root = root_match.group(0)
-        new_root = existing_root.rstrip() + ' | simple-expr'
+        new_root = existing_root.rstrip() + " | simple-expr"
         relaxed = relaxed.replace(existing_root, new_root, 1)
 
     return relaxed
@@ -176,6 +188,7 @@ number ::= [0-9]+ ("." [0-9]+)?
 # =====================================================================
 # 3. CogAlpha: Structural Novelty Scoring
 # =====================================================================
+
 
 def compute_structural_novelty_score(
     expression: str,
@@ -234,16 +247,16 @@ def _extract_subtree_hashes(expression: str) -> list[str]:
     subtrees: list[str] = []
     expr = expression.strip()
 
-    func_pattern = re.compile(r'([a-zA-Z_]\w*)\s*\([^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*\)', re.DOTALL)
+    func_pattern = re.compile(r"([a-zA-Z_]\w*)\s*\([^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*\)", re.DOTALL)
 
     for match in func_pattern.finditer(expr):
         subtree = match.group(0).strip()
-        normalized = re.sub(r'\s+', ' ', subtree).strip()
+        normalized = re.sub(r"\s+", " ", subtree).strip()
         hash_val = hashlib.md5(normalized.encode()).hexdigest()[:12]
         subtrees.append(hash_val)
 
     if not subtrees:
-        hash_val = hashlib.md5(re.sub(r'\s+', ' ', expr).strip().encode()).hexdigest()[:12]
+        hash_val = hashlib.md5(re.sub(r"\s+", " ", expr).strip().encode()).hexdigest()[:12]
         subtrees.append(hash_val)
 
     return subtrees
@@ -271,6 +284,7 @@ def _compute_depth_novelty(expression: str, known_expressions: list[str]) -> flo
 # =====================================================================
 # 4. MCTS: Adaptive Simulation Budget
 # =====================================================================
+
 
 def compute_adaptive_simulation_budget(
     node_visits: int,
@@ -321,6 +335,7 @@ def compute_adaptive_simulation_budget(
 # =====================================================================
 # 5. AlphaBench: Cross-Attempt Progress Tracker
 # =====================================================================
+
 
 @dataclass
 class _AttemptRecord:
@@ -419,10 +434,7 @@ class CrossAttemptTracker:
 
         sharpes = [r.sharpe for r in records_list]
 
-        improvements = [
-            sharpes[i] - sharpes[i - 1]
-            for i in range(1, len(sharpes))
-        ]
+        improvements = [sharpes[i] - sharpes[i - 1] for i in range(1, len(sharpes))]
 
         positive_count = sum(1 for d in improvements if d > 0)
         negative_count = sum(1 for d in improvements if d < 0)
@@ -465,10 +477,7 @@ class CrossAttemptTracker:
         if metrics["monotonicity_score"] < -0.3 and self._total_attempts >= 5:
             return False
 
-        if self._best_sharpe <= 0 and self._total_attempts >= 8:
-            return False
-
-        return True
+        return not (self._best_sharpe <= 0 and self._total_attempts >= 8)
 
     @property
     def best_sharpe(self) -> float:
@@ -491,6 +500,7 @@ class CrossAttemptTracker:
 # =====================================================================
 # 6. Alpha-GPT: Failure Pattern Clustering
 # =====================================================================
+
 
 @dataclass
 class _FailureFingerprint:
@@ -556,14 +566,16 @@ def cluster_failure_patterns(
         return []
 
     if len(failure_history) <= 2:
-        return [{
-            "cluster_id": 0,
-            "medoid": failure_history[0],
-            "members": failure_history,
-            "dominant_failure_type": failure_history[0].get("failure_type", "UNKNOWN"),
-            "suggested_fix": "樣本不足，建議收集更多失敗案例後再進行聚類",
-            "size": len(failure_history),
-        }]
+        return [
+            {
+                "cluster_id": 0,
+                "medoid": failure_history[0],
+                "members": failure_history,
+                "dominant_failure_type": failure_history[0].get("failure_type", "UNKNOWN"),
+                "suggested_fix": "樣本不足，建議收集更多失敗案例後再進行聚類",
+                "size": len(failure_history),
+            }
+        ]
 
     fingerprints: list[_FailureFingerprint] = []
     for fh in failure_history:
@@ -578,7 +590,7 @@ def cluster_failure_patterns(
     for cid, mid_idx in enumerate(medoid_indices):
         members = []
         for i, fp in enumerate(fingerprints):
-            dist = _fingerprint_distance(fp, fingerprints[mid_idx])
+            _fingerprint_distance(fp, fingerprints[mid_idx])
             assigned_cid = _find_nearest_medoid_index(i, fingerprints, medoid_indices)
             if assigned_cid == cid:
                 members.append(failure_history[i])
@@ -599,14 +611,16 @@ def cluster_failure_patterns(
             _generate_generic_suggestion(medoid_fp, dominant_ft, members),
         )
 
-        clusters.append({
-            "cluster_id": cid,
-            "medoid": failure_history[mid_idx],
-            "members": members,
-            "dominant_failure_type": dominant_ft,
-            "suggested_fix": suggested_fix,
-            "size": len(members),
-        })
+        clusters.append(
+            {
+                "cluster_id": cid,
+                "medoid": failure_history[mid_idx],
+                "members": members,
+                "dominant_failure_type": dominant_ft,
+                "suggested_fix": suggested_fix,
+                "size": len(members),
+            }
+        )
 
     clusters.sort(key=lambda c: c["size"], reverse=True)
     return clusters
@@ -616,7 +630,7 @@ def _build_failure_fingerprint(failure: dict) -> _FailureFingerprint:
     """從 failure dict 建構結構指紋。"""
     expression = failure.get("expression", "")
 
-    root_match = re.match(r'\s*(\w+)\s*\(', expression)
+    root_match = re.match(r"\s*(\w+)\s*\(", expression)
     root_operator = (root_match.group(1).lower() if root_match else "unknown")[:20]
 
     depth = _compute_nesting_depth(expression)
@@ -733,10 +747,7 @@ def _kmedoids_cluster(
             best_idx = members[0]
 
             for candidate in members:
-                total_dist = sum(
-                    _fingerprint_distance(fingerprints[candidate], fingerprints[m])
-                    for m in members
-                )
+                total_dist = sum(_fingerprint_distance(fingerprints[candidate], fingerprints[m]) for m in members)
                 if total_dist < best_total_dist:
                     best_total_dist = total_dist
                     best_idx = candidate
@@ -808,6 +819,7 @@ def _generate_generic_suggestion(
 
 # ── 共用工具函數 ───────────────────────────────────────────────────
 
+
 def _compute_nesting_depth(expression: str) -> int:
     """計算表達式的括號巢狀深度。"""
     max_depth = 0
@@ -843,14 +855,14 @@ if __name__ == "__main__":
     _ops_good = [o.lower() for o in set(_OPERATOR_RE.findall(expr_good))]
     _fields_good = [f.lower() for f in set(_FIELD_RE.findall(expr_good))]
     result_good = _aligner._check_categorical_consistency("momentum_breakout", _ops_good, _fields_good, expr_good)
-    assert result_good["is_consistent"] == True, f"Expected consistent, got {result_good}"
+    assert result_good["is_consistent"], f"Expected consistent, got {result_good}"
     print(f"  OK: {expr_good[:50]}... + momentum_breakout -> {result_good['explanation']}")
 
     expr_bad = "group_neutralize(rank(log(cap / earnings)), industry)"
     _ops_bad = [o.lower() for o in set(_OPERATOR_RE.findall(expr_bad))]
     _fields_bad = [f.lower() for f in set(_FIELD_RE.findall(expr_bad))]
     result_bad = _aligner._check_categorical_consistency("momentum_breakout", _ops_bad, _fields_bad, expr_bad)
-    assert result_bad["is_consistent"] == False, f"Expected inconsistent, got {result_bad}"
+    assert not result_bad["is_consistent"], f"Expected inconsistent, got {result_bad}"
     print(f"  OK: {expr_bad[:50]}... + momentum_breakout -> {result_bad['explanation']}")
 
     # Test 2: Grammar Fallback Chain
@@ -883,10 +895,14 @@ if __name__ == "__main__":
     # Test 4: Adaptive Simulation Budget
     print("\n[Test 4] Adaptive Simulation Budget")
     budget_high_var = compute_adaptive_simulation_budget(
-        node_visits=2, node_reward_variance=0.5, parent_visits=10,
+        node_visits=2,
+        node_reward_variance=0.5,
+        parent_visits=10,
     )
     budget_low_var = compute_adaptive_simulation_budget(
-        node_visits=50, node_reward_variance=0.01, parent_visits=200,
+        node_visits=50,
+        node_reward_variance=0.01,
+        parent_visits=200,
     )
     assert 5 <= budget_high_var <= 50
     assert 5 <= budget_low_var <= 50
@@ -902,16 +918,22 @@ if __name__ == "__main__":
     metrics = tracker.get_progress_metrics()
     assert metrics["best_running_sharpe"] == 1.8
     assert metrics["oscillation_count"] >= 1
-    assert tracker.should_continue_mutating() == True
-    print(f"  OK: monotonicity={metrics['monotonicity_score']:.3f}, "
-          f"oscillations={metrics['oscillation_count']}, best={metrics['best_running_sharpe']}")
+    assert tracker.should_continue_mutating()
+    print(
+        f"  OK: monotonicity={metrics['monotonicity_score']:.3f}, "
+        f"oscillations={metrics['oscillation_count']}, best={metrics['best_running_sharpe']}"
+    )
 
     # Test 6: Failure Pattern Clustering
     print("\n[Test 6] Failure Pattern Clustering")
     failures = [
         {"expression": "rank(ts_delta(close, 5))", "failure_type": "SHARPE", "sharpe": 0.3},
         {"expression": "rank(ts_delta(close, 10))", "failure_type": "SHARPE", "sharpe": 0.4},
-        {"expression": "group_neutralize(zscore(ts_std_dev(volume, 20)), industry)", "failure_type": "TURNOVER", "sharpe": 0.9},
+        {
+            "expression": "group_neutralize(zscore(ts_std_dev(volume, 20)), industry)",
+            "failure_type": "TURNOVER",
+            "sharpe": 0.9,
+        },
         {"expression": "scale(ts_mean(earnings, 60))", "failure_type": "FITNESS", "sharpe": 0.7},
         {"expression": "rank(ts_delta(open, 5))", "failure_type": "SHARPE", "sharpe": 0.35},
         {"expression": "group_neutralize(rank(log(cap/sales)), industry)", "failure_type": "TURNOVER", "sharpe": 0.85},
@@ -922,8 +944,10 @@ if __name__ == "__main__":
     total_members = sum(c["size"] for c in clusters)
     assert total_members == len(failures), f"Member count mismatch: {total_members} vs {len(failures)}"
     for c in clusters:
-        print(f"  Cluster {c['cluster_id']}: size={c['size']}, "
-              f"dominant={c['dominant_failure_type']}, fix={c['suggested_fix'][:60]}...")
+        print(
+            f"  Cluster {c['cluster_id']}: size={c['size']}, "
+            f"dominant={c['dominant_failure_type']}, fix={c['suggested_fix'][:60]}..."
+        )
     print("  OK: clustering completed")
 
     print("\n" + "=" * 60)

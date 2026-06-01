@@ -16,6 +16,7 @@ Metrics:
   - GARCH(1,1) volatility anomaly flag
   - Year-over-year Sharpe trend
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,15 +26,17 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
+
+import aiohttp
 
 from openalpha_brain.core.models import AlphaFingerprint
 
 logger = logging.getLogger(__name__)
 
 
-class DecayLevel(str, Enum):
+class DecayLevel(StrEnum):
     NONE = "NONE"
     WARNING = "WARNING"
     FACTOR_DECAY = "FACTOR_DECAY"
@@ -142,7 +145,9 @@ class AlphaDecayDetector:
             self._records[alpha_id] = record
             logger.info(
                 "decay_detector: registered alpha %s dir=%s init_sharpe=%.3f",
-                alpha_id, direction, initial_sharpe,
+                alpha_id,
+                direction,
+                initial_sharpe,
             )
 
     async def unregister_alpha(self, alpha_id: str) -> None:
@@ -200,8 +205,8 @@ class AlphaDecayDetector:
 
         trend_score = 0.5
         if yearly_sharpes and len(yearly_sharpes) >= 2:
-            recent_half = yearly_sharpes[len(yearly_sharpes) // 2:]
-            older_half = yearly_sharpes[:len(yearly_sharpes) // 2]
+            recent_half = yearly_sharpes[len(yearly_sharpes) // 2 :]
+            older_half = yearly_sharpes[: len(yearly_sharpes) // 2]
             avg_recent = sum(recent_half) / len(recent_half) if recent_half else 0
             avg_older = sum(older_half) / len(older_half) if older_half else 0
             if avg_older > 0 and avg_recent >= avg_older:
@@ -263,14 +268,14 @@ class AlphaDecayDetector:
 
         try:
             pnl_curve = await self._fetch_pnl(alpha_id)
-        except (TimeoutError, aiohttp.ClientError, ConnectionError):
+        except (TimeoutError, aiohttp.ClientError, ConnectionError):  # noqa: SIM105
             pnl_curve = None
 
         garch_anomaly = False
         if pnl_curve and len(pnl_curve) >= 20 and self._estimate_garch is not None:
             try:
                 garch_result = await self._estimate_garch(pnl_curve)
-                if hasattr(garch_result, 'persistence'):
+                if hasattr(garch_result, "persistence"):
                     garch_anomaly = garch_result.persistence > 0.95
             except (ValueError, TypeError, RuntimeError) as exc:
                 logger.debug("decay_detector: GARCH estimation failed for %s: %s", alpha_id, exc)
@@ -312,7 +317,11 @@ class AlphaDecayDetector:
                 reason = self._build_decay_reason(record)
                 logger.warning(
                     "decay_detector: alpha %s decay=%s reason=%s composite=%.3f ewma_sharpe=%.3f",
-                    alpha_id, confirmed_level.value, reason, record.composite_score, record.ewma_sharpe,
+                    alpha_id,
+                    confirmed_level.value,
+                    reason,
+                    record.composite_score,
+                    record.ewma_sharpe,
                 )
 
                 if self._on_decay_detected is not None:
@@ -339,18 +348,21 @@ class AlphaDecayDetector:
         return "; ".join(parts)
 
     def _record_decay_fingerprint(
-        self, record: AlphaDecayRecord, level: DecayLevel, reason: str,
+        self,
+        record: AlphaDecayRecord,
+        level: DecayLevel,
+        reason: str,
     ) -> DecayFingerprint | None:
         fp = record.fingerprint
         if fp is None:
             return None
         is_perm = level == DecayLevel.DIR_HEAVY
         return DecayFingerprint(
-            direction=getattr(fp, 'direction', record.direction) or record.direction,
-            topology=getattr(fp, 'topology', ''),
-            temporal=getattr(fp, 'temporal', ''),
-            dataset=getattr(fp, 'dataset', ''),
-            normalization=getattr(fp, 'normalization', ''),
+            direction=getattr(fp, "direction", record.direction) or record.direction,
+            topology=getattr(fp, "topology", ""),
+            temporal=getattr(fp, "temporal", ""),
+            dataset=getattr(fp, "dataset", ""),
+            normalization=getattr(fp, "normalization", ""),
             decay_level=level.value,
             reason=reason,
             confirmation_checks=record.consecutive_decay_checks,
@@ -412,8 +424,7 @@ class AlphaDecayDetector:
         fp_lines = []
         for fp in recent_fps:
             fp_lines.append(
-                f"  - direction={fp.direction}, topology={fp.topology}, "
-                f"level={fp.decay_level}, reason={fp.reason}",
+                f"  - direction={fp.direction}, topology={fp.topology}, level={fp.decay_level}, reason={fp.reason}",
             )
 
         perm_dirs = [d for d in all_dirs if d in self._permanent_blacklist]
@@ -445,6 +456,7 @@ async def create_alpha_decay_handler(
       L3 DIR_LIGHT:   UCB weight -50%, blacklist 30d, distill fingerprint, inject prompt
       L4 DIR_HEAVY:   Permanent blacklist, remove from UCB, force other directions
     """
+
     async def _on_decay(
         alpha_id: str,
         level: DecayLevel,
@@ -453,13 +465,13 @@ async def create_alpha_decay_handler(
     ) -> None:
         direction = record.direction
         if not direction and record.fingerprint:
-            direction = getattr(record.fingerprint, 'direction', '')
+            direction = getattr(record.fingerprint, "direction", "")
 
-        mab = getattr(loop_state_module, '_mab', None)
-        evo_db = getattr(loop_state_module, '_evo_db', None)
-        success_lib = getattr(loop_state_module, '_success_lib', None)
-        experience_distiller = getattr(loop_state_module, '_experience_distiller', None)
-        false_positive_patterns = getattr(loop_state_module, '_false_positive_patterns', set())
+        mab = getattr(loop_state_module, "_mab", None)
+        getattr(loop_state_module, "_evo_db", None)
+        success_lib = getattr(loop_state_module, "_success_lib", None)
+        experience_distiller = getattr(loop_state_module, "_experience_distiller", None)
+        false_positive_patterns = getattr(loop_state_module, "_false_positive_patterns", set())
 
         if level == DecayLevel.WARNING:
             if mab is not None and direction:
@@ -513,13 +525,15 @@ async def create_alpha_decay_handler(
                 except (AttributeError, OSError, RuntimeError) as exc:
                     logger.warning("decay_handler: prompt injection failed: %s", exc)
 
-            feature_map = getattr(loop_state_module, '_feature_map', None)
+            feature_map = getattr(loop_state_module, "_feature_map", None)
             if feature_map is not None and direction:
                 try:
                     for th in ["short", "medium", "long"]:
                         for mech in ["signal", "normalized", "conditional", "interaction"]:
                             feature_map.mark_cell_decay(
-                                direction=direction, time_horizon=th, mechanism=mech,
+                                direction=direction,
+                                time_horizon=th,
+                                mechanism=mech,
                                 decay_level="L3_DIR_LIGHT",
                             )
                     logger.info("decay_handler: L3 DIR_LIGHT - FeatureMap cells observing for direction=%s", direction)
@@ -527,12 +541,14 @@ async def create_alpha_decay_handler(
                     logger.warning("decay_handler: FeatureMap decay marking failed: %s", exc)
 
         elif level == DecayLevel.DIR_HEAVY:
-            if mab is not None and direction and hasattr(mab, '_outer'):
+            if mab is not None and direction and hasattr(mab, "_outer"):
                 try:
                     outer = mab._outer
                     if direction in outer._arms:
                         del outer._arms[direction]
-                        logger.info("decay_handler: L4 DIR_HEAVY - permanently removed direction=%s from UCB", direction)
+                        logger.info(
+                            "decay_handler: L4 DIR_HEAVY - permanently removed direction=%s from UCB", direction
+                        )
                 except (KeyError, AttributeError, OSError) as exc:
                     logger.warning("decay_handler: MAB arm removal failed: %s", exc)
 
@@ -558,16 +574,20 @@ async def create_alpha_decay_handler(
                 except (OSError, ValueError, RuntimeError) as exc:
                     logger.warning("decay_handler: permanent distillation failed: %s", exc)
 
-            feature_map = getattr(loop_state_module, '_feature_map', None)
+            feature_map = getattr(loop_state_module, "_feature_map", None)
             if feature_map is not None and direction:
                 try:
                     for th in ["short", "medium", "long"]:
                         for mech in ["signal", "normalized", "conditional", "interaction"]:
                             feature_map.mark_cell_decay(
-                                direction=direction, time_horizon=th, mechanism=mech,
+                                direction=direction,
+                                time_horizon=th,
+                                mechanism=mech,
                                 decay_level="L4_DIR_HEAVY",
                             )
-                    logger.info("decay_handler: L4 DIR_HEAVY - FeatureMap cells blacklisted for direction=%s", direction)
+                    logger.info(
+                        "decay_handler: L4 DIR_HEAVY - FeatureMap cells blacklisted for direction=%s", direction
+                    )
                 except (OSError, ValueError, RuntimeError) as exc:
                     logger.warning("decay_handler: FeatureMap blacklist failed: %s", exc)
 

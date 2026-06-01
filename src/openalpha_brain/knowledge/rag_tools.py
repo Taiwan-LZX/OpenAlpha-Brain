@@ -54,13 +54,13 @@ RAG_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "search_operators",
-            "description": "Search for valid BRAIN operators by exploration direction. MUST call this before writing any expression to get the list of allowed operators.",
+            "description": "Search for valid BRAIN operators by exploration direction. MUST call this before writing any expression to get the list of allowed operators.",  # noqa: E501
             "parameters": {
                 "type": "object",
                 "properties": {
                     "direction": {
                         "type": "string",
-                        "description": "Exploration direction: momentum, value, volatility, mean_reversion, quality, growth",
+                        "description": "Exploration direction: momentum, value, volatility, mean_reversion, quality, growth",  # noqa: E501
                     },
                     "top_k": {
                         "type": "integer",
@@ -76,13 +76,13 @@ RAG_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "search_fields",
-            "description": "Search for valid BRAIN data fields by exploration direction. MUST call this before writing any expression to get the list of allowed data fields. Using any field NOT in this list will cause BRAIN ERROR.",
+            "description": "Search for valid BRAIN data fields by exploration direction. MUST call this before writing any expression to get the list of allowed data fields. Using any field NOT in this list will cause BRAIN ERROR.",  # noqa: E501
             "parameters": {
                 "type": "object",
                 "properties": {
                     "direction": {
                         "type": "string",
-                        "description": "Exploration direction: momentum, value, volatility, mean_reversion, quality, growth",
+                        "description": "Exploration direction: momentum, value, volatility, mean_reversion, quality, growth",  # noqa: E501
                     },
                     "top_k": {
                         "type": "integer",
@@ -98,13 +98,13 @@ RAG_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "search_financial_logic",
-            "description": "Retrieve financial logic context for a given exploration direction. Returns relevant financial reasoning patterns, factor construction logic, and domain knowledge.",
+            "description": "Retrieve financial logic context for a given exploration direction. Returns relevant financial reasoning patterns, factor construction logic, and domain knowledge.",  # noqa: E501
             "parameters": {
                 "type": "object",
                 "properties": {
                     "direction": {
                         "type": "string",
-                        "description": "Exploration direction: momentum, value, volatility, mean_reversion, quality, growth",
+                        "description": "Exploration direction: momentum, value, volatility, mean_reversion, quality, growth",  # noqa: E501
                     },
                 },
                 "required": ["direction"],
@@ -113,10 +113,24 @@ RAG_TOOL_SCHEMAS = [
     },
 ]
 
-_BRAIN_KEYWORDS = frozenset({
-    "if", "else", "then", "and", "or", "not", "abs", "max", "min",
-    "log", "sign", "sqrt", "pow", "exp",
-})
+_BRAIN_KEYWORDS = frozenset(
+    {
+        "if",
+        "else",
+        "then",
+        "and",
+        "or",
+        "not",
+        "abs",
+        "max",
+        "min",
+        "log",
+        "sign",
+        "sqrt",
+        "pow",
+        "exp",
+    }
+)
 
 _OPERATOR_PATTERN = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(")
 _IDENTIFIER_PATTERN = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
@@ -139,14 +153,18 @@ async def execute_rag_tool(
         remaining = context.get("remaining_op_names", [])
         operators = []
         for op in ops_detailed:
-            operators.append({
-                "name": op.get("name", ""),
-                "signature": op.get("definition", ""),
-                "category": op.get("category", ""),
-            })
+            operators.append(
+                {
+                    "name": op.get("name", ""),
+                    "signature": op.get("definition", ""),
+                    "category": op.get("category", ""),
+                }
+            )
         for name in remaining:
             operators.append({"name": name, "signature": "", "category": ""})
-        token_count = sum(len(op.get("name", "")) + len(op.get("signature", "")) + len(op.get("category", "")) for op in operators)
+        token_count = sum(
+            len(op.get("name", "")) + len(op.get("signature", "")) + len(op.get("category", "")) for op in operators
+        )
         return {"operators": operators, "token_count": token_count}
 
     if tool_name == "search_fields":
@@ -213,7 +231,7 @@ def find_closest_field(invalid_field: str, allowed_fields: set[str]) -> str | No
             return field
 
         common_prefix = 0
-        for a, b in zip(invalid_lower, field_lower):
+        for a, b in zip(invalid_lower, field_lower, strict=False):
             if a == b:
                 common_prefix += 1
             else:

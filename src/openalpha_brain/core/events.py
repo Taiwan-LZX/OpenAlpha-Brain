@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -24,10 +25,17 @@ EVENT_ERROR = "error"
 EVENT_WARNING = "warning"
 
 _ALL_EVENTS = [
-    EVENT_CYCLE_START, EVENT_ALPHA_GENERATED, EVENT_ALPHA_VALIDATED,
-    EVENT_ALPHA_REJECTED, EVENT_BRAIN_SUBMIT, EVENT_BRAIN_RESULT,
-    EVENT_MAB_FEEDBACK, EVENT_CYCLE_COMPLETE, EVENT_MINING_COMPLETE,
-    EVENT_ERROR, EVENT_WARNING,
+    EVENT_CYCLE_START,
+    EVENT_ALPHA_GENERATED,
+    EVENT_ALPHA_VALIDATED,
+    EVENT_ALPHA_REJECTED,
+    EVENT_BRAIN_SUBMIT,
+    EVENT_BRAIN_RESULT,
+    EVENT_MAB_FEEDBACK,
+    EVENT_CYCLE_COMPLETE,
+    EVENT_MINING_COMPLETE,
+    EVENT_ERROR,
+    EVENT_WARNING,
 ]
 
 
@@ -74,10 +82,8 @@ class AlphaEventBus:
         self._listeners.append(listener)
 
     def unsubscribe(self, listener: Callable) -> None:
-        try:
+        with contextlib.suppress(ValueError):
             self._listeners.remove(listener)
-        except ValueError:
-            pass
 
     def emit(self, event_type: str, data: dict[str, Any] | None = None) -> None:
         if not self._enabled:

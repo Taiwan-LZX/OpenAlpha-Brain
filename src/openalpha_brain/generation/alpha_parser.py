@@ -46,6 +46,7 @@ True
 >>> parse_alpha_output(sample2) is None
 True
 """
+
 from __future__ import annotations
 
 import logging
@@ -96,16 +97,31 @@ def _extract_expression(sec2_body: str) -> str | None:
         return inline.group(1).strip()
 
     stripped = sec2_body.strip()
-    if stripped and ("group_neutralize" in stripped or "rank(" in stripped or "ts_" in stripped
-                     or "zscore(" in stripped or "normalize(" in stripped or "winsorize(" in stripped):
+    if stripped and (
+        "group_neutralize" in stripped
+        or "rank(" in stripped
+        or "ts_" in stripped
+        or "zscore(" in stripped
+        or "normalize(" in stripped
+        or "winsorize(" in stripped
+    ):
         expr_lines = []
         for line in stripped.splitlines():
             line = line.strip()
-            if line and ("group_neutralize" in line or "rank(" in line or "ts_" in line
-                         or "zscore(" in line or "normalize(" in line or "winsorize(" in line
-                         or "decay_linear(" in line or "ts_decay" in line
-                         or "signed_power(" in line or "ts_zscore(" in line
-                         or "group_rank(" in line or "group_zscore(" in line):
+            if line and (
+                "group_neutralize" in line
+                or "rank(" in line
+                or "ts_" in line
+                or "zscore(" in line
+                or "normalize(" in line
+                or "winsorize(" in line
+                or "decay_linear(" in line
+                or "ts_decay" in line
+                or "signed_power(" in line
+                or "ts_zscore(" in line
+                or "group_rank(" in line
+                or "group_zscore(" in line
+            ):
                 expr_lines.append(line)
         if expr_lines:
             joined = " ".join(" ".join(l.split()) for l in expr_lines)
@@ -113,28 +129,29 @@ def _extract_expression(sec2_body: str) -> str | None:
 
     for line in sec2_body.splitlines():
         line = line.strip()
-        if line and ("group_neutralize" in line or "rank(" in line or "ts_" in line
-                     or "zscore(" in line or "normalize(" in line):
+        if line and (
+            "group_neutralize" in line or "rank(" in line or "ts_" in line or "zscore(" in line or "normalize(" in line
+        ):
             return line
 
     paren_depth = 0
     start = -1
     for i, ch in enumerate(stripped):
-        if ch == '(' and start == -1:
+        if ch == "(" and start == -1:
             for j in range(i - 1, -1, -1):
-                if stripped[j].isalpha() or stripped[j] == '_':
+                if stripped[j].isalpha() or stripped[j] == "_":
                     start = j
                 else:
                     break
             if start >= 0:
-                start = j if stripped[j].isalpha() or stripped[j] == '_' else j + 1
+                start = j if stripped[j].isalpha() or stripped[j] == "_" else j + 1
         if start >= 0:
-            if ch == '(':
+            if ch == "(":
                 paren_depth += 1
-            elif ch == ')':
+            elif ch == ")":
                 paren_depth -= 1
                 if paren_depth == 0:
-                    candidate = stripped[start:i + 1].strip()
+                    candidate = stripped[start : i + 1].strip()
                     if len(candidate) > 15:
                         return " ".join(candidate.split())
                     start = -1
@@ -216,6 +233,7 @@ def _parse_simulation_payload(sec8_body: str) -> dict | None:
     Returns parsed dict or None.
     """
     import json
+
     # Try to find a JSON object in the section body
     json_m = re.search(r"(\{[\s\S]+\})", sec8_body)
     if not json_m:
@@ -268,11 +286,20 @@ def _extract_family(rationale: str, sec6_body: str) -> str | None:
     Looks for known family names as substrings.
     """
     known_families = [
-        "Momentum", "Value", "Quality", "Short-term Reversal",
-        "Liquidity Pressure", "Volatility Compression", "Volume Anomaly",
-        "Operating Efficiency", "Inventory & Cashflow Dynamics",
-        "Behavioral Crowding", "Regime Shifts", "Dispersion Mechanics",
-        "Residualized Industry Effects", "Microstructure Pressure",
+        "Momentum",
+        "Value",
+        "Quality",
+        "Short-term Reversal",
+        "Liquidity Pressure",
+        "Volatility Compression",
+        "Volume Anomaly",
+        "Operating Efficiency",
+        "Inventory & Cashflow Dynamics",
+        "Behavioral Crowding",
+        "Regime Shifts",
+        "Dispersion Mechanics",
+        "Residualized Industry Effects",
+        "Microstructure Pressure",
         "Temporal Displacement",
     ]
     combined = rationale + " " + sec6_body
@@ -308,19 +335,19 @@ def parse_alpha_output(raw: str) -> dict | None:
         sec4 = _section(raw, 4, 5)
 
         if is_v2:
-            sec5_ast  = _section(raw, 5, 6)   # [5] AST TOPOLOGY HASH
-            sec6      = _section(raw, 6, 7)   # [6] REFINEMENT LOG
-            sec7_dec  = _section(raw, 7, 8) or _section(raw, 7)   # [7] DECISION
-            sec8      = _section(raw, 8)      # [8] SIMULATION PAYLOAD
+            sec5_ast = _section(raw, 5, 6)  # [5] AST TOPOLOGY HASH
+            sec6 = _section(raw, 6, 7)  # [6] REFINEMENT LOG
+            sec7_dec = _section(raw, 7, 8) or _section(raw, 7)  # [7] DECISION
+            sec8 = _section(raw, 8)  # [8] SIMULATION PAYLOAD
             refinement_log = sec6
-            decision_src   = sec7_dec
-            mutation_src   = ""  # v2 drops dedicated mutation section
+            decision_src = sec7_dec
+            mutation_src = ""  # v2 drops dedicated mutation section
         else:
-            sec5_ast  = ""
+            sec5_ast = ""
             refinement_log = _section(raw, 5, 6)
-            decision_src   = _section(raw, 6, 7) or _section(raw, 6)
-            mutation_src   = _section(raw, 7)
-            sec8           = ""
+            decision_src = _section(raw, 6, 7) or _section(raw, 6)
+            mutation_src = _section(raw, 7)
+            sec8 = ""
 
         expression = _extract_expression(sec2)
         if not expression:
@@ -362,8 +389,8 @@ def parse_alpha_output(raw: str) -> dict | None:
                 "corr_risk": corr_risk,
             },
             "fingerprint": fingerprint,
-            "ast_topology": ast_topology,      # v2
-            "ast_collision": ast_collision,    # v2
+            "ast_topology": ast_topology,  # v2
+            "ast_collision": ast_collision,  # v2
             "refinement_log": refinement_log,
             "decision": decision,
             "mutation_paths": _parse_mutation_paths(mutation_src) if mutation_src else [],
@@ -379,6 +406,7 @@ def parse_alpha_output(raw: str) -> dict | None:
 def parse_alpha_json(raw: str) -> dict | None:
     """Try to parse LLM output as JSON object matching ALPHA_JSON_SCHEMA."""
     import json
+
     if not raw or not raw.strip():
         return None
     text = raw.strip()

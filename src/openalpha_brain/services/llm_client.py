@@ -4,9 +4,11 @@ Supports Anthropic (default) and OpenAI via httpx.AsyncClient.
 All retries use tenacity with exponential backoff.
 API key is never logged.
 """
+
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time as _time
 from collections.abc import Callable
@@ -42,6 +44,9 @@ def _get_embed_semaphore() -> asyncio.Semaphore:
         _embed_semaphore = asyncio.Semaphore(settings.EMBED_MAX_CONCURRENT)
     return _embed_semaphore
 
+
+import contextlib
+
 from openalpha_brain.services.http_pool import get_client
 
 logger = logging.getLogger(__name__)
@@ -71,7 +76,9 @@ async def _ensure_embed_model_loaded() -> None:
 async def embed(text: str) -> list[float]:
     sem = _get_embed_semaphore()
     if sem._value <= 0:
-        logger.info("Embed semaphore FULL — waiting for slot (avail=%d max=%d)", sem._value, settings.EMBED_MAX_CONCURRENT)
+        logger.info(
+            "Embed semaphore FULL — waiting for slot (avail=%d max=%d)", sem._value, settings.EMBED_MAX_CONCURRENT
+        )
     async with sem:
         await _ensure_embed_model_loaded()
         headers = {
@@ -133,6 +140,7 @@ async def embed_batch(texts: list[str]) -> list[list[float]]:
 
 class LLMError(Exception):
     """Raised when the LLM fails permanently after all retries."""
+
     def __init__(self, message: str, cycle: int = 0, session_id: str = ""):
         full_msg = f"[session={session_id} cycle={cycle}] {message}"
         super().__init__(full_msg)
@@ -147,16 +155,12 @@ def _is_retryable(exc: BaseException) -> bool:
             return True
         if status == 400:
             body = ""
-            try:
+            with contextlib.suppress(AttributeError, ValueError):
                 body = exc.response.text[:200]
-            except (AttributeError, ValueError):
-                pass
             if "model" in body.lower() or "load" in body.lower():
                 return True
         return False
-    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
-        return True
-    return False
+    return bool(isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)))
 
 
 async def generate(
@@ -189,7 +193,9 @@ async def generate(
     if grammar and provider != "lmstudio":
         logger.warning(
             "[%s] cycle=%d Grammar-constrained decoding only supported with LM Studio; ignoring for provider '%s'.",
-            session_id, cycle, provider,
+            session_id,
+            cycle,
+            provider,
         )
     if not settings.LLM_API_KEY and provider != "lmstudio":
         raise LLMError(
@@ -201,7 +207,10 @@ async def generate(
     if sem._value <= 0:
         logger.info(
             "[%s] cycle=%d LLM semaphore FULL — waiting for slot (avail=%d max=%d)",
-            session_id, cycle, sem._value, settings.LLM_MAX_CONCURRENT,
+            session_id,
+            cycle,
+            sem._value,
+            settings.LLM_MAX_CONCURRENT,
         )
     async with sem:
         if provider == "anthropic":
@@ -293,7 +302,8 @@ async def generate_with_tools(
         except LLMError:
             logger.warning(
                 "[%s] cycle=%d Tool call request failed, falling back to generate()",
-                session_id, cycle,
+                session_id,
+                cycle,
             )
             text = await generate(system_prompt, history, user_msg, session_id, cycle, grammar=grammar)
             return text, tool_results
@@ -307,7 +317,8 @@ async def generate_with_tools(
     if "error" in data:
         logger.warning(
             "[%s] cycle=%d Tool call not supported by model, falling back to generate()",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
         text = await generate(system_prompt, history, user_msg, session_id, cycle, grammar=grammar)
         return text, tool_results
@@ -331,10 +342,13 @@ async def generate_with_tools(
 
         try:
             arguments = _json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
-        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:  # noqa: SIM105
             logger.warning(
                 "[%s] cycle=%d Tool call arguments JSON parse failed for %s: %s",
-                session_id, cycle, tool_name, exc,
+                session_id,
+                cycle,
+                tool_name,
+                exc,
             )
             arguments = {}
 
@@ -344,16 +358,21 @@ async def generate_with_tools(
         except (OSError, ValueError, RuntimeError) as exc:
             logger.warning(
                 "[%s] cycle=%d Tool execution failed for %s: %s",
-                session_id, cycle, tool_name, exc,
+                session_id,
+                cycle,
+                tool_name,
+                exc,
             )
             result = {"error": str(exc)}
             tool_results[tool_name] = result
 
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tc_id,
-            "content": _json.dumps(result),
-        })
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc_id,
+                "content": _json.dumps(result),
+            }
+        )
 
     payload_followup: dict[str, Any] = {
         "model": settings.LLM_MODEL,
@@ -378,7 +397,9 @@ async def generate_with_tools(
     except (ValueError, TypeError, OSError, RuntimeError) as exc:
         logger.warning(
             "[%s] cycle=%d Follow-up after tool calls failed: %s",
-            session_id, cycle, exc,
+            session_id,
+            cycle,
+            exc,
         )
         text = await generate(system_prompt, history, user_msg, session_id, cycle, grammar=grammar)
         return text, tool_results
@@ -418,22 +439,22 @@ async def _call_anthropic(
     )
 
     import json
+
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         raise LLMError(f"Anthropic response JSON parse error: {exc}", cycle=cycle, session_id=session_id) from exc
 
     content_blocks = data.get("content", [])
-    text = " ".join(
-        block.get("text", "") for block in content_blocks if block.get("type") == "text"
-    )
+    text = " ".join(block.get("text", "") for block in content_blocks if block.get("type") == "text")
 
     # Warn if the model was cut off mid-response
     stop_reason = data.get("stop_reason", "")
     if stop_reason == "max_tokens":
         logger.warning(
             "[%s] cycle=%d Anthropic stop_reason=max_tokens — consider raising LLM_MAX_TOKENS",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
 
     return text.strip()
@@ -477,6 +498,7 @@ async def _call_openai(
     )
 
     import json
+
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError as exc:
@@ -487,7 +509,8 @@ async def _call_openai(
     if finish_reason == "length":
         logger.warning(
             "[%s] cycle=%d OpenAI finish_reason=length — consider raising LLM_MAX_TOKENS",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
 
     return choice.get("message", {}).get("content", "").strip()
@@ -532,6 +555,7 @@ async def _call_groq(
         cycle=cycle,
     )
     import json
+
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError as exc:
@@ -541,7 +565,8 @@ async def _call_groq(
     if finish_reason == "length":
         logger.warning(
             "[%s] cycle=%d Groq finish_reason=length — consider raising LLM_MAX_TOKENS",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
     return choice.get("message", {}).get("content", "").strip()
 
@@ -567,31 +592,42 @@ async def _warmup_lmstudio_model(
                 if "model unloaded" in body or ("model" in body and "load" in body):
                     logger.info(
                         "[%s] cycle=%d LM Studio warm-up: model unloaded (attempt %d/3), waiting 30s for reload",
-                        session_id, cycle, attempt + 1,
+                        session_id,
+                        cycle,
+                        attempt + 1,
                     )
                     await asyncio.sleep(30)
                     continue
             logger.info(
                 "[%s] cycle=%d LM Studio model warm-up succeeded (attempt %d/3)",
-                session_id, cycle, attempt + 1,
+                session_id,
+                cycle,
+                attempt + 1,
             )
             return
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
             logger.info(
                 "[%s] cycle=%d LM Studio warm-up connection error (attempt %d/3): %s, waiting 30s",
-                session_id, cycle, attempt + 1, exc,
+                session_id,
+                cycle,
+                attempt + 1,
+                exc,
             )
             await asyncio.sleep(30)
             continue
         except (ConnectionError, OSError, TimeoutError, RuntimeError) as exc:
             logger.warning(
                 "[%s] cycle=%d LM Studio warm-up unexpected error (attempt %d/3): %s",
-                session_id, cycle, attempt + 1, exc,
+                session_id,
+                cycle,
+                attempt + 1,
+                exc,
             )
             return
     logger.warning(
         "[%s] cycle=%d LM Studio warm-up: model still not loaded after 3 attempts, proceeding with actual request",
-        session_id, cycle,
+        session_id,
+        cycle,
     )
 
 
@@ -622,12 +658,14 @@ async def _call_lmstudio(
     if response_format is not None:
         logger.info(
             "[%s] cycle=%d LM Studio does not support response_format, ignoring",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
     if grammar is not None:
         logger.info(
             "[%s] cycle=%d LM Studio does not support grammar, ignoring",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
     payload: dict[str, Any] = {
         "model": settings.LLM_MODEL,
@@ -652,15 +690,22 @@ async def _call_lmstudio(
     except LLMError:
         try:
             return await _call_lmstudio_native(
-                system_prompt, history, user_msg, session_id, cycle,
+                system_prompt,
+                history,
+                user_msg,
+                session_id,
+                cycle,
             )
         except Exception as native_exc:
             logger.warning(
                 "[%s] cycle=%d Native LM Studio fallback also failed: %s",
-                session_id, cycle, native_exc,
+                session_id,
+                cycle,
+                native_exc,
             )
             raise
     import json
+
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError as exc:
@@ -670,21 +715,24 @@ async def _call_lmstudio(
     if finish_reason == "length":
         logger.warning(
             "[%s] cycle=%d LM Studio finish_reason=length — consider raising LLM_MAX_TOKENS",
-            session_id, cycle,
+            session_id,
+            cycle,
         )
     _elapsed = _time.monotonic() - _start_time
     logger.info(
         "[%s] cycle=%d LM Studio call took %.1fs (finish_reason=%s)",
-        session_id, cycle, _elapsed, finish_reason,
+        session_id,
+        cycle,
+        _elapsed,
+        finish_reason,
     )
     message = choice.get("message", {})
     content = message.get("content", "")
-    if isinstance(content, str):
-        content = content.strip()
-    else:
-        content = str(content).strip()
+    content = content.strip() if isinstance(content, str) else str(content).strip()
     if not content:
-        reasoning_content = message.get("reasoning_content") or message.get("thinking_content") or message.get("reasoning")
+        reasoning_content = (
+            message.get("reasoning_content") or message.get("thinking_content") or message.get("reasoning")
+        )
         if reasoning_content:
             if isinstance(reasoning_content, str):
                 content = reasoning_content.strip()
@@ -700,17 +748,23 @@ async def _call_lmstudio(
                 content = str(reasoning_content).strip()
             logger.info(
                 "[%s] cycle=%d LM Studio content empty, used reasoning_content (%d chars)",
-                session_id, cycle, len(content),
+                session_id,
+                cycle,
+                len(content),
             )
     if not content:
         logger.warning(
             "[%s] cycle=%d LM Studio returned empty content — full message keys: %s | finish_reason=%s",
-            session_id, cycle, list(message.keys()), finish_reason,
+            session_id,
+            cycle,
+            list(message.keys()),
+            finish_reason,
         )
         if effective_rf is not None or grammar is not None:
             logger.info(
                 "[%s] cycle=%d Retrying LM Studio without response_format/grammar",
-                session_id, cycle,
+                session_id,
+                cycle,
             )
             retry_payload: dict[str, Any] = {
                 "model": settings.LLM_MODEL,
@@ -730,12 +784,13 @@ async def _call_lmstudio(
                 retry_choice = retry_data.get("choices", [{}])[0]
                 retry_message = retry_choice.get("message", {})
                 retry_content = retry_message.get("content", "")
-                if isinstance(retry_content, str):
-                    retry_content = retry_content.strip()
-                else:
-                    retry_content = str(retry_content).strip()
+                retry_content = retry_content.strip() if isinstance(retry_content, str) else str(retry_content).strip()
                 if not retry_content:
-                    retry_reasoning = retry_message.get("reasoning_content") or retry_message.get("thinking_content") or retry_message.get("reasoning")
+                    retry_reasoning = (
+                        retry_message.get("reasoning_content")
+                        or retry_message.get("thinking_content")
+                        or retry_message.get("reasoning")
+                    )
                     if retry_reasoning:
                         if isinstance(retry_reasoning, str):
                             retry_content = retry_reasoning.strip()
@@ -752,17 +807,23 @@ async def _call_lmstudio(
                 if retry_content:
                     logger.info(
                         "[%s] cycle=%d Retry without response_format/grammar succeeded (%d chars)",
-                        session_id, cycle, len(retry_content),
+                        session_id,
+                        cycle,
+                        len(retry_content),
                     )
                     return retry_content
                 logger.warning(
                     "[%s] cycle=%d Retry also returned empty content — message keys: %s",
-                    session_id, cycle, list(retry_message.keys()),
+                    session_id,
+                    cycle,
+                    list(retry_message.keys()),
                 )
             except (ValueError, TypeError, OSError, RuntimeError) as retry_exc:
                 logger.warning(
                     "[%s] cycle=%d Retry without response_format/grammar failed: %s",
-                    session_id, cycle, retry_exc,
+                    session_id,
+                    cycle,
+                    retry_exc,
                 )
     if not content or not content.strip():
         raise LLMError(
@@ -820,17 +881,22 @@ async def _call_gemini(
     Get key at: https://aistudio.google.com/app/apikey
     """
     import json
+
     # Build Gemini contents list: system injected as first user turn
     contents = []
     # Gemini doesn't have a system role — inject system prompt as first user message
-    contents.append({
-        "role": "user",
-        "parts": [{"text": system_prompt}],
-    })
-    contents.append({
-        "role": "model",
-        "parts": [{"text": "Understood. I am OpenAlpha - Quant, ready to conduct rigorous alpha research."}],
-    })
+    contents.append(
+        {
+            "role": "user",
+            "parts": [{"text": system_prompt}],
+        }
+    )
+    contents.append(
+        {
+            "role": "model",
+            "parts": [{"text": "Understood. I am OpenAlpha - Quant, ready to conduct rigorous alpha research."}],
+        }
+    )
     # Map prior history
     for turn in history:
         role = "model" if turn["role"] == "assistant" else "user"
@@ -861,8 +927,7 @@ async def _call_gemini(
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError) as exc:
-        logger.error("[%s] cycle=%d Gemini response parse error: %s | raw: %s",
-                     session_id, cycle, exc, raw_text[:200])
+        logger.error("[%s] cycle=%d Gemini response parse error: %s | raw: %s", session_id, cycle, exc, raw_text[:200])
         raise LLMError(f"Gemini response parse error: {exc}", cycle=cycle, session_id=session_id)
 
 
@@ -877,6 +942,7 @@ async def _post_with_retry(
     import tenacity
 
     from openalpha_brain.utils.resilience import get_circuit_breaker
+
     _llm_cb = get_circuit_breaker("llm_api", failure_threshold=5, recovery_timeout=45.0)
     if _llm_cb.is_open:
         _llm_cb.record_failure("Circuit open - skipping LLM call")
@@ -906,7 +972,10 @@ async def _post_with_retry(
                     retry_after = exc.response.headers.get("Retry-After", "unknown")
                     logger.warning(
                         "[%s] cycle=%d HTTP %d from LLM — retry-after=%s",
-                        session_id, cycle, status, retry_after,
+                        session_id,
+                        cycle,
+                        status,
+                        retry_after,
                     )
                     last_exc = exc
                     _llm_cb.record_failure(f"HTTP {status}")

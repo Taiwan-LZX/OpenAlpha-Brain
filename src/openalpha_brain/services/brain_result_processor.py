@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
+
+import aiohttp
 
 from openalpha_brain.config.config import settings
 from openalpha_brain.core.loop_state import (
@@ -48,25 +51,25 @@ from openalpha_brain.validation.validator import compute_hierarchical_reward, ge
 
 logger = logging.getLogger(__name__)
 
-DRAWDOWN_PENALTY_THRESHOLD = getattr(settings, 'DRAWDOWN_PENALTY_THRESHOLD', 10.0)
-DRAWDOWN_PENALTY = getattr(settings, 'DRAWDOWN_PENALTY', 0.03)
-OVERFITTING_WARNING_PENALTY = getattr(settings, 'OVERFITTING_WARNING_PENALTY', 0.2)
-MARGIN_EFFICIENCY_THRESHOLD = getattr(settings, 'MARGIN_EFFICIENCY_THRESHOLD', 0.5)
-HIERARCHICAL_REWARD_QUALITY_THRESHOLD = getattr(settings, 'HIERARCHICAL_REWARD_QUALITY_THRESHOLD', 0.6)
-HIERARCHICAL_REWARD_BASIC_THRESHOLD = getattr(settings, 'HIERARCHICAL_REWARD_BASIC_THRESHOLD', 0.3)
-GARCH_CLUSTERING_PENALTY = getattr(settings, 'GARCH_CLUSTERING_PENALTY', 0.05)
-GARCH_MIN_PNL_LENGTH = getattr(settings, 'GARCH_MIN_PNL_LENGTH', 20)
-OVERFIT_DETECTION_PENALTY = getattr(settings, 'OVERFIT_DETECTION_PENALTY', 0.1)
-OVERFIT_MAB_PENALTY = getattr(settings, 'OVERFIT_MAB_PENALTY', 0.3)
-HIGH_CORRELATION_THRESHOLD = getattr(settings, 'HIGH_CORRELATION_THRESHOLD', 0.7)
-CORRELATION_PENALTY_THRESHOLD = getattr(settings, 'CORRELATION_PENALTY_THRESHOLD', 0.3)
-CORRELATION_PENALTY_COEFFICIENT = getattr(settings, 'CORRELATION_PENALTY_COEFFICIENT', 0.1)
-PROD_CORRELATION_THRESHOLD = getattr(settings, 'PROD_CORRELATION_THRESHOLD', 0.7)
-PROD_CORRELATION_PENALTY_COEFFICIENT = getattr(settings, 'PROD_CORRELATION_PENALTY_COEFFICIENT', 0.15)
-DIVERSITY_BONUS_THRESHOLD = getattr(settings, 'DIVERSITY_BONUS_THRESHOLD', 0.5)
-DIVERSITY_BONUS = getattr(settings, 'DIVERSITY_BONUS', 0.05)
-DIVERSITY_PENALTY_THRESHOLD = getattr(settings, 'DIVERSITY_PENALTY_THRESHOLD', 0.2)
-DIVERSITY_PENALTY = getattr(settings, 'DIVERSITY_PENALTY', 0.05)
+DRAWDOWN_PENALTY_THRESHOLD = getattr(settings, "DRAWDOWN_PENALTY_THRESHOLD", 10.0)
+DRAWDOWN_PENALTY = getattr(settings, "DRAWDOWN_PENALTY", 0.03)
+OVERFITTING_WARNING_PENALTY = getattr(settings, "OVERFITTING_WARNING_PENALTY", 0.2)
+MARGIN_EFFICIENCY_THRESHOLD = getattr(settings, "MARGIN_EFFICIENCY_THRESHOLD", 0.5)
+HIERARCHICAL_REWARD_QUALITY_THRESHOLD = getattr(settings, "HIERARCHICAL_REWARD_QUALITY_THRESHOLD", 0.6)
+HIERARCHICAL_REWARD_BASIC_THRESHOLD = getattr(settings, "HIERARCHICAL_REWARD_BASIC_THRESHOLD", 0.3)
+GARCH_CLUSTERING_PENALTY = getattr(settings, "GARCH_CLUSTERING_PENALTY", 0.05)
+GARCH_MIN_PNL_LENGTH = getattr(settings, "GARCH_MIN_PNL_LENGTH", 20)
+OVERFIT_DETECTION_PENALTY = getattr(settings, "OVERFIT_DETECTION_PENALTY", 0.1)
+OVERFIT_MAB_PENALTY = getattr(settings, "OVERFIT_MAB_PENALTY", 0.3)
+HIGH_CORRELATION_THRESHOLD = getattr(settings, "HIGH_CORRELATION_THRESHOLD", 0.7)
+CORRELATION_PENALTY_THRESHOLD = getattr(settings, "CORRELATION_PENALTY_THRESHOLD", 0.3)
+CORRELATION_PENALTY_COEFFICIENT = getattr(settings, "CORRELATION_PENALTY_COEFFICIENT", 0.1)
+PROD_CORRELATION_THRESHOLD = getattr(settings, "PROD_CORRELATION_THRESHOLD", 0.7)
+PROD_CORRELATION_PENALTY_COEFFICIENT = getattr(settings, "PROD_CORRELATION_PENALTY_COEFFICIENT", 0.15)
+DIVERSITY_BONUS_THRESHOLD = getattr(settings, "DIVERSITY_BONUS_THRESHOLD", 0.5)
+DIVERSITY_BONUS = getattr(settings, "DIVERSITY_BONUS", 0.05)
+DIVERSITY_PENALTY_THRESHOLD = getattr(settings, "DIVERSITY_PENALTY_THRESHOLD", 0.2)
+DIVERSITY_PENALTY = getattr(settings, "DIVERSITY_PENALTY", 0.05)
 
 
 def compute_hierarchical_reward_with_penalties(
@@ -77,15 +80,15 @@ def compute_hierarchical_reward_with_penalties(
 ) -> tuple[float, str]:
     """[Brief description of function purpose.]
 
-        Args:
-            brain_result (BrainSubmissionResult): [Description]
-            expression (str): [Description]
-            session_id (str): [Description]
-            log_prefix (str): [Description]
+    Args:
+        brain_result (BrainSubmissionResult): [Description]
+        expression (str): [Description]
+        session_id (str): [Description]
+        log_prefix (str): [Description]
 
-        Returns:
-            tuple[float, str]: [Description]
-        """
+    Returns:
+        tuple[float, str]: [Description]
+    """
     hierarchical_reward = 0.0
     hierarchical_level_name = ""
     _dd_penalty = 0.0
@@ -99,20 +102,34 @@ def compute_hierarchical_reward_with_penalties(
             _dd_penalty = DRAWDOWN_PENALTY
             logger.info(
                 "[%s] %sDrawdown penalty: %.1f%% > 10%%, reward -0.03",
-                session_id, log_prefix, brain_result.real_drawdown,
+                session_id,
+                log_prefix,
+                brain_result.real_drawdown,
             )
-        if hasattr(brain_result, 'overfitting_warning') and brain_result.overfitting_warning:
+        if hasattr(brain_result, "overfitting_warning") and brain_result.overfitting_warning:
             hierarchical_reward -= OVERFITTING_WARNING_PENALTY
             _of_penalty = OVERFITTING_WARNING_PENALTY
             logger.info(
                 "[%s] %sOverfitting penalty: IS/OS decay ratio %.2f < 0.5, reward -0.2",
-                session_id, log_prefix, getattr(brain_result, 'is_os_decay_ratio', 0),
+                session_id,
+                log_prefix,
+                getattr(brain_result, "is_os_decay_ratio", 0),
             )
         logger.info(
             "[%s] %sHierarchical reward: %.2f (%s) — decision point",
-            session_id, log_prefix, hierarchical_reward, hierarchical_level_name,
+            session_id,
+            log_prefix,
+            hierarchical_reward,
+            hierarchical_level_name,
         )
-        logger.info("%sHIERARCHICAL_REWARD: level=%s reward=%.4f drawdown_penalty=%.4f overfit_penalty=%.4f", log_prefix, hierarchical_level_name, hierarchical_reward, _dd_penalty, _of_penalty)
+        logger.info(
+            "%sHIERARCHICAL_REWARD: level=%s reward=%.4f drawdown_penalty=%.4f overfit_penalty=%.4f",
+            log_prefix,
+            hierarchical_level_name,
+            hierarchical_reward,
+            _dd_penalty,
+            _of_penalty,
+        )
     return hierarchical_reward, hierarchical_level_name
 
 
@@ -124,23 +141,23 @@ def check_margin_efficiency(
 ) -> None:
     """[Brief description of function purpose.]
 
-        Args:
-            brain_result (BrainSubmissionResult): [Description]
-            alpha: [Description]
-            session_id (str): [Description]
-            log_prefix (str): [Description]
+    Args:
+        brain_result (BrainSubmissionResult): [Description]
+        alpha: [Description]
+        session_id (str): [Description]
+        log_prefix (str): [Description]
 
-        Returns:
-            None: [Description]
-        """
-    if (brain_result.real_returns is not None
-            and brain_result.real_margin is not None
-            and brain_result.real_margin > 0):
+    Returns:
+        None: [Description]
+    """
+    if brain_result.real_returns is not None and brain_result.real_margin is not None and brain_result.real_margin > 0:
         margin_efficiency = brain_result.real_returns / brain_result.real_margin
         if margin_efficiency < MARGIN_EFFICIENCY_THRESHOLD:
             logger.info(
                 "[%s] %sLow margin efficiency: %.2f (returns/margin)",
-                session_id, log_prefix, margin_efficiency,
+                session_id,
+                log_prefix,
+                margin_efficiency,
             )
         alpha.margin_efficiency = margin_efficiency
 
@@ -172,22 +189,47 @@ async def record_pass_feedback(
         if settings.HIERARCHICAL_REWARD_ENABLED and hierarchical_reward >= HIERARCHICAL_REWARD_QUALITY_THRESHOLD:
             logger.info(
                 "[%s] %sHierarchical reward %.2f >= 0.6 (Quality level) — BRAIN PASS with high quality",
-                session_id, log_prefix, hierarchical_reward,
+                session_id,
+                log_prefix,
+                hierarchical_reward,
             )
-            await _apply_mab_feedback(alpha.exploration_direction, expression, reward=REWARD_BRAIN_SUBMIT, _scheduler=_scheduler)
-            logger.info("%sPASS_FEEDBACK: direction=%s mab_reward=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, REWARD_BRAIN_SUBMIT)
+            await _apply_mab_feedback(
+                alpha.exploration_direction, expression, reward=REWARD_BRAIN_SUBMIT, _scheduler=_scheduler
+            )
+            logger.info(
+                "%sPASS_FEEDBACK: direction=%s mab_reward=%.2f",
+                log_prefix,
+                alpha.exploration_direction or exploration_direction,
+                REWARD_BRAIN_SUBMIT,
+            )
         elif settings.HIERARCHICAL_REWARD_ENABLED and hierarchical_reward >= HIERARCHICAL_REWARD_BASIC_THRESHOLD:
             logger.info(
                 "[%s] %sHierarchical reward %.2f >= 0.3 (Basic level) — BRAIN PASS with basic quality",
-                session_id, log_prefix, hierarchical_reward,
+                session_id,
+                log_prefix,
+                hierarchical_reward,
             )
-            await _apply_mab_feedback(alpha.exploration_direction, expression, reward=REWARD_SHARPE_05, _scheduler=_scheduler)
-            logger.info("%sPASS_FEEDBACK: direction=%s mab_reward=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, REWARD_SHARPE_05)
+            await _apply_mab_feedback(
+                alpha.exploration_direction, expression, reward=REWARD_SHARPE_05, _scheduler=_scheduler
+            )
+            logger.info(
+                "%sPASS_FEEDBACK: direction=%s mab_reward=%.2f",
+                log_prefix,
+                alpha.exploration_direction or exploration_direction,
+                REWARD_SHARPE_05,
+            )
         else:
-            await _apply_mab_feedback(alpha.exploration_direction, expression, reward=REWARD_BRAIN_SUBMIT, _scheduler=_scheduler)
-            logger.info("%sPASS_FEEDBACK: direction=%s mab_reward=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, REWARD_BRAIN_SUBMIT)
+            await _apply_mab_feedback(
+                alpha.exploration_direction, expression, reward=REWARD_BRAIN_SUBMIT, _scheduler=_scheduler
+            )
+            logger.info(
+                "%sPASS_FEEDBACK: direction=%s mab_reward=%.2f",
+                log_prefix,
+                alpha.exploration_direction or exploration_direction,
+                REWARD_BRAIN_SUBMIT,
+            )
 
-        if _rag_engine and hasattr(_rag_engine, 'update_weights_from_feedback'):
+        if _rag_engine and hasattr(_rag_engine, "update_weights_from_feedback"):
             try:
                 _rag_engine.update_weights_from_feedback(exploration_direction, [])
             except (OSError, ValueError, RuntimeError):
@@ -200,7 +242,8 @@ async def record_pass_feedback(
                 _algo_tick("evidence_recording")
                 for logic in logics[:1]:
                     _logic_library.record_evidence(
-                        logic.logic_id, True,
+                        logic.logic_id,
+                        True,
                         expression=expression,
                         sharpe=brain_result.real_sharpe,
                         fitness=brain_result.real_fitness,
@@ -226,9 +269,13 @@ async def record_pass_feedback(
 
         if brain_result.real_sharpe is not None:
             if brain_result.real_sharpe > 1.0:
-                await _apply_mab_feedback(alpha.exploration_direction, expression, reward=REWARD_SHARPE_10, _scheduler=_scheduler)
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, expression, reward=REWARD_SHARPE_10, _scheduler=_scheduler
+                )
             elif brain_result.real_sharpe > 0.5:
-                await _apply_mab_feedback(alpha.exploration_direction, expression, reward=REWARD_SHARPE_05, _scheduler=_scheduler)
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, expression, reward=REWARD_SHARPE_05, _scheduler=_scheduler
+                )
 
         if _whitelist_mgr:
             try:
@@ -251,16 +298,12 @@ async def record_pass_feedback(
             logger.warning("Complexity recording failed", exc_info=True)
 
             ms = (time.perf_counter() - t0) * 1000
-            try:
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
                 await tel.record_exit("BrainResultProcessor", eid, metrics={"reward_applied": True}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
     except Exception as e:
         if eid:
-            try:
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
                 await tel.record_error("BrainResultProcessor", str(e), type(e).__name__)
-            except (OSError, ValueError, RuntimeError):
-                pass
         raise
 
 
@@ -272,15 +315,15 @@ async def submit_for_review(
 ) -> None:
     """[Brief description of function purpose.]
 
-        Args:
-            brain_result (BrainSubmissionResult): [Description]
-            alpha: [Description]
-            session_id (str): [Description]
-            state: [Description]
+    Args:
+        brain_result (BrainSubmissionResult): [Description]
+        alpha: [Description]
+        session_id (str): [Description]
+        state: [Description]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     _review_cb = get_circuit_breaker("brain_review_api", failure_threshold=3, recovery_timeout=60.0)
     if _review_cb.is_open:
         logger.warning("[%s] REVIEW_CIRCUIT_OPEN: skipping review submission", session_id)
@@ -288,12 +331,16 @@ async def submit_for_review(
     try:
         async with _brain_cookies_lock:
             if get_brain_cookies() is None:
-                set_brain_cookies(await brain_client.authenticate(
-                    settings.BRAIN_EMAIL, settings.BRAIN_PASSWORD,
-                ))
+                set_brain_cookies(
+                    await brain_client.authenticate(
+                        settings.BRAIN_EMAIL,
+                        settings.BRAIN_PASSWORD,
+                    )
+                )
         review_ok = await async_timeout(
             brain_client.submit_alpha_for_review(
-                brain_result.alpha_id, get_brain_cookies(),
+                brain_result.alpha_id,
+                get_brain_cookies(),
             ),
             timeout_seconds=20.0,
             name="brain_review_submit",
@@ -301,13 +348,19 @@ async def submit_for_review(
         _review_cb.record_success()
         brain_result.review_submitted = review_ok
         if review_ok:
-            _log(state, "SUBMIT_REVIEW",
-                 f"Alpha {alpha.alpha_id} submitted for IQC review (brain_id={brain_result.alpha_id})",
-                 {"brain_id": brain_result.alpha_id})
+            _log(
+                state,
+                "SUBMIT_REVIEW",
+                f"Alpha {alpha.alpha_id} submitted for IQC review (brain_id={brain_result.alpha_id})",
+                {"brain_id": brain_result.alpha_id},
+            )
         else:
-            _log(state, "SUBMIT_REVIEW_FAIL",
-                 f"Alpha {alpha.alpha_id} review submission failed (brain_id={brain_result.alpha_id})",
-                 {"brain_id": brain_result.alpha_id})
+            _log(
+                state,
+                "SUBMIT_REVIEW_FAIL",
+                f"Alpha {alpha.alpha_id} review submission failed (brain_id={brain_result.alpha_id})",
+                {"brain_id": brain_result.alpha_id},
+            )
     except TimeoutError:
         _review_cb.record_failure("Review timeout")
         logger.warning("[%s] Review submission timed out", session_id)
@@ -316,7 +369,7 @@ async def submit_for_review(
         async with _brain_cookies_lock:
             set_brain_cookies(None)
         _log(state, "AUTH", "Cookie expired during review submission")
-    except (aiohttp.ClientError, ConnectionError, asyncio.TimeoutError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         _review_cb.record_failure(str(exc))
         logger.error("[%s] Error submitting alpha for review: %s", session_id, exc)
 
@@ -331,17 +384,17 @@ async def run_stability_analysis(
 ) -> tuple[float, list | None, list | None]:
     """[Brief description of function purpose.]
 
-        Args:
-            brain_result (BrainSubmissionResult): [Description]
-            alpha: [Description]
-            session_id (str): [Description]
-            state: [Description]
-            hierarchical_reward (float): [Description]
-            log_prefix (str): [Description]
+    Args:
+        brain_result (BrainSubmissionResult): [Description]
+        alpha: [Description]
+        session_id (str): [Description]
+        state: [Description]
+        hierarchical_reward (float): [Description]
+        log_prefix (str): [Description]
 
-        Returns:
-            tuple[float, list | None, list | None]: [Description]
-        """
+    Returns:
+        tuple[float, list | None, list | None]: [Description]
+    """
     pnl_curve = None
     yearly_data = None
     daily_pnl = None
@@ -350,33 +403,60 @@ async def run_stability_analysis(
     if _pnl_analyzer is not None:
         try:
             from openalpha_brain.services.brain_data_client import get_brain_data_client
+
             _bdc = get_brain_data_client()
             if _bdc and brain_result.alpha_id:
                 yearly_data = await _bdc.get_yearly_performance(brain_result.alpha_id)
             if _bdc and brain_result.alpha_id:
                 try:
                     pnl_curve = await _bdc.get_pnl_curve(brain_result.alpha_id)
-                    logger.info("%scycle=0 PNL_FETCH: alpha_id=%s data_len=%d", log_prefix, brain_result.alpha_id, len(pnl_curve) if pnl_curve else 0)
+                    logger.info(
+                        "%scycle=0 PNL_FETCH: alpha_id=%s data_len=%d",
+                        log_prefix,
+                        brain_result.alpha_id,
+                        len(pnl_curve) if pnl_curve else 0,
+                    )
                 except (ConnectionError, OSError, TimeoutError) as _pnl_exc:
-                    logger.warning("%scycle=0 PNL_FETCH_FAILED: alpha_id=%s reason=%s fallback=%s", log_prefix, brain_result.alpha_id, str(_pnl_exc), "yearly_stats_only")
+                    logger.warning(
+                        "%scycle=0 PNL_FETCH_FAILED: alpha_id=%s reason=%s fallback=%s",
+                        log_prefix,
+                        brain_result.alpha_id,
+                        str(_pnl_exc),
+                        "yearly_stats_only",
+                    )
                     logger.warning("[%s] %sPnL curve fetch failed", session_id, log_prefix, exc_info=True)
             if _bdc and brain_result.alpha_id:
                 try:
                     daily_pnl = await _bdc.get_daily_pnl(brain_result.alpha_id)
                     if daily_pnl:
-                        logger.info("%scycle=0 DAILY_PNL_FETCH: alpha_id=%s data_len=%d", log_prefix, brain_result.alpha_id, len(daily_pnl))
-                except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
-                    logger.debug("[%s] %sDaily PnL fetch skipped for alpha %s", session_id, log_prefix, brain_result.alpha_id, exc_info=True)
+                        logger.info(
+                            "%scycle=0 DAILY_PNL_FETCH: alpha_id=%s data_len=%d",
+                            log_prefix,
+                            brain_result.alpha_id,
+                            len(daily_pnl),
+                        )
+                except (TimeoutError, aiohttp.ClientError, ConnectionError):  # noqa: SIM105
+                    logger.debug(
+                        "[%s] %sDaily PnL fetch skipped for alpha %s",
+                        session_id,
+                        log_prefix,
+                        brain_result.alpha_id,
+                        exc_info=True,
+                    )
             if yearly_data or pnl_curve:
                 _algo_tick("pnl_stability_analysis")
                 _pnl_report = _pnl_analyzer.generate_stability_report(
-                    yearly_data=yearly_data, pnl_curve=pnl_curve,
+                    yearly_data=yearly_data,
+                    pnl_curve=pnl_curve,
                 )
                 if _pnl_report.reward_adjustment != 0.0 and settings.HIERARCHICAL_REWARD_ENABLED:
                     hierarchical_reward += _pnl_report.reward_adjustment
                     logger.info(
                         "[%s] %sPnL stability adjustment: %.4f, hierarchical_reward now %.2f",
-                        session_id, log_prefix, _pnl_report.reward_adjustment, hierarchical_reward,
+                        session_id,
+                        log_prefix,
+                        _pnl_report.reward_adjustment,
+                        hierarchical_reward,
                     )
                 if _pnl_report.warnings:
                     for _w in _pnl_report.warnings:
@@ -388,23 +468,36 @@ async def run_stability_analysis(
         try:
             _algo_tick(f"{log_prefix.lower()}garch_volatility" if log_prefix else "garch_volatility")
             _garch_result = estimate_garch11(pnl_curve)
-            logger.info("%scycle=0 GARCH: alpha_id=%s persistence=%.4f volatility=%.4f", log_prefix, brain_result.alpha_id, _garch_result.persistence, getattr(_garch_result, 'volatility', 0.0))
+            logger.info(
+                "%scycle=0 GARCH: alpha_id=%s persistence=%.4f volatility=%.4f",
+                log_prefix,
+                brain_result.alpha_id,
+                _garch_result.persistence,
+                getattr(_garch_result, "volatility", 0.0),
+            )
             if _garch_result.is_clustering:
                 logger.warning(
                     "[%s] %sGARCH volatility clustering detected: persistence=%.4f, half_life=%.1f",
-                    session_id, log_prefix, _garch_result.persistence, _garch_result.half_life,
+                    session_id,
+                    log_prefix,
+                    _garch_result.persistence,
+                    _garch_result.half_life,
                 )
                 if settings.HIERARCHICAL_REWARD_ENABLED:
                     hierarchical_reward -= GARCH_CLUSTERING_PENALTY
                     logger.info(
                         "[%s] %sGARCH clustering penalty: -0.05, hierarchical_reward now %.2f",
-                        session_id, log_prefix, hierarchical_reward,
+                        session_id,
+                        log_prefix,
+                        hierarchical_reward,
                     )
             if _pnl_analyzer is not None and _garch_result.persistence > 0:
                 _garch_score = _pnl_analyzer.compute_stability_score(
                     yearly_data=yearly_data,
                     pnl_curve=pnl_curve,
-                    drawdown_pct=_pnl_report.drawdown_analysis.max_drawdown_pct if _pnl_report and _pnl_report.drawdown_analysis else None,
+                    drawdown_pct=_pnl_report.drawdown_analysis.max_drawdown_pct
+                    if _pnl_report and _pnl_report.drawdown_analysis
+                    else None,
                     garch_persistence=_garch_result.persistence,
                 )
                 if _pnl_report:
@@ -417,30 +510,42 @@ async def run_stability_analysis(
         _yearly_sharpes = None
         if yearly_data:
             _yearly_sharpes = [
-                yd.get("sharpe", 0.0) for yd in yearly_data
-                if isinstance(yd.get("sharpe"), (int, float))
+                yd.get("sharpe", 0.0) for yd in yearly_data if isinstance(yd.get("sharpe"), (int, float))
             ]
         _overfit_pnl_curve = daily_pnl if daily_pnl else pnl_curve
         _overfit_result = detect_overfit(
             is_sharpe=brain_result.real_sharpe,
-            os_sharpe=getattr(brain_result, 'os_sharpe', None),
+            os_sharpe=getattr(brain_result, "os_sharpe", None),
             yearly_sharpes=_yearly_sharpes,
             pnl_curve=_overfit_pnl_curve,
         )
-        logger.info("%scycle=0 OVERFIT: alpha_id=%s is_os_ratio=%.4f warning=%s", log_prefix, brain_result.alpha_id, _overfit_result.is_os_decay_ratio, str(_overfit_result.warnings))
+        logger.info(
+            "%scycle=0 OVERFIT: alpha_id=%s is_os_ratio=%.4f warning=%s",
+            log_prefix,
+            brain_result.alpha_id,
+            _overfit_result.is_os_decay_ratio,
+            str(_overfit_result.warnings),
+        )
         if _overfit_result.is_overfit:
-            logger.warning("[%s] %sOverfitting detected: %s", session_id, log_prefix, "; ".join(_overfit_result.warnings))
+            logger.warning(
+                "[%s] %sOverfitting detected: %s", session_id, log_prefix, "; ".join(_overfit_result.warnings)
+            )
             if settings.HIERARCHICAL_REWARD_ENABLED:
                 hierarchical_reward -= OVERFIT_DETECTION_PENALTY
                 logger.info(
                     "[%s] %sOverfit penalty: -0.1, hierarchical_reward now %.2f",
-                    session_id, log_prefix, hierarchical_reward,
+                    session_id,
+                    log_prefix,
+                    hierarchical_reward,
                 )
             if _mab is not None:
-                await _apply_mab_feedback(alpha.exploration_direction, alpha.expression, reward=-OVERFIT_MAB_PENALTY, _scheduler=_scheduler)
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, alpha.expression, reward=-OVERFIT_MAB_PENALTY, _scheduler=_scheduler
+                )
                 logger.info(
                     "[%s] MONITOR: overfit_penalty: direction=%s penalty=-0.3",
-                    session_id, alpha.exploration_direction,
+                    session_id,
+                    alpha.exploration_direction,
                 )
         elif _overfit_result.warnings:
             for _ow in _overfit_result.warnings:
@@ -460,18 +565,19 @@ async def fetch_correlation_analysis(
 ) -> float:
     """[Brief description of function purpose.]
 
-        Args:
-            brain_result (BrainSubmissionResult): [Description]
-            alpha: [Description]
-            session_id (str): [Description]
-            hierarchical_reward (float): [Description]
-            log_prefix (str): [Description]
+    Args:
+        brain_result (BrainSubmissionResult): [Description]
+        alpha: [Description]
+        session_id (str): [Description]
+        hierarchical_reward (float): [Description]
+        log_prefix (str): [Description]
 
-        Returns:
-            float: [Description]
-        """
+    Returns:
+        float: [Description]
+    """
     try:
         from openalpha_brain.services.brain_data_client import get_brain_data_client
+
         _bdc = get_brain_data_client()
     except (ImportError, AttributeError, RuntimeError):
         _bdc = None
@@ -510,19 +616,29 @@ async def fetch_correlation_analysis(
                     if _max_corr > HIGH_CORRELATION_THRESHOLD:
                         logger.warning(
                             "[%s] %sHigh correlation %.2f for alpha %s",
-                            session_id, log_prefix, _max_corr, brain_result.alpha_id,
+                            session_id,
+                            log_prefix,
+                            _max_corr,
+                            brain_result.alpha_id,
                         )
                     if settings.HIERARCHICAL_REWARD_ENABLED and _avg_corr > CORRELATION_PENALTY_THRESHOLD:
                         _corr_penalty = -CORRELATION_PENALTY_COEFFICIENT * (_avg_corr - CORRELATION_PENALTY_THRESHOLD)
                         hierarchical_reward += _corr_penalty
                         logger.info(
                             "[%s] %sCorrelation penalty: avg_corr=%.2f, penalty=%.4f, hierarchical_reward now %.2f",
-                            session_id, log_prefix, _avg_corr, _corr_penalty, hierarchical_reward,
+                            session_id,
+                            log_prefix,
+                            _avg_corr,
+                            _corr_penalty,
+                            hierarchical_reward,
                         )
         except (ValueError, TypeError, OSError, RuntimeError):
             logger.warning(
                 "[%s] %sCorrelation fetch failed for alpha %s",
-                session_id, log_prefix, brain_result.alpha_id, exc_info=True,
+                session_id,
+                log_prefix,
+                brain_result.alpha_id,
+                exc_info=True,
             )
 
         if _bdc and brain_result.alpha_id:
@@ -536,33 +652,41 @@ async def fetch_correlation_analysis(
                     if isinstance(_prod_records, list):
                         for _pr in _prod_records:
                             if isinstance(_pr, (list, tuple)) and len(_pr) >= 3:
-                                try:
+                                with contextlib.suppress(ValueError, TypeError):
                                     _prod_corr_values.append(abs(float(_pr[-1])))
-                                except (ValueError, TypeError):
-                                    pass
                     if _prod_max is not None:
-                        try:
+                        with contextlib.suppress(ValueError, TypeError):
                             _prod_corr_values.append(abs(float(_prod_max)))
-                        except (ValueError, TypeError):
-                            pass
                     if _prod_corr_values:
                         _max_prod_corr = max(_prod_corr_values)
                         if _max_prod_corr > PROD_CORRELATION_THRESHOLD:
                             logger.warning(
                                 "[%s] %sHigh production correlation %.4f for alpha %s — likely duplicate",
-                                session_id, log_prefix, _max_prod_corr, brain_result.alpha_id,
+                                session_id,
+                                log_prefix,
+                                _max_prod_corr,
+                                brain_result.alpha_id,
                             )
                             if settings.HIERARCHICAL_REWARD_ENABLED:
-                                _prod_penalty = -PROD_CORRELATION_PENALTY_COEFFICIENT * (_max_prod_corr - PROD_CORRELATION_THRESHOLD)
+                                _prod_penalty = -PROD_CORRELATION_PENALTY_COEFFICIENT * (
+                                    _max_prod_corr - PROD_CORRELATION_THRESHOLD
+                                )
                                 hierarchical_reward += _prod_penalty
                                 logger.info(
-                                    "[%s] %sProd correlation penalty: max=%.4f, penalty=%.4f, hierarchical_reward now %.2f",
-                                    session_id, log_prefix, _max_prod_corr, _prod_penalty, hierarchical_reward,
+                                    "[%s] %sProd correlation penalty: max=%.4f, penalty=%.4f, hierarchical_reward now %.2f",  # noqa: E501
+                                    session_id,
+                                    log_prefix,
+                                    _max_prod_corr,
+                                    _prod_penalty,
+                                    hierarchical_reward,
                                 )
-            except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
+            except (TimeoutError, aiohttp.ClientError, ConnectionError):  # noqa: SIM105
                 logger.debug(
                     "[%s] %sProd correlation check skipped for alpha %s (likely not submitted)",
-                    session_id, log_prefix, brain_result.alpha_id, exc_info=True,
+                    session_id,
+                    log_prefix,
+                    brain_result.alpha_id,
+                    exc_info=True,
                 )
 
         if _bdc and brain_result.alpha_id:
@@ -583,24 +707,40 @@ async def fetch_correlation_analysis(
                         _avg_self_corr = sum(_self_corr_values) / len(_self_corr_values)
                         logger.info(
                             "[%s] %sSelf-correlation analysis: max=%.4f avg=%.4f for alpha %s",
-                            session_id, log_prefix, _max_self_corr, _avg_self_corr, brain_result.alpha_id,
+                            session_id,
+                            log_prefix,
+                            _max_self_corr,
+                            _avg_self_corr,
+                            brain_result.alpha_id,
                         )
                         if _max_self_corr > HIGH_CORRELATION_THRESHOLD:
                             logger.warning(
-                                "[%s] %sHigh self-correlation %.4f for alpha %s — may overlap with own submitted alphas",
-                                session_id, log_prefix, _max_self_corr, brain_result.alpha_id,
+                                "[%s] %sHigh self-correlation %.4f for alpha %s — may overlap with own submitted alphas",  # noqa: E501
+                                session_id,
+                                log_prefix,
+                                _max_self_corr,
+                                brain_result.alpha_id,
                             )
                             if settings.HIERARCHICAL_REWARD_ENABLED:
-                                _self_corr_penalty = -CORRELATION_PENALTY_COEFFICIENT * (_max_self_corr - CORRELATION_PENALTY_THRESHOLD)
+                                _self_corr_penalty = -CORRELATION_PENALTY_COEFFICIENT * (
+                                    _max_self_corr - CORRELATION_PENALTY_THRESHOLD
+                                )
                                 hierarchical_reward += _self_corr_penalty
                                 logger.info(
-                                    "[%s] %sSelf-correlation penalty: max=%.4f, penalty=%.4f, hierarchical_reward now %.2f",
-                                    session_id, log_prefix, _max_self_corr, _self_corr_penalty, hierarchical_reward,
+                                    "[%s] %sSelf-correlation penalty: max=%.4f, penalty=%.4f, hierarchical_reward now %.2f",  # noqa: E501
+                                    session_id,
+                                    log_prefix,
+                                    _max_self_corr,
+                                    _self_corr_penalty,
+                                    hierarchical_reward,
                                 )
             except (ValueError, TypeError, OSError, RuntimeError):
                 logger.debug(
                     "[%s] %sSelf-correlation check skipped for alpha %s",
-                    session_id, log_prefix, brain_result.alpha_id, exc_info=True,
+                    session_id,
+                    log_prefix,
+                    brain_result.alpha_id,
+                    exc_info=True,
                 )
 
     return hierarchical_reward
@@ -618,19 +758,19 @@ async def record_evo_and_success(
 ) -> float:
     """[Brief description of function purpose.]
 
-        Args:
-            brain_result (BrainSubmissionResult): [Description]
-            alpha: [Description]
-            expression (str): [Description]
-            exploration_direction (str): [Description]
-            session_id (str): [Description]
-            hierarchical_reward (float): [Description]
-            parsed (dict | None): [Description]
-            log_prefix (str): [Description]
+    Args:
+        brain_result (BrainSubmissionResult): [Description]
+        alpha: [Description]
+        expression (str): [Description]
+        exploration_direction (str): [Description]
+        session_id (str): [Description]
+        hierarchical_reward (float): [Description]
+        parsed (dict | None): [Description]
+        log_prefix (str): [Description]
 
-        Returns:
-            float: [Description]
-        """
+    Returns:
+        float: [Description]
+    """
     if _evo_db is not None:
         _algo_tick("add_record")
         await _evo_db.add_record(
@@ -646,19 +786,33 @@ async def record_evo_and_success(
             _portfolio_eval = await _evo_db.portfolio_level_evaluation(expression)
             _diversity_computed = _portfolio_eval.get("diversity_computed", False)
             _diversity_score = _portfolio_eval.get("diversity_score")
-            if (_diversity_computed and _diversity_score is not None
-                    and _diversity_score > DIVERSITY_BONUS_THRESHOLD and settings.HIERARCHICAL_REWARD_ENABLED):
+            if (
+                _diversity_computed
+                and _diversity_score is not None
+                and _diversity_score > DIVERSITY_BONUS_THRESHOLD
+                and settings.HIERARCHICAL_REWARD_ENABLED
+            ):
                 hierarchical_reward += DIVERSITY_BONUS
                 logger.info(
                     "[%s] %sPortfolio diversity bonus: diversity=%.3f, hierarchical_reward adjusted to %.2f",
-                    session_id, log_prefix, _diversity_score, hierarchical_reward,
+                    session_id,
+                    log_prefix,
+                    _diversity_score,
+                    hierarchical_reward,
                 )
-            elif (_diversity_computed and _diversity_score is not None
-                    and _diversity_score < DIVERSITY_PENALTY_THRESHOLD and settings.HIERARCHICAL_REWARD_ENABLED):
+            elif (
+                _diversity_computed
+                and _diversity_score is not None
+                and _diversity_score < DIVERSITY_PENALTY_THRESHOLD
+                and settings.HIERARCHICAL_REWARD_ENABLED
+            ):
                 hierarchical_reward -= DIVERSITY_PENALTY
                 logger.info(
                     "[%s] %sPortfolio diversity penalty: diversity=%.3f, hierarchical_reward adjusted to %.2f",
-                    session_id, log_prefix, _diversity_score, hierarchical_reward,
+                    session_id,
+                    log_prefix,
+                    _diversity_score,
+                    hierarchical_reward,
                 )
         except (ValueError, TypeError, OSError, RuntimeError):
             pass
@@ -714,21 +868,42 @@ async def record_fail_feedback(
             if settings.HIERARCHICAL_REWARD_ENABLED and hierarchical_reward >= HIERARCHICAL_REWARD_BASIC_THRESHOLD:
                 logger.info(
                     "[%s] %sHierarchical reward %.2f >= 0.3 — BRAIN ERROR but soft penalty",
-                    session_id, log_prefix, hierarchical_reward,
+                    session_id,
+                    log_prefix,
+                    hierarchical_reward,
                 )
-                await _apply_mab_feedback(alpha.exploration_direction, expression, penalty=PENALTY_BRAIN_FAIL, _scheduler=_scheduler)
-                logger.info("%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, PENALTY_BRAIN_FAIL)
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, expression, penalty=PENALTY_BRAIN_FAIL, _scheduler=_scheduler
+                )
+                logger.info(
+                    "%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f",
+                    log_prefix,
+                    alpha.exploration_direction or exploration_direction,
+                    PENALTY_BRAIN_FAIL,
+                )
             else:
-                await _apply_mab_feedback(alpha.exploration_direction, expression, penalty=PENALTY_BRAIN_ERROR, _scheduler=_scheduler)
-                logger.info("%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, PENALTY_BRAIN_ERROR)
-            _log(state, "ABANDON",
-                 f"Alpha {alpha.alpha_id} abandoned due to API error: {brain_result.error_message}",
-                 {"failures": brain_result.gate_failures})
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, expression, penalty=PENALTY_BRAIN_ERROR, _scheduler=_scheduler
+                )
+                logger.info(
+                    "%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f",
+                    log_prefix,
+                    alpha.exploration_direction or exploration_direction,
+                    PENALTY_BRAIN_ERROR,
+                )
+            _log(
+                state,
+                "ABANDON",
+                f"Alpha {alpha.alpha_id} abandoned due to API error: {brain_result.error_message}",
+                {"failures": brain_result.gate_failures},
+            )
         else:
             if settings.HIERARCHICAL_REWARD_ENABLED and hierarchical_reward >= HIERARCHICAL_REWARD_QUALITY_THRESHOLD:
                 logger.info(
-                    "[%s] %sHierarchical reward %.2f >= 0.6 (Quality level) — soft pass despite BRAIN strict check failure, recording as quality_pass",
-                    session_id, log_prefix, hierarchical_reward,
+                    "[%s] %sHierarchical reward %.2f >= 0.6 (Quality level) — soft pass despite BRAIN strict check failure, recording as quality_pass",  # noqa: E501
+                    session_id,
+                    log_prefix,
+                    hierarchical_reward,
                 )
                 if _success_lib and settings.SUCCESS_CASE_LIBRARY_ENABLED:
                     try:
@@ -744,27 +919,50 @@ async def record_fail_feedback(
                         )
                     except (OSError, ValueError, RuntimeError):
                         logger.warning("SuccessCaseLibrary add_case (quality_pass) failed", exc_info=True)
-                await _apply_mab_feedback(alpha.exploration_direction, expression, reward=REWARD_SHARPE_05, _scheduler=_scheduler)
-                logger.info("%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, -REWARD_SHARPE_05)
-                _log(state, "QUALITY_PASS",
-                     f"Alpha {alpha.alpha_id} quality_pass (hierarchical_reward={hierarchical_reward:.2f}) — BRAIN strict checks failed but quality level reached",
-                     {"hierarchical_reward": hierarchical_reward, "brain_id": brain_result.alpha_id})
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, expression, reward=REWARD_SHARPE_05, _scheduler=_scheduler
+                )
+                logger.info(
+                    "%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f",
+                    log_prefix,
+                    alpha.exploration_direction or exploration_direction,
+                    -REWARD_SHARPE_05,
+                )
+                _log(
+                    state,
+                    "QUALITY_PASS",
+                    f"Alpha {alpha.alpha_id} quality_pass (hierarchical_reward={hierarchical_reward:.2f}) — BRAIN strict checks failed but quality level reached",  # noqa: E501
+                    {"hierarchical_reward": hierarchical_reward, "brain_id": brain_result.alpha_id},
+                )
             elif settings.HIERARCHICAL_REWARD_ENABLED and hierarchical_reward >= HIERARCHICAL_REWARD_BASIC_THRESHOLD:
                 logger.info(
                     "[%s] %sHierarchical reward %.2f >= 0.3 (Basic level) — BRAIN FAIL but no penalty",
-                    session_id, log_prefix, hierarchical_reward,
+                    session_id,
+                    log_prefix,
+                    hierarchical_reward,
                 )
             else:
                 logger.info(
                     "[%s] %sHierarchical reward %.2f < 0.3 — BRAIN FAIL with penalty",
-                    session_id, log_prefix, hierarchical_reward,
+                    session_id,
+                    log_prefix,
+                    hierarchical_reward,
                 )
-                await _apply_mab_feedback(alpha.exploration_direction, expression, penalty=PENALTY_BRAIN_FAIL, _scheduler=_scheduler)
-                logger.info("%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f", log_prefix, alpha.exploration_direction or exploration_direction, PENALTY_BRAIN_FAIL)
-            _log(state, "ABANDON",
-                 f"Alpha {alpha.alpha_id} exhausted {state.brain_mutation_count} mutations — "
-                 "starting fresh ideation.",
-                 {"failures": brain_result.gate_failures})
+                await _apply_mab_feedback(
+                    alpha.exploration_direction, expression, penalty=PENALTY_BRAIN_FAIL, _scheduler=_scheduler
+                )
+                logger.info(
+                    "%sFAIL_FEEDBACK: direction=%s mab_penalty=%.2f",
+                    log_prefix,
+                    alpha.exploration_direction or exploration_direction,
+                    PENALTY_BRAIN_FAIL,
+                )
+            _log(
+                state,
+                "ABANDON",
+                f"Alpha {alpha.alpha_id} exhausted {state.brain_mutation_count} mutations — starting fresh ideation.",
+                {"failures": brain_result.gate_failures},
+            )
 
         if _evo_db is not None:
             _algo_tick("add_record")
@@ -795,7 +993,7 @@ async def record_fail_feedback(
 
         try:
             _algo_tick("failure_pattern_clustering")
-            recent_failures = getattr(state, 'failure_catalog', [])
+            recent_failures = getattr(state, "failure_catalog", [])
             failure_history = [
                 {
                     "expression": f.get("fingerprint", {}).get("expression", expression),
@@ -811,7 +1009,9 @@ async def record_fail_feedback(
                     if pc["size"] >= 2:
                         logger.info(
                             "[%s] FailurePatternCluster: id=%d size=%d dominant=%s fix='%s'",
-                            session_id, pc["cluster_id"], pc["size"],
+                            session_id,
+                            pc["cluster_id"],
+                            pc["size"],
                             pc["dominant_failure_type"],
                             pc["suggested_fix"][:80],
                         )
@@ -837,7 +1037,8 @@ async def record_fail_feedback(
                 _algo_tick("evidence_recording")
                 for logic in logics[:1]:
                     _logic_library.record_evidence(
-                        logic.logic_id, False,
+                        logic.logic_id,
+                        False,
                         expression=expression,
                         sharpe=brain_result.real_sharpe,
                         fitness=brain_result.real_fitness,
@@ -850,31 +1051,30 @@ async def record_fail_feedback(
                 pass
             _sync_mab_bias_from_evidence()
 
-        state.failure_catalog.append({
-            "fingerprint": fingerprint_dict,
-            "failure_type": "API_ERROR" if brain_result.status == BrainSimStatus.ERROR else "BRAIN_EXHAUSTED",
-            "mutations_tried": state.brain_mutation_count,
-        })
-        state.conversation_history.append({
-            "role": "user",
-            "content": build_restart_trigger(
-                global_cycle + 1,
-                _summarise_rejected([fingerprint_dict] + state.rejected_motifs[-3:]),
-            ),
-        })
-
+        state.failure_catalog.append(
+            {
+                "fingerprint": fingerprint_dict,
+                "failure_type": "API_ERROR" if brain_result.status == BrainSimStatus.ERROR else "BRAIN_EXHAUSTED",
+                "mutations_tried": state.brain_mutation_count,
+            }
+        )
+        state.conversation_history.append(
+            {
+                "role": "user",
+                "content": build_restart_trigger(
+                    global_cycle + 1,
+                    _summarise_rejected([fingerprint_dict] + state.rejected_motifs[-3:]),
+                ),
+            }
+        )
 
         ms = (time.perf_counter() - t0) * 1000
-        try:
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
             await tel.record_exit("BrainResultProcessor", eid, metrics={"penalty_applied": True}, duration_ms=ms)
-        except (OSError, ValueError, RuntimeError):
-            pass
     except Exception as e:
         if eid:
-            try:
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
                 await tel.record_error("BrainResultProcessor", str(e), type(e).__name__)
-            except (OSError, ValueError, RuntimeError):
-                pass
         raise
 
 
@@ -889,18 +1089,18 @@ async def run_post_brain_processing(
 ) -> None:
     """[Brief description of function purpose.]
 
-        Args:
-            alpha: [Description]
-            brain_result (BrainSubmissionResult): [Description]
-            expression (str): [Description]
-            exploration_direction (str): [Description]
-            session_id (str): [Description]
-            state: [Description]
-            log_prefix (str): [Description]
+    Args:
+        alpha: [Description]
+        brain_result (BrainSubmissionResult): [Description]
+        expression (str): [Description]
+        exploration_direction (str): [Description]
+        session_id (str): [Description]
+        state: [Description]
+        log_prefix (str): [Description]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     from openalpha_brain.core.loop_state import _reflection_engine, _strategy_classifier
     from openalpha_brain.learning.reward_updater import _refill_eliminated_fields
 
@@ -914,7 +1114,10 @@ async def run_post_brain_processing(
         profile = await _strategy_classifier.classify(expression, brain_dict)
         logger.info(
             "[%s] Strategy classified: direction=%s horizon=%s mechanism=%s",
-            session_id, profile.direction, profile.time_horizon, profile.mechanism,
+            session_id,
+            profile.direction,
+            profile.time_horizon,
+            profile.mechanism,
         )
 
     await _refill_eliminated_fields(alpha.exploration_direction or exploration_direction)
@@ -926,7 +1129,9 @@ async def run_post_brain_processing(
             if new_cards:
                 logger.info(
                     "[%s] %sDistilled %d new experience cards",
-                    session_id, log_prefix, len(new_cards),
+                    session_id,
+                    log_prefix,
+                    len(new_cards),
                 )
         except (OSError, ValueError, RuntimeError):
             pass
@@ -938,7 +1143,9 @@ async def run_post_brain_processing(
             if new_evidence_cards:
                 logger.info(
                     "[%s] %sDistilled %d cards from evidence",
-                    session_id, log_prefix, len(new_evidence_cards),
+                    session_id,
+                    log_prefix,
+                    len(new_evidence_cards),
                 )
         except (OSError, ValueError, RuntimeError):
             pass
@@ -951,5 +1158,3 @@ async def run_post_brain_processing(
                 logger.info("[%s] Detected %d tool conflicts, resolved", session_id, len(conflicts))
         except (OSError, ValueError, RuntimeError):
             pass
-
-

@@ -72,10 +72,12 @@ class StrategyFeatures:
 
 
 class GridArchive:
-    def __init__(self,
-                 dims: tuple[int, int, int] = (6, 3, 4),
-                 elite_capacity: int = 3,
-                 behavior_ranges: list[tuple[float, float]] | None = None):
+    def __init__(
+        self,
+        dims: tuple[int, int, int] = (6, 3, 4),
+        elite_capacity: int = 3,
+        behavior_ranges: list[tuple[float, float]] | None = None,
+    ):
         self._dims = dims
         self._elite_capacity = elite_capacity
         self._behavior_ranges = behavior_ranges
@@ -87,14 +89,13 @@ class GridArchive:
             self._max_observed_fitness: float = 0.0
 
     @algo_log()
-    def add(self, behavior: tuple[int, int, int], fitness: float,
-            metadata: dict) -> bool:
+    def add(self, behavior: tuple[int, int, int], fitness: float, metadata: dict) -> bool:
         with Timer("GridArchive.add"):
             if not self._valid_behavior(behavior):
                 return False
             cell = self._get_or_create_cell(behavior)
             if len(cell.elites) < self._elite_capacity or fitness > cell.worst_elite_fitness():
-                admitted = True
+                pass
             else:
                 return False
             new_elite = {
@@ -121,8 +122,7 @@ class GridArchive:
             return True
 
     @algo_log()
-    def batch_add(self, behaviors: np.ndarray, fitnesses: np.ndarray,
-                  metadatas: list[dict]) -> int:
+    def batch_add(self, behaviors: np.ndarray, fitnesses: np.ndarray, metadatas: list[dict]) -> int:
         with Timer("GridArchive.batch_add"):
             n_accepted = 0
             for i in range(len(behaviors)):
@@ -140,7 +140,9 @@ class GridArchive:
                     elite_copy = dict(elite)
                     elite_copy["cell_behavior"] = (
                         DIRECTION_ENUM[cell.direction] if isinstance(cell.direction, int) else cell.direction,
-                        TIME_HORIZON_ENUM[cell.time_horizon] if isinstance(cell.time_horizon, int) else cell.time_horizon,
+                        TIME_HORIZON_ENUM[cell.time_horizon]
+                        if isinstance(cell.time_horizon, int)
+                        else cell.time_horizon,
                         MECHANISM_ENUM[cell.mechanism] if isinstance(cell.mechanism, int) else cell.mechanism,
                     )
                     all_elites.append(elite_copy)
@@ -203,7 +205,7 @@ class GridArchive:
 
     def get_empty_cells(self) -> list[tuple[int, ...]]:
         empty_indices = np.where(~self._occupied)
-        return list(zip(*empty_indices))
+        return list(zip(*empty_indices, strict=False))
 
     def get_frontier_cells(self) -> list[tuple[int, ...]]:
         frontier = []
@@ -278,10 +280,7 @@ class GridArchive:
             return archive
 
     def _valid_behavior(self, behavior: tuple[int, ...]) -> bool:
-        for i, b in enumerate(behavior):
-            if b < 0 or b >= self._dims[i]:
-                return False
-        return True
+        return all(not (b < 0 or b >= self._dims[i]) for i, b in enumerate(behavior))
 
     def _get_or_create_cell(self, behavior: tuple[int, ...]) -> FeatureCell:
         key = tuple(behavior)
@@ -418,8 +417,7 @@ class FeatureMap:
         self._generation += 1
         return self._generation
 
-    def mark_cell_decay(self, direction: str, time_horizon: str, mechanism: str,
-                        decay_level: str) -> None:
+    def mark_cell_decay(self, direction: str, time_horizon: str, mechanism: str, decay_level: str) -> None:
         """Two-level decay response for MAP-Elites cells.
 
         L3 (observing): pause admission but keep elites for potential recovery
@@ -438,7 +436,8 @@ class FeatureMap:
                 cell.admission_paused = True
                 logger.warning(
                     "FeatureMap: cell %s -> L3 observing (paused admission, %d elites preserved)",
-                    key, len(cell.elites),
+                    key,
+                    len(cell.elites),
                 )
             elif decay_level == "L4_DIR_HEAVY":
                 cell.decay_state = "blacklisted"
@@ -475,10 +474,7 @@ class FeatureMap:
                 return False
 
             worst_fitness = cell.worst_elite_fitness()
-            if len(cell.elites) < self.ELITE_CAPACITY or fitness_score > worst_fitness:
-                admitted = True
-            else:
-                admitted = False
+            admitted = bool(len(cell.elites) < self.ELITE_CAPACITY or fitness_score > worst_fitness)
 
             if not admitted:
                 return False
@@ -496,7 +492,9 @@ class FeatureMap:
                 cell.elites.remove(removed)
                 logger.info(
                     "FeatureMap: cell %s evicted elite fitness=%.4f, admitted new fitness=%.4f",
-                    key, removed.get("fitness", 0.0), fitness_score,
+                    key,
+                    removed.get("fitness", 0.0),
+                    fitness_score,
                 )
 
             cell.elites.append(new_elite)
@@ -509,11 +507,15 @@ class FeatureMap:
                 time_idx = _TIME_HORIZONS.index(features.time_horizon)
                 mech_idx = _MECHANISMS.index(features.mechanism)
                 behavior = (dir_idx, time_idx, mech_idx)
-                self._archive.add(behavior, fitness_score, {
-                    "expr": expr,
-                    "sharpe": sharpe,
-                    "turnover": turnover,
-                })
+                self._archive.add(
+                    behavior,
+                    fitness_score,
+                    {
+                        "expr": expr,
+                        "sharpe": sharpe,
+                        "turnover": turnover,
+                    },
+                )
             except ValueError:
                 pass
 
@@ -521,7 +523,10 @@ class FeatureMap:
 
             logger.info(
                 "FeatureMap: cell %s admitted elite #%d fitness=%.4f sharpe=%.4f",
-                key, len(cell.elites), fitness_score, sharpe,
+                key,
+                len(cell.elites),
+                fitness_score,
+                sharpe,
             )
             return True
 
@@ -558,10 +563,7 @@ class FeatureMap:
         """
         with self._lock:
             total = len(self._cells)
-            active_cells = [
-                c for c in self._cells.values()
-                if c.decay_state not in ("blacklisted",)
-            ]
+            active_cells = [c for c in self._cells.values() if c.decay_state not in ("blacklisted",)]
             filled = sum(1 for c in active_cells if c.elites)
             coverage = filled / max(total, 1)
 
@@ -596,9 +598,9 @@ class FeatureMap:
         """
         with self._lock:
             non_empty = [
-                cell for key, cell in self._cells.items()
-                if cell.best_expr and key != exclude_key
-                and cell.decay_state != "blacklisted"
+                cell
+                for key, cell in self._cells.items()
+                if cell.best_expr and key != exclude_key and cell.decay_state != "blacklisted"
             ]
         if not non_empty:
             return None
@@ -647,14 +649,16 @@ class FeatureMap:
                 if cell.decay_state == "blacklisted":
                     continue
                 k_parts = key.split("__")
-                diff_count = sum(1 for a, b in zip(parts, k_parts) if a != b)
+                diff_count = sum(1 for a, b in zip(parts, k_parts, strict=False) if a != b)
                 if diff_count >= 2:
                     distant.append(cell)
         if not distant:
             with self._lock:
-                distant = [c for k, c in self._cells.items()
-                           if c.best_expr and k != current_key
-                           and c.decay_state != "blacklisted"]
+                distant = [
+                    c
+                    for k, c in self._cells.items()
+                    if c.best_expr and k != current_key and c.decay_state != "blacklisted"
+                ]
         if not distant:
             return []
         return random.sample(distant, min(n, len(distant)))
@@ -662,10 +666,7 @@ class FeatureMap:
     def get_diversity_stats(self) -> dict:
         with self._lock:
             total = len(self._cells)
-            active_cells = [
-                c for c in self._cells.values()
-                if c.decay_state != "blacklisted"
-            ]
+            active_cells = [c for c in self._cells.values() if c.decay_state != "blacklisted"]
             filled = sum(1 for c in active_cells if c.elites)
         direction_coverage: dict[str, float] = {}
         for d in _DIRECTIONS:
@@ -678,8 +679,7 @@ class FeatureMap:
         avg_novelty = 0.0
         if len(filled_exprs) >= 2:
             novelty_scores = [
-                compute_structural_novelty_score(expr, [e for e in filled_exprs if e != expr])
-                for expr in filled_exprs
+                compute_structural_novelty_score(expr, [e for e in filled_exprs if e != expr]) for expr in filled_exprs
             ]
             avg_novelty = round(sum(novelty_scores) / len(novelty_scores), 4) if novelty_scores else 0.0
 
@@ -702,8 +702,7 @@ class FeatureMap:
         with self._lock:
             return self._cells.get(key)
 
-    def get_cell_elites(self, direction: str, time_horizon: str,
-                        mechanism: str) -> list[dict]:
+    def get_cell_elites(self, direction: str, time_horizon: str, mechanism: str) -> list[dict]:
         key = self._cell_key(direction, time_horizon, mechanism)
         with self._lock:
             cell = self._cells.get(key)
@@ -731,12 +730,14 @@ class FeatureMap:
                 if cell.admission_paused:
                     continue
                 if not cell.elites:
-                    empty.append({
-                        "key": key,
-                        "direction": cell.direction,
-                        "time_horizon": cell.time_horizon,
-                        "mechanism": cell.mechanism,
-                    })
+                    empty.append(
+                        {
+                            "key": key,
+                            "direction": cell.direction,
+                            "time_horizon": cell.time_horizon,
+                            "mechanism": cell.mechanism,
+                        }
+                    )
 
         random.shuffle(empty)
         return empty[:top_k]
@@ -746,12 +747,16 @@ class FeatureMap:
         targets = []
         for idx in frontier_indices[:top_k]:
             dir_idx, time_idx, mech_idx = idx
-            targets.append({
-                "behavior_index": idx,
-                "direction": _DIRECTIONS[dir_idx] if dir_idx < len(_DIRECTIONS) else DIRECTION_ENUM[dir_idx],
-                "time_horizon": _TIME_HORIZONS[time_idx] if time_idx < len(_TIME_HORIZONS) else TIME_HORIZON_ENUM[time_idx],
-                "mechanism": _MECHANISMS[mech_idx] if mech_idx < len(_MECHANISMS) else MECHANISM_ENUM[mech_idx],
-            })
+            targets.append(
+                {
+                    "behavior_index": idx,
+                    "direction": _DIRECTIONS[dir_idx] if dir_idx < len(_DIRECTIONS) else DIRECTION_ENUM[dir_idx],
+                    "time_horizon": _TIME_HORIZONS[time_idx]
+                    if time_idx < len(_TIME_HORIZONS)
+                    else TIME_HORIZON_ENUM[time_idx],
+                    "mechanism": _MECHANISMS[mech_idx] if mech_idx < len(_MECHANISMS) else MECHANISM_ENUM[mech_idx],
+                }
+            )
         return targets
 
 
@@ -765,13 +770,12 @@ class BaseEmitter(ABC):
     """MAP-Elites Emitter 抽象基类。"""
 
     @abstractmethod
-    def ask(self, archive: GridArchive, n: int = 1) -> list[EmitterOutput]:
-        ...
+    def ask(self, archive: GridArchive, n: int = 1) -> list[EmitterOutput]: ...
 
     @abstractmethod
-    def tell(self, archive: GridArchive, behaviors: list[tuple],
-             fitnesses: list[float], metadatas: list[dict]) -> None:
-        ...
+    def tell(
+        self, archive: GridArchive, behaviors: list[tuple], fitnesses: list[float], metadatas: list[dict]
+    ) -> None: ...
 
 
 class ExploreEmitter(BaseEmitter):
@@ -787,8 +791,7 @@ class ExploreEmitter(BaseEmitter):
     那样会产生非法组合（如 ts_rank(volume_field, close_price) 的语义错误）。
     """
 
-    def __init__(self, exploration_rate: float = 0.5,
-                 boundary_preference: float = 0.7):
+    def __init__(self, exploration_rate: float = 0.5, boundary_preference: float = 0.7):
         self.exploration_rate = exploration_rate
         self.boundary_preference = boundary_preference
         self._recent_targets: list[tuple[int, int, int]] = []
@@ -802,12 +805,12 @@ class ExploreEmitter(BaseEmitter):
             if not empty_cells:
                 fallback = random.sample(occupied_cells, min(n, len(occupied_cells)))
                 return [
-                EmitterOutput(
-                    target_behavior=cell,
-                    mutation_hints={"strategy": "explore", "direction_bias": "fallback"},
-                )
-                for cell in fallback
-            ]
+                    EmitterOutput(
+                        target_behavior=cell,
+                        mutation_hints={"strategy": "explore", "direction_bias": "fallback"},
+                    )
+                    for cell in fallback
+                ]
 
             boundary_cells = self._find_boundary_cells(empty_cells, occupied_cells)
             n_boundary = int(n * self.boundary_preference)
@@ -832,7 +835,9 @@ class ExploreEmitter(BaseEmitter):
             logger.info(
                 "ExploreEmitter.ask: 选择 %d 个目标 (boundary=%d, random=%d), "
                 "提示上游使用 TemplateFamilyBandit 未访问 arm",
-                len(selected), n_boundary, n_random,
+                len(selected),
+                n_boundary,
+                n_random,
             )
 
             return [
@@ -849,8 +854,7 @@ class ExploreEmitter(BaseEmitter):
             ]
 
     @algo_log()
-    def tell(self, archive: GridArchive, behaviors: list[tuple],
-             fitnesses: list[float], metadatas: list[dict]) -> None:
+    def tell(self, archive: GridArchive, behaviors: list[tuple], fitnesses: list[float], metadatas: list[dict]) -> None:
         with Timer("ExploreEmitter.tell"):
             logger.info(
                 "ExploreEmitter: 收到 %d 个反馈结果, avg_fitness=%.4f",
@@ -930,25 +934,28 @@ class ExploitEmitter(BaseEmitter):
                 base = cells[idx]
                 offset = self._neighbor_offset(base, archive.dims)
                 self._selection_history.append(base)
-                results.append(EmitterOutput(
-                    target_behavior=offset,
-                    mutation_hints={
-                        "strategy": "exploit",
-                        "direction_bias": "small",
-                        "field_family_suggest": "refine",
-                        "block_c_tuning": "use_decay_parameter_tuner",
-                    },
-                ))
+                results.append(
+                    EmitterOutput(
+                        target_behavior=offset,
+                        mutation_hints={
+                            "strategy": "exploit",
+                            "direction_bias": "small",
+                            "field_family_suggest": "refine",
+                            "block_c_tuning": "use_decay_parameter_tuner",
+                        },
+                    )
+                )
 
             logger.info(
                 "ExploitEmitter.ask: 从 %d 个已占用 cell 中采样 %d 个邻域目标, temperature=%.2f",
-                len(cells), len(results), self.temperature,
+                len(cells),
+                len(results),
+                self.temperature,
             )
             return results
 
     @algo_log()
-    def tell(self, archive: GridArchive, behaviors: list[tuple],
-             fitnesses: list[float], metadatas: list[dict]) -> None:
+    def tell(self, archive: GridArchive, behaviors: list[tuple], fitnesses: list[float], metadatas: list[dict]) -> None:
         with Timer("ExploitEmitter.tell"):
             logger.info(
                 "ExploitEmitter: 收到 %d 个反馈结果, avg_fitness=%.4f",
@@ -975,9 +982,9 @@ ExploitTemperature = ExploitEmitter
 
 
 PARAMETER_BOUNDS: dict[str, tuple[float, float]] = {
-    'decay_window': (5.0, 30.0),
-    'decay_weight': (0.5, 1.0),
-    'rank_threshold': (0.0, 1.0),
+    "decay_window": (5.0, 30.0),
+    "decay_weight": (0.5, 1.0),
+    "rank_threshold": (0.0, 1.0),
 }
 _EPSILON = 1e-6
 
@@ -991,8 +998,7 @@ class CMAEvolutionStrategy:
     绝不能用于算子组合或字段选择等离散变量的进化搜索。
     """
 
-    def __init__(self, sigma: float = 0.5,
-                 population_size: int = 8):
+    def __init__(self, sigma: float = 0.5, population_size: int = 8):
         self._param_names = list(PARAMETER_BOUNDS.keys())
         self.dim = len(self._param_names)
         self.sigma = sigma
@@ -1008,7 +1014,10 @@ class CMAEvolutionStrategy:
         self._cc = (4.0 + self.dim / self.dim) / (self.dim + 4.0 + 2.0 * self.dim / self.dim)
         self._cs = (self.dim + 2.0) / (3.0 * self.dim + 6.0)
         self._c1 = 2.0 / ((self.dim + 1.3) ** 2 + self._mu_eff())
-        self._cmu = min(1.0 - self._c1, 2.0 * (self._mu_eff() - 2.0 + 1.0 / self._mu_eff()) / ((self.dim + 2.0) ** 2 + self._mu_eff()))
+        self._cmu = min(
+            1.0 - self._c1,
+            2.0 * (self._mu_eff() - 2.0 + 1.0 / self._mu_eff()) / ((self.dim + 2.0) ** 2 + self._mu_eff()),
+        )
         self._damps = 1.0 + 2.0 * max(0.0, np.sqrt((self._mu_eff() - 1.0) / max(self.dim, 1)) - 1.0) + self._cs
 
     def _mu_eff(self) -> float:
@@ -1024,10 +1033,7 @@ class CMAEvolutionStrategy:
             z = np.random.randn(1, self.dim)
             raw_sample = self.mean + self.sigma * (z @ L.T)[0]
             clipped = np.clip(raw_sample, self._lower + _EPSILON, self._upper - _EPSILON)
-            result = {
-                k: float(clipped[i])
-                for i, k in enumerate(self._param_names)
-            }
+            result = {k: float(clipped[i]) for i, k in enumerate(self._param_names)}
             logger.info(
                 "CMAEvolutionStrategy.ask: gen=%d, sample=%s",
                 self.generation,
@@ -1042,17 +1048,22 @@ class CMAEvolutionStrategy:
             old_mean = self.mean.copy()
             self.mean = vector
             mean_delta = self.mean - old_mean
-            self._ps = (1 - self._cs) * self._ps + \
-                       np.sqrt(self._cs * (2 - self._cs) * self._mu_eff()) * \
-                       (np.linalg.solve(np.linalg.cholesky(self.C + _EPSILON * np.eye(self.dim)).T, mean_delta / max(self.sigma, _EPSILON)) if self.sigma > _EPSILON else np.zeros(self.dim))
+            self._ps = (1 - self._cs) * self._ps + np.sqrt(self._cs * (2 - self._cs) * self._mu_eff()) * (
+                np.linalg.solve(
+                    np.linalg.cholesky(self.C + _EPSILON * np.eye(self.dim)).T, mean_delta / max(self.sigma, _EPSILON)
+                )
+                if self.sigma > _EPSILON
+                else np.zeros(self.dim)
+            )
 
             ps_norm_denom = np.sqrt(max(1.0 - (1 - self._cs) ** (2 * (self.generation + 1)), _EPSILON))
             ps_norm = np.linalg.norm(self._ps) / ps_norm_denom
             threshold = (1.4 + 2.0 / (max(self.dim, 1) + 1)) * np.sqrt(max(self.dim, 1))
             hsig = float(ps_norm < threshold)
 
-            self._pc = (1 - self._cc) * self._pc + \
-                       hsig * np.sqrt(self._cc * (2 - self._cc) * self._mu_eff()) * (mean_delta / max(self.sigma, _EPSILON))
+            self._pc = (1 - self._cc) * self._pc + hsig * np.sqrt(self._cc * (2 - self._cc) * self._mu_eff()) * (
+                mean_delta / max(self.sigma, _EPSILON)
+            )
 
             rank_one = np.outer(self._pc, self._pc)
             y = (vector - old_mean) / max(self.sigma, _EPSILON)
@@ -1068,7 +1079,9 @@ class CMAEvolutionStrategy:
             self.generation += 1
             logger.info(
                 "CMAEvolutionStrategy.tell: gen=%d, sigma=%.6f, fitness=%.4f, params=%s",
-                self.generation, round(self.sigma, 6), fitness,
+                self.generation,
+                round(self.sigma, 6),
+                fitness,
                 {k: round(v, 4) for k, v in params.items()},
             )
 
@@ -1121,15 +1134,19 @@ class DecayParameterTuner:
                 self._consecutive_no_improvement += 1
 
             self._cma.tell(params, fitness)
-            self._history.append({
-                "params": params.copy(),
-                "fitness": fitness,
-                "stage": "tell",
-                "gen": self._cma.generation,
-            })
+            self._history.append(
+                {
+                    "params": params.copy(),
+                    "fitness": fitness,
+                    "stage": "tell",
+                    "gen": self._cma.generation,
+                }
+            )
             logger.info(
                 "DecayParameterTuner.tell: fitness=%.4f, best=%.4f, no_improve=%d",
-                fitness, self._best_fitness, self._consecutive_no_improvement,
+                fitness,
+                self._best_fitness,
+                self._consecutive_no_improvement,
             )
 
     @property
@@ -1170,11 +1187,13 @@ class IsoLineDirectionCalculator:
             occupied_mask = arr_dict.get("occupied", np.zeros_like(arr, dtype=bool))
             n_occupied = int(np.sum(occupied_mask))
             if n_occupied < 3:
-                center = np.array([
-                    (archive.dims[0] - 1) / 2.0,
-                    (archive.dims[1] - 1) / 2.0,
-                    (archive.dims[2] - 1) / 2.0,
-                ])
+                center = np.array(
+                    [
+                        (archive.dims[0] - 1) / 2.0,
+                        (archive.dims[1] - 1) / 2.0,
+                        (archive.dims[2] - 1) / 2.0,
+                    ]
+                )
                 occupied = archive.get_occupied_cells_with_fitness()
                 if not occupied:
                     return np.array([1.0, 0.5, 0.3])
@@ -1206,9 +1225,15 @@ class IsoLineDirectionCalculator:
                 total_grad_t = float(np.sum(grad_t[occupied_mask]))
                 total_grad_m = float(np.sum(grad_m[occupied_mask]))
             else:
-                total_grad_d = float(np.sum(np.where(empty_mask, grad_d, 0.0)[empty_mask])) if np.any(empty_mask) else 0.0
-                total_grad_t = float(np.sum(np.where(empty_mask, grad_t, 0.0)[empty_mask])) if np.any(empty_mask) else 0.0
-                total_grad_m = float(np.sum(np.where(empty_mask, grad_m, 0.0)[empty_mask])) if np.any(empty_mask) else 0.0
+                total_grad_d = (
+                    float(np.sum(np.where(empty_mask, grad_d, 0.0)[empty_mask])) if np.any(empty_mask) else 0.0
+                )
+                total_grad_t = (
+                    float(np.sum(np.where(empty_mask, grad_t, 0.0)[empty_mask])) if np.any(empty_mask) else 0.0
+                )
+                total_grad_m = (
+                    float(np.sum(np.where(empty_mask, grad_m, 0.0)[empty_mask])) if np.any(empty_mask) else 0.0
+                )
 
             direction = np.array([total_grad_d, total_grad_t, total_grad_m], dtype=np.float64)
             norm = np.linalg.norm(direction)
@@ -1217,7 +1242,7 @@ class IsoLineDirectionCalculator:
                 norm = np.linalg.norm(direction)
             direction /= norm
             self._cached_direction = direction
-            self._cache_generation = getattr(archive, 'generation', -1)
+            self._cache_generation = getattr(archive, "generation", -1)
             logger.info(
                 "IsoLineDirectionCalculator: 方向向量=%s",
                 np.round(direction, 4).tolist(),
@@ -1225,8 +1250,7 @@ class IsoLineDirectionCalculator:
             return direction
 
     @algo_log()
-    def suggest_target(self, archive: GridArchive,
-                       n: int = 1) -> list[tuple[int, int, int]]:
+    def suggest_target(self, archive: GridArchive, n: int = 1) -> list[tuple[int, int, int]]:
         with Timer("IsoLineDirectionCalculator.suggest_target"):
             direction = self.compute_direction(archive)
             empty_cells = archive.get_empty_cells()
@@ -1236,14 +1260,15 @@ class IsoLineDirectionCalculator:
                 occupied = archive.get_occupied_cells()
                 if occupied:
                     return random.sample(occupied, min(n, len(occupied)))
-                dims = archive.dims
                 return [(0, 0, 0)] * min(n, 1)
 
-            center = np.array([
-                (archive.dims[0] - 1) / 2.0,
-                (archive.dims[1] - 1) / 2.0,
-                (archive.dims[2] - 1) / 2.0,
-            ])
+            center = np.array(
+                [
+                    (archive.dims[0] - 1) / 2.0,
+                    (archive.dims[1] - 1) / 2.0,
+                    (archive.dims[2] - 1) / 2.0,
+                ]
+            )
 
             scored: list[tuple[float, tuple[int, int, int]]] = []
             for cell in candidates:
@@ -1258,7 +1283,8 @@ class IsoLineDirectionCalculator:
             targets = [cell for _, cell in scored[:n]]
             logger.info(
                 "IsoLineDirectionCalculator: 推荐 %d 个目标, top_score=%.3f",
-                len(targets), scored[0][0] if scored else 0,
+                len(targets),
+                scored[0][0] if scored else 0,
             )
             return targets
 
@@ -1291,8 +1317,7 @@ class EmitterOrchestrator:
         self._total_rounds: int = 0
 
     @algo_log()
-    def register(self, name: str, emitter: BaseEmitter,
-                 weight: float = 1.0) -> None:
+    def register(self, name: str, emitter: BaseEmitter, weight: float = 1.0) -> None:
         self.emitters[name] = emitter
         self.weights[name] = weight
         self._rewards[name] = 0.0
@@ -1301,7 +1326,8 @@ class EmitterOrchestrator:
         self._last_positive_gen[name] = 0
         logger.info(
             "EmitterOrchestrator: 注册 emitter '%s', 初始权重=%.2f",
-            name, weight,
+            name,
+            weight,
         )
 
     @algo_log()
@@ -1323,7 +1349,7 @@ class EmitterOrchestrator:
                 quotas[idx] += diff
 
             all_outputs: list[EmitterOutput] = []
-            for name, quota in zip(names, quotas):
+            for name, quota in zip(names, quotas, strict=False):
                 if quota <= 0:
                     continue
                 emitter = self.emitters[name]
@@ -1336,23 +1362,26 @@ class EmitterOrchestrator:
                 except (OSError, ValueError, RuntimeError) as e:
                     logger.warning(
                         "EmitterOrchestrator: emitter '%s' ask 失败: %s",
-                        name, e,
+                        name,
+                        e,
                     )
 
             random.shuffle(all_outputs)
             logger.info(
                 "EmitterOrchestrator: 分配 %d 个配额, 返回 %d 个输出",
-                n, len(all_outputs),
+                n,
+                len(all_outputs),
             )
             return all_outputs
 
     @algo_log()
-    def tell_all(self, archive: GridArchive, behaviors: list[tuple],
-                 fitnesses: list[float], metadatas: list[dict]) -> None:
+    def tell_all(
+        self, archive: GridArchive, behaviors: list[tuple], fitnesses: list[float], metadatas: list[dict]
+    ) -> None:
         with Timer("EmitterOrchestrator.tell_all"):
             self._total_rounds += 1
             grouped: dict[str, list[tuple[tuple, float, dict]]] = {}
-            for beh, fit, meta in zip(behaviors, fitnesses, metadatas):
+            for beh, fit, meta in zip(behaviors, fitnesses, metadatas, strict=False):
                 emitter_name = meta.get("_emitter_name", "unknown") if isinstance(meta, dict) else "unknown"
                 if emitter_name not in grouped:
                     grouped[emitter_name] = []
@@ -1376,17 +1405,18 @@ class EmitterOrchestrator:
                 except (OSError, ValueError, RuntimeError) as e:
                     logger.warning(
                         "EmitterOrchestrator: emitter '%s' tell 失敗: %s",
-                        name, e,
+                        name,
+                        e,
                     )
 
             logger.info(
                 "EmitterOrchestrator: 已反馈给 %d 个 emitters (round=%d)",
-                len(grouped), self._total_rounds,
+                len(grouped),
+                self._total_rounds,
             )
 
     @algo_log()
-    def adapt_weights(self, archive: GridArchive,
-                      recent_qd_scores: list[float]) -> None:
+    def adapt_weights(self, archive: GridArchive, recent_qd_scores: list[float]) -> None:
         with Timer("EmitterOrchestrator.adapt_weights"):
             total_count = sum(self._counts.values())
             if total_count == 0:
@@ -1396,22 +1426,22 @@ class EmitterOrchestrator:
                 count = self._counts.get(name, 1)
                 reward = self._rewards.get(name, 0.0)
                 avg_reward = reward / count
-                exploration_bonus = self._ucb_c * np.sqrt(
-                    np.log(max(total_count, 1)) / max(count, 1)
-                )
+                exploration_bonus = self._ucb_c * np.sqrt(np.log(max(total_count, 1)) / max(count, 1))
                 ucb_value = avg_reward + exploration_bonus
 
                 since_positive = self._total_rounds - self._last_positive_gen.get(name, self._total_rounds)
 
                 if since_positive >= self._STAGNANT_THRESHOLD:
-
                     decay_factor = 0.5 ** (since_positive - self._STAGNANT_THRESHOLD + 1)
                     ucb_value *= decay_factor
                     logger.warning(
                         "[DEFENSIVE_LOG] EmitterOrchestrator: emitter '%s' 已 %d 轮无正向反馈, "
                         "权重衰减 factor=%.4f (UCB前=%.4f → 衰减后=%.4f)",
-                        name, since_positive, decay_factor,
-                        avg_reward + exploration_bonus, ucb_value,
+                        name,
+                        since_positive,
+                        decay_factor,
+                        avg_reward + exploration_bonus,
+                        ucb_value,
                     )
 
                 new_weights[name] = max(0.001, ucb_value)
@@ -1421,13 +1451,15 @@ class EmitterOrchestrator:
                 for name in new_weights:
                     self.weights[name] = new_weights[name] / total_new
 
-            self.history.append({
-                "qd_scores": recent_qd_scores[-5:] if recent_qd_scores else [],
-                "weights": dict(self.weights),
-                "counts": dict(self._counts),
-                "positive_counts": dict(self._positive_counts),
-                "round": self._total_rounds,
-            })
+            self.history.append(
+                {
+                    "qd_scores": recent_qd_scores[-5:] if recent_qd_scores else [],
+                    "weights": dict(self.weights),
+                    "counts": dict(self._counts),
+                    "positive_counts": dict(self._positive_counts),
+                    "round": self._total_rounds,
+                }
+            )
             logger.info(
                 "EmitterOrchestrator: 权重自适应完成 (round=%d), weights=%s",
                 self._total_rounds,

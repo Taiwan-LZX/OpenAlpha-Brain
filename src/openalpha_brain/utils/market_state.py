@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -15,6 +16,7 @@ _STATE_PATH = Path(__file__).resolve().parent / "market_state.json"
 @dataclass
 class MarketState:
     """[Brief description of class purpose.]"""
+
     year: int = 0
     momentum_sharpe: float = 0.0
     mean_reversion_sharpe: float = 0.0
@@ -28,21 +30,21 @@ class MarketState:
     def to_dict(self) -> dict:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> MarketState:
         """[Brief description of function purpose.]
 
-            Args:
-                d (dict): [Description]
+        Args:
+            d (dict): [Description]
 
-            Returns:
-                MarketState: [Description]
-            """
+        Returns:
+            MarketState: [Description]
+        """
         return cls(
             year=d.get("year", 0),
             momentum_sharpe=d.get("momentum_sharpe", 0.0),
@@ -58,9 +60,9 @@ class MarketState:
     def _all_sharpes(self) -> dict[str, float]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, float]: [Description]
-            """
+        Returns:
+            dict[str, float]: [Description]
+        """
         return {
             "momentum": self.momentum_sharpe,
             "mean_reversion": self.mean_reversion_sharpe,
@@ -74,9 +76,9 @@ class MarketState:
     def _determine_dominant(self) -> str:
         """[Brief description of function purpose.]
 
-            Returns:
-                str: [Description]
-            """
+        Returns:
+            str: [Description]
+        """
         sharpes = self._all_sharpes()
         best = max(sharpes, key=lambda k: float(sharpes[k]))
         return best if sharpes[best] > 0.0 else ""
@@ -84,12 +86,13 @@ class MarketState:
 
 class MarketStateInferencer:
     """[Brief description of class purpose.]"""
+
     def __init__(self, path: str | Path | None = None):
         """[Brief description of function purpose.]
 
-            Args:
-                path (str | Path | None): [Description]
-            """
+        Args:
+            path (str | Path | None): [Description]
+        """
         self._path = Path(path) if path else _STATE_PATH
         self._yearly_states: dict[int, MarketState] = {}
         self._direction_sharpes: dict[str, list[float]] = {}
@@ -102,6 +105,7 @@ class MarketStateInferencer:
         if self._yearly_states and self._direction_sharpes:
             return
         import datetime as _dt
+
         _current_year = _dt.date.today().year
         _default = MarketState(
             year=_current_year,
@@ -129,20 +133,15 @@ class MarketStateInferencer:
     def _load(self) -> None:
         """[Brief description of function purpose.]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         if not self._path.exists():
             return
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-            self._yearly_states = {
-                int(k): MarketState.from_dict(v)
-                for k, v in data.get("yearly_states", {}).items()
-            }
-            self._direction_sharpes = {
-                k: v for k, v in data.get("direction_sharpes", {}).items()
-            }
+            self._yearly_states = {int(k): MarketState.from_dict(v) for k, v in data.get("yearly_states", {}).items()}
+            self._direction_sharpes = dict(data.get("direction_sharpes", {}).items())
             logger.info(
                 "MarketStateInferencer: loaded %d yearly states, %d directions from %s",
                 len(self._yearly_states),
@@ -157,15 +156,13 @@ class MarketStateInferencer:
     def _save(self) -> None:
         """[Brief description of function purpose.]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             data = {
-                "yearly_states": {
-                    str(k): v.to_dict() for k, v in self._yearly_states.items()
-                },
+                "yearly_states": {str(k): v.to_dict() for k, v in self._yearly_states.items()},
                 "direction_sharpes": self._direction_sharpes,
             }
             self._path.write_text(
@@ -178,13 +175,13 @@ class MarketStateInferencer:
     def infer_from_brain_results(self, brain_results: list[dict], yearly_breakdown: list[dict] | None = None) -> dict:
         """[Brief description of function purpose.]
 
-            Args:
-                brain_results (list[dict]): [Description]
-                yearly_breakdown (list[dict] | None): [Description]
+        Args:
+            brain_results (list[dict]): [Description]
+            yearly_breakdown (list[dict] | None): [Description]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         self._accumulated_results.extend(brain_results)
         self._last_update_time = time.time()
 
@@ -262,12 +259,12 @@ class MarketStateInferencer:
     def _direction_to_sharpe_key(direction: str) -> str:
         """[Brief description of function purpose.]
 
-            Args:
-                direction (str): [Description]
+        Args:
+            direction (str): [Description]
 
-            Returns:
-                str: [Description]
-            """
+        Returns:
+            str: [Description]
+        """
         d = direction.lower()
         if "mean_reversion" in d or "reversion" in d:
             return "mean_reversion"
@@ -289,14 +286,14 @@ class MarketStateInferencer:
     def _set_sharpe_by_key(ms: MarketState, key: str, sharpe: float) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                ms (MarketState): [Description]
-                key (str): [Description]
-                sharpe (float): [Description]
+        Args:
+            ms (MarketState): [Description]
+            key (str): [Description]
+            sharpe (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         if key == "momentum":
             ms.momentum_sharpe = max(ms.momentum_sharpe, sharpe)
         elif key == "mean_reversion":
@@ -315,13 +312,13 @@ class MarketStateInferencer:
     def infer_from_yearly_data(self, yearly_data: list[dict], direction: str) -> dict:
         """[Brief description of function purpose.]
 
-            Args:
-                yearly_data (list[dict]): [Description]
-                direction (str): [Description]
+        Args:
+            yearly_data (list[dict]): [Description]
+            direction (str): [Description]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         if not yearly_data:
             return {"years_updated": 0, "direction": direction}
 
@@ -360,7 +357,8 @@ class MarketStateInferencer:
 
         logger.info(
             "MarketStateInferencer: infer_from_yearly_data updated %d years for direction=%s",
-            years_updated, direction,
+            years_updated,
+            direction,
         )
 
         return {"years_updated": years_updated, "direction": direction}
@@ -368,13 +366,13 @@ class MarketStateInferencer:
     def adjust_mab_bias(self, mab_explorer, current_direction: str = "") -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                mab_explorer: [Description]
-                current_direction (str): [Description]
+        Args:
+            mab_explorer: [Description]
+            current_direction (str): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         if mab_explorer is None:
             return
 
@@ -402,17 +400,15 @@ class MarketStateInferencer:
         for d, weight in direction_boost.items():
             adjusted = weight + trend_adjustment.get(d, 0.0)
             adjusted = max(0.1, min(adjusted, 1.5))
-            try:
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
                 mab_explorer.set_initial_bias(d, adjusted)
-            except (OSError, ValueError, RuntimeError):
-                pass
 
     def _compute_yearly_trend_adjustment(self) -> dict[str, float]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, float]: [Description]
-            """
+        Returns:
+            dict[str, float]: [Description]
+        """
         adjustment: dict[str, float] = {}
         if len(self._yearly_states) < 2:
             return adjustment
@@ -421,27 +417,36 @@ class MarketStateInferencer:
         recent_years = sorted_years[-3:]
 
         _SHARPE_KEYS = [
-            "momentum", "mean_reversion", "volatility",
-            "value", "quality", "liquidity", "size",
+            "momentum",
+            "mean_reversion",
+            "volatility",
+            "value",
+            "quality",
+            "liquidity",
+            "size",
         ]
 
         for key in _SHARPE_KEYS:
             sharpes = [
-                getattr(self._yearly_states[y], f"{key}_sharpe", 0.0)
-                for y in recent_years
-                if y in self._yearly_states
+                getattr(self._yearly_states[y], f"{key}_sharpe", 0.0) for y in recent_years if y in self._yearly_states
             ]
             if len(sharpes) >= 3:
                 if key == "momentum":
                     declining = all(sharpes[i] > sharpes[i + 1] for i in range(len(sharpes) - 1))
                     if declining:
                         adjustment[key] = -0.15
-                        logger.info("MarketStateInferencer: %s Sharpe declining for %d years → bias -0.15", key, len(recent_years))
+                        logger.info(
+                            "MarketStateInferencer: %s Sharpe declining for %d years → bias -0.15",
+                            key,
+                            len(recent_years),
+                        )
                 elif key == "mean_reversion":
                     rising = all(sharpes[i] < sharpes[i + 1] for i in range(len(sharpes) - 1))
                     if rising:
                         adjustment[key] = 0.15
-                        logger.info("MarketStateInferencer: %s Sharpe rising for %d years → bias +0.15", key, len(recent_years))
+                        logger.info(
+                            "MarketStateInferencer: %s Sharpe rising for %d years → bias +0.15", key, len(recent_years)
+                        )
                 else:
                     declining = all(sharpes[i] > sharpes[i + 1] for i in range(len(sharpes) - 1))
                     if declining:
@@ -455,9 +460,9 @@ class MarketStateInferencer:
     def health_check(self) -> dict:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         return {
             "module": "MarketStateInferencer",
             "status": "active",
@@ -469,9 +474,9 @@ class MarketStateInferencer:
     def get_market_state_summary(self) -> dict:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         friendly_years: dict[str, list[int]] = {}
         for year, ms in self._yearly_states.items():
             if ms.dominant_strategy:

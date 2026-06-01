@@ -18,9 +18,11 @@ Decorator shortcut:
     async def generate_boost_variants(self, expression, ...):
         ...
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import statistics
@@ -83,10 +85,8 @@ class AlgorithmTelemetryCollector:
         cls._instance = None
 
     def _log(self, message: str, level: int = logging.DEBUG) -> None:
-        try:
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
             logger.log(level, "[TELEMETRY] %s", message)
-        except (OSError, ValueError, RuntimeError):
-            pass
 
     def _make_event_id(self) -> str:
         return uuid.uuid4().hex[:12]
@@ -331,24 +331,14 @@ class AlgorithmTelemetryCollector:
                 exits = [e for e in evts if e.event_type == "exit"]
                 errors = [e for e in evts if e.event_type == "error"]
                 decisions = [e for e in evts if e.event_type == "decision"]
-                durations = [
-                    e.duration_ms for e in exits if e.duration_ms is not None
-                ]
+                durations = [e.duration_ms for e in exits if e.duration_ms is not None]
                 summary["modules"][mod_name] = {
                     "calls": len(enters),
                     "errors": len(errors),
                     "decisions": len(decisions),
-                    "avg_duration_ms": (
-                        statistics.mean(durations) if durations else None
-                    ),
-                    "max_duration_ms": (
-                        max(durations) if durations else None
-                    ),
-                    "last_action": (
-                        decisions[-1].metrics.get("action", "")
-                        if decisions
-                        else ""
-                    ),
+                    "avg_duration_ms": (statistics.mean(durations) if durations else None),
+                    "max_duration_ms": (max(durations) if durations else None),
+                    "last_action": (decisions[-1].metrics.get("action", "") if decisions else ""),
                 }
             return summary
         except (OSError, ValueError, RuntimeError) as e:
@@ -385,12 +375,14 @@ class AlgorithmTelemetryCollector:
 
             dead_candidates = known_modules - modules_seen
             for mod in sorted(dead_candidates):
-                anomalies.append({
-                    "severity": "warning",
-                    "type": "dead_module",
-                    "module": mod,
-                    "message": f"Module '{mod}' never emitted any telemetry — potential dead code or uninstrumented path",
-                })
+                anomalies.append(
+                    {
+                        "severity": "warning",
+                        "type": "dead_module",
+                        "module": mod,
+                        "message": f"Module '{mod}' never emitted any telemetry — potential dead code or uninstrumented path",  # noqa: E501
+                    }
+                )
 
             per_module: dict[str, list[ModuleTelemetryEvent]] = {}
             for e in self._all_events():
@@ -402,13 +394,15 @@ class AlgorithmTelemetryCollector:
                 error_rate = len(errors) / total if total > 0 else 0
 
                 if error_rate > 0.5 and total >= 3:
-                    anomalies.append({
-                        "severity": "critical",
-                        "type": "high_error_rate",
-                        "module": mod_name,
-                        "message": f"Error rate {error_rate:.0%} ({len(errors)}/{total}) exceeds 50% threshold",
-                        "details": {"error_count": len(errors), "total_calls": total},
-                    })
+                    anomalies.append(
+                        {
+                            "severity": "critical",
+                            "type": "high_error_rate",
+                            "module": mod_name,
+                            "message": f"Error rate {error_rate:.0%} ({len(errors)}/{total}) exceeds 50% threshold",
+                            "details": {"error_count": len(errors), "total_calls": total},
+                        }
+                    )
 
                 durations = []
                 for e in evts:
@@ -429,124 +423,139 @@ class AlgorithmTelemetryCollector:
                         sigma_threshold = mean_d + 3 * stdev_d
                         outliers = [d for d in durations if d > sigma_threshold]
                         if outliers:
-                            anomalies.append({
-                                "severity": "warning",
-                                "type": "execution_time_outlier",
-                                "module": mod_name,
-                                "message": (
-                                    f"{len(outliers)} execution(s) exceeded 3\u03c3 "
-                                    f"(mean={mean_d:.1f}ms, \u03c3={stdev_d:.1f}ms)"
-                                ),
-                                "details": {
-                                    "mean_ms": round(mean_d, 1),
-                                    "stdev_ms": round(stdev_d, 1),
-                                    "outlier_values": [round(d, 1) for d in outliers],
-                                    "threshold_ms": round(sigma_threshold, 1),
-                                },
-                            })
+                            anomalies.append(
+                                {
+                                    "severity": "warning",
+                                    "type": "execution_time_outlier",
+                                    "module": mod_name,
+                                    "message": (
+                                        f"{len(outliers)} execution(s) exceeded 3\u03c3 "
+                                        f"(mean={mean_d:.1f}ms, \u03c3={stdev_d:.1f}ms)"
+                                    ),
+                                    "details": {
+                                        "mean_ms": round(mean_d, 1),
+                                        "stdev_ms": round(stdev_d, 1),
+                                        "outlier_values": [round(d, 1) for d in outliers],
+                                        "threshold_ms": round(sigma_threshold, 1),
+                                    },
+                                }
+                            )
 
                 data_events = [e for e in evts if e.event_type == "data"]
                 for de in data_events:
                     val = de.metrics.get("value")
                     if val is None:
-                        anomalies.append({
-                            "severity": "info",
-                            "type": "null_data_value",
-                            "module": mod_name,
-                            "message": f"Data point '{de.metrics.get('label', '?')}' recorded as None",
-                            "details": {"timestamp": de.timestamp},
-                        })
+                        anomalies.append(
+                            {
+                                "severity": "info",
+                                "type": "null_data_value",
+                                "module": mod_name,
+                                "message": f"Data point '{de.metrics.get('label', '?')}' recorded as None",
+                                "details": {"timestamp": de.timestamp},
+                            }
+                        )
                     elif isinstance(val, (list, str)) and len(val) == 0:
-                        anomalies.append({
-                            "severity": "info",
-                            "type": "empty_data_value",
-                            "module": mod_name,
-                            "message": f"Data point '{de.metrics.get('label', '?')}' recorded as empty",
-                            "details": {"timestamp": de.timestamp},
-                        })
+                        anomalies.append(
+                            {
+                                "severity": "info",
+                                "type": "empty_data_value",
+                                "module": mod_name,
+                                "message": f"Data point '{de.metrics.get('label', '?')}' recorded as empty",
+                                "details": {"timestamp": de.timestamp},
+                            }
+                        )
 
                 decision_events = [e for e in evts if e.event_type == "decision"]
                 if len(decision_events) >= _STUCK_ACTION_THRESHOLD:
                     recent_actions = [
-                        d.metrics.get("action", "")
-                        for d in decision_events[-_STUCK_ACTION_THRESHOLD * 2 :]
+                        d.metrics.get("action", "") for d in decision_events[-_STUCK_ACTION_THRESHOLD * 2 :]
                     ]
                     if len(recent_actions) >= _STUCK_ACTION_THRESHOLD:
                         last_n = recent_actions[-_STUCK_ACTION_THRESHOLD:]
                         if len(set(last_n)) == 1:
                             stuck_action = last_n[0]
-                            anomalies.append({
-                                "severity": "warning",
-                                "type": "stuck_decision_pattern",
-                                "module": mod_name,
-                                "message": (
-                                    f"Same action '{stuck_action}' repeated "
-                                    f"{_STUCK_ACTION_THRESHOLD}+ times consecutively"
-                                ),
-                                "details": {
-                                    "stuck_action": stuck_action,
-                                    "repeat_count": _STUCK_ACTION_THRESHOLD,
-                                },
-                            })
+                            anomalies.append(
+                                {
+                                    "severity": "warning",
+                                    "type": "stuck_decision_pattern",
+                                    "module": mod_name,
+                                    "message": (
+                                        f"Same action '{stuck_action}' repeated "
+                                        f"{_STUCK_ACTION_THRESHOLD}+ times consecutively"
+                                    ),
+                                    "details": {
+                                        "stuck_action": stuck_action,
+                                        "repeat_count": _STUCK_ACTION_THRESHOLD,
+                                    },
+                                }
+                            )
 
             health_anomalies = self._detect_health_anomalies()
             anomalies.extend(health_anomalies)
 
         except (OSError, ValueError, RuntimeError) as e:
             self._log(f"detect_anomalies FAILED: {e}", logging.ERROR)
-            anomalies.append({
-                "severity": "critical",
-                "type": "anomaly_detector_error",
-                "module": "_system_",
-                "message": f"Anomaly detection itself failed: {e}",
-            })
+            anomalies.append(
+                {
+                    "severity": "critical",
+                    "type": "anomaly_detector_error",
+                    "module": "_system_",
+                    "message": f"Anomaly detection itself failed: {e}",
+                }
+            )
         return anomalies
 
     def _detect_health_anomalies(self) -> list[dict]:
         health_anomalies: list[dict] = []
         for mod_name, signal in self._health_signals.items():
             if signal.status == "dead":
-                health_anomalies.append({
-                    "severity": "critical",
-                    "type": "module_dead",
-                    "module": mod_name,
-                    "message": f"Health signal reports module '{mod_name}' as DEAD",
-                })
+                health_anomalies.append(
+                    {
+                        "severity": "critical",
+                        "type": "module_dead",
+                        "module": mod_name,
+                        "message": f"Health signal reports module '{mod_name}' as DEAD",
+                    }
+                )
             elif signal.status == "error":
-                health_anomalies.append({
-                    "severity": "critical",
-                    "type": "module_error_state",
-                    "module": mod_name,
-                    "message": f"Module '{mod_name}' in ERROR state",
-                })
+                health_anomalies.append(
+                    {
+                        "severity": "critical",
+                        "type": "module_error_state",
+                        "module": mod_name,
+                        "message": f"Module '{mod_name}' in ERROR state",
+                    }
+                )
             elif signal.status == "degraded":
-                health_anomalies.append({
-                    "severity": "warning",
-                    "type": "module_degraded",
-                    "module": mod_name,
-                    "message": f"Module '{mod_name}' DEGRADED: {', '.join(signal.warning_flags)}",
-                    "details": {"warnings": signal.warning_flags},
-                })
+                health_anomalies.append(
+                    {
+                        "severity": "warning",
+                        "type": "module_degraded",
+                        "module": mod_name,
+                        "message": f"Module '{mod_name}' DEGRADED: {', '.join(signal.warning_flags)}",
+                        "details": {"warnings": signal.warning_flags},
+                    }
+                )
             if signal.success_rate < 0.5 and signal.calls_this_cycle > 0:
-                health_anomalies.append({
-                    "severity": "warning",
-                    "type": "low_success_rate_health",
-                    "module": mod_name,
-                    "message": (
-                        f"Module '{mod_name}' health reports low success rate "
-                        f"{signal.success_rate:.0%}"
-                    ),
-                })
+                health_anomalies.append(
+                    {
+                        "severity": "warning",
+                        "type": "low_success_rate_health",
+                        "module": mod_name,
+                        "message": (f"Module '{mod_name}' health reports low success rate {signal.success_rate:.0%}"),
+                    }
+                )
             if signal.data_quality_score < 0.3:
-                health_anomalies.append({
-                    "severity": "warning",
-                    "type": "poor_data_quality",
-                    "module": mod_name,
-                    "message": (
-                        f"Module '{mod_name}' data quality score "
-                        f"{signal.data_quality_score:.2f} below threshold"
-                    ),
-                })
+                health_anomalies.append(
+                    {
+                        "severity": "warning",
+                        "type": "poor_data_quality",
+                        "module": mod_name,
+                        "message": (
+                            f"Module '{mod_name}' data quality score {signal.data_quality_score:.2f} below threshold"
+                        ),
+                    }
+                )
         return health_anomalies
 
     def get_all_events(self) -> list[dict]:
@@ -570,9 +579,7 @@ class AlgorithmTelemetryCollector:
                 "total_events_recorded": len(self._all_events()),
                 "pending_events": len(self._pending_events),
                 "monitored_modules": list(self._health_signals.keys()),
-                "health_signals": {
-                    name: asdict(sig) for name, sig in self._health_signals.items()
-                },
+                "health_signals": {name: asdict(sig) for name, sig in self._health_signals.items()},
             }
         except (OSError, ValueError, RuntimeError) as e:
             return {"error": str(e)}
@@ -583,10 +590,7 @@ class AlgorithmTelemetryCollector:
         self._event_count_since_flush = 0
 
     def _resolve_path(self) -> Path | None:
-        if self._telemetry_path is not None:
-            base = Path(self._telemetry_path)
-        else:
-            base = Path.cwd() / "data" / "telemetry"
+        base = Path(self._telemetry_path) if self._telemetry_path is not None else Path.cwd() / "data" / "telemetry"
         cycle = self._current_cycle or "unknown"
         return base / f"cycle_{cycle}.jsonl"
 
@@ -644,7 +648,9 @@ class AlgorithmTelemetryCollector:
         try:
             event = ModuleTelemetryEvent(
                 timestamp=time.perf_counter(),
-                module_name=event_id_or_module if not isinstance(event_id_or_module, str) or len(event_id_or_module) < 36 else "unknown",
+                module_name=event_id_or_module
+                if not isinstance(event_id_or_module, str) or len(event_id_or_module) < 36
+                else "unknown",
                 event_type="exit",
                 cycle_id="",
                 expression_id=None,
@@ -792,6 +798,7 @@ def telemetry_tracked(module_name: str):
             cycle_id = collector._current_cycle or "unknown"
 
             import asyncio
+
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:

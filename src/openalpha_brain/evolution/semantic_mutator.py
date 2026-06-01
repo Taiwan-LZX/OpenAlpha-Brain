@@ -132,7 +132,7 @@ class SemanticMutator:
                 emb_a = await self._compute_embedding(parent_a_expr)
                 emb_b = await self._compute_embedding(parent_b_expr)
                 if emb_a is not None and emb_b is not None:
-                    interpolated = self.interpolate_embeddings(emb_a, emb_b, alpha=interpolation_ratio)
+                    self.interpolate_embeddings(emb_a, emb_b, alpha=interpolation_ratio)
                     interpolation_context = (
                         "\n\nAdditional semantic guidance: The interpolated semantic vector "
                         "suggests combining aspects of both parents. The blend ratio indicates "
@@ -143,6 +143,7 @@ class SemanticMutator:
                     )
                     try:
                         from openalpha_brain.core.loop_state import _algo_tick
+
                         _algo_tick("semantic_interpolation")
                     except (ImportError, AttributeError):
                         pass
@@ -161,8 +162,7 @@ class SemanticMutator:
             "- Must use group_neutralize() as the outermost function\n"
             "- Must be valid FastExpr syntax\n"
             "- Must combine the CORE IDEAS of both expressions, not just concatenate them\n"
-            "- Output ONLY the expression, nothing else"
-            + interpolation_context
+            "- Output ONLY the expression, nothing else" + interpolation_context
         )
 
         try:
@@ -305,8 +305,8 @@ class SemanticMutator:
         try:
             stats = feature_map.get_diversity_stats()
             base_coverage = stats.get("coverage", 0.0)
-            filled_cells = stats.get("filled_cells", 0)
-            total_cells = stats.get("total_cells", 1)
+            stats.get("filled_cells", 0)
+            stats.get("total_cells", 1)
 
             action_lower = action.lower()
             direction_bonus = 0.0
@@ -380,16 +380,12 @@ class SemanticMutator:
         if known_good_exprs:
             path_str = " ".join(path).lower()
             pattern_matches = sum(
-                1 for expr in known_good_exprs
-                if any(partial in expr.lower() for partial in path_str.split())
+                1 for expr in known_good_exprs if any(partial in expr.lower() for partial in path_str.split())
             )
             pattern_match_score = min(0.3, pattern_matches * 0.05)
 
         total_reward = (
-            diversity_score * 0.30 +
-            direction_match * 0.25 +
-            complexity_score * 0.30 +
-            pattern_match_score * 0.15
+            diversity_score * 0.30 + direction_match * 0.25 + complexity_score * 0.30 + pattern_match_score * 0.15
         )
 
         noise = random.gauss(0, 0.05)
@@ -470,7 +466,9 @@ class SemanticMutator:
 
         logger.info(
             "MCTS explore started: direction=%s, iterations=%d, budget=%d",
-            direction, iterations, exploration_budget,
+            direction,
+            iterations,
+            exploration_budget,
         )
 
         try:
@@ -494,7 +492,9 @@ class SemanticMutator:
                 if (i + 1) % 5 == 0:
                     logger.debug(
                         "MCTS iteration %d/%d completed, root visits=%d",
-                        i + 1, iterations, root.visits,
+                        i + 1,
+                        iterations,
+                        root.visits,
                     )
         except Exception as e:
             logger.error("MCTS explore failed at iteration: %s", e, exc_info=True)
@@ -520,7 +520,8 @@ class SemanticMutator:
             if self._llm_generate_fn is not None and candidate.depth >= 3:
                 try:
                     expression = await self._generate_expression_from_path(
-                        structure_path, direction,
+                        structure_path,
+                        direction,
                     )
                 except (ConnectionError, OSError, TimeoutError) as e:
                     logger.warning("MCTS LLM generation failed for path %d: %s", idx, e)
@@ -539,7 +540,9 @@ class SemanticMutator:
             reason_parts.append(f"自適應預算={adaptive_budget}")
             if diversity_bonus > 0.7:
                 reason_parts.append(f"高多樣性({diversity_bonus:.2f})")
-            if direction and any(kw in " ".join(structure_path).lower() for kw in self.DIRECTION_KEYWORDS.get(direction, [])):
+            if direction and any(
+                kw in " ".join(structure_path).lower() for kw in self.DIRECTION_KEYWORDS.get(direction, [])
+            ):
                 reason_parts.append(f"符合{direction}方向")
 
             result_entry = {
@@ -556,7 +559,10 @@ class SemanticMutator:
 
             logger.info(
                 "MCTS result %d: visits=%d, avg_reward=%.3f, ucb1=%.3f, reason=%s",
-                idx + 1, candidate.visits, avg_reward, ucb1_score,
+                idx + 1,
+                candidate.visits,
+                avg_reward,
+                ucb1_score,
                 result_entry["exploration_reason"],
             )
 
@@ -595,7 +601,7 @@ class SemanticMutator:
         if self._llm_generate_fn is None:
             return None
 
-        path_description = "\n".join(f"  Step {i+1}: {step}" for i, step in enumerate(structure_path))
+        path_description = "\n".join(f"  Step {i + 1}: {step}" for i, step in enumerate(structure_path))
 
         prompt = (
             "You are an alpha factor engineer. Based on the following structural decisions "
@@ -642,7 +648,7 @@ class SemanticMutator:
         results: list[dict] = []
         stats = feature_map.get_diversity_stats()
         coverage = stats.get("coverage", 0.0)
-        filled_cells = stats.get("filled_cells", 0)
+        stats.get("filled_cells", 0)
 
         if coverage >= 0.8:
             return []
@@ -665,16 +671,26 @@ class SemanticMutator:
         if len(filled_list) < 2:
             return []
 
-        direction_map = {"momentum": 0, "mean_reversion": 1, "volatility": 2, "statistical": 3, "volume": 4, "interaction": 5}
+        direction_map = {
+            "momentum": 0,
+            "mean_reversion": 1,
+            "volatility": 2,
+            "statistical": 3,
+            "volume": 4,
+            "interaction": 5,
+        }
         horizon_map = {"short": 0, "medium": 1, "long": 2}
         mechanism_map = {"signal": 0, "normalized": 1, "conditional": 2, "interaction": 3}
 
         def _cell_vec(cell):
-            return np.array([
-                direction_map.get(cell.direction, 0),
-                horizon_map.get(cell.time_horizon, 0),
-                mechanism_map.get(cell.mechanism, 0),
-            ], dtype=np.float64)
+            return np.array(
+                [
+                    direction_map.get(cell.direction, 0),
+                    horizon_map.get(cell.time_horizon, 0),
+                    mechanism_map.get(cell.mechanism, 0),
+                ],
+                dtype=np.float64,
+            )
 
         filled_vecs = [(key, cell, _cell_vec(cell)) for key, cell in filled_list]
 
@@ -687,7 +703,8 @@ class SemanticMutator:
 
                 logger.info(
                     "explore_unexplored_regions: 使用 MCTS 模式 (filled=%d, direction=%s)",
-                    len(filled_list), direction_hint,
+                    len(filled_list),
+                    direction_hint,
                 )
 
                 mcts_results = await self.mcts_explore(
@@ -747,7 +764,7 @@ class SemanticMutator:
             parent_b = nearest[1][2].best_expr
             parent_a_key = nearest[0][1]
             parent_b_key = nearest[1][1]
-            feature_desc = f"direction={empty_cell.direction}, time_horizon={empty_cell.time_horizon}, mechanism={empty_cell.mechanism}"
+            feature_desc = f"direction={empty_cell.direction}, time_horizon={empty_cell.time_horizon}, mechanism={empty_cell.mechanism}"  # noqa: E501
 
             interpolation_hint = ""
             if self._embed_fn is not None:
@@ -755,13 +772,14 @@ class SemanticMutator:
                 emb_b = filled_embeddings.get(parent_b_key)
                 if emb_a is not None and emb_b is not None:
                     try:
-                        interpolated = self.interpolate_embeddings(emb_a, emb_b, alpha=0.5)
+                        self.interpolate_embeddings(emb_a, emb_b, alpha=0.5)
                         interpolation_hint = (
                             " [semantic interpolation: vector computed from nearby explored cells "
                             "to guide exploration of this unexplored region]"
                         )
                         try:
                             from openalpha_brain.core.loop_state import _algo_tick
+
                             _algo_tick("semantic_interpolation")
                         except (ImportError, AttributeError):
                             pass
@@ -769,17 +787,20 @@ class SemanticMutator:
                         pass
 
             expr = await self.decode_to_expression(
-                parent_a, parent_b,
+                parent_a,
+                parent_b,
                 interpolation_ratio=0.5,
                 direction=empty_cell.direction,
             )
 
             if expr:
-                results.append({
-                    "cell_key": empty_key,
-                    "expression": expr,
-                    "feature_description": feature_desc + interpolation_hint,
-                })
+                results.append(
+                    {
+                        "cell_key": empty_key,
+                        "expression": expr,
+                        "feature_description": feature_desc + interpolation_hint,
+                    }
+                )
 
             if len(results) >= top_k:
                 break

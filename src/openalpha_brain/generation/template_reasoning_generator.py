@@ -12,6 +12,7 @@ OpenAlpha-Brain — Template-Guided Reasoning Generator (模板引导式深度�
 
 Fallback机制：任何阶段失败时自动使用模板默认参数，保证鲁棒性。
 """
+
 from __future__ import annotations
 
 import json
@@ -246,18 +247,20 @@ class TemplateReasoningGenerator:
         Returns:
             str: 完整的 CoT prompt
         """
-        template_list_str = "\n".join([
-            f"{i+1}. [{t['id']}] {t['name']} — BlockA: {t['signal_example']} "
-            f"{'⭐ 推荐（跨族）' if t.get('is_cross_family') else ''}"
-            for i, t in enumerate(templates_summary)
-        ])
+        template_list_str = "\n".join(
+            [
+                f"{i + 1}. [{t['id']}] {t['name']} — BlockA: {t['signal_example']} "
+                f"{'⭐ 推荐（跨族）' if t.get('is_cross_family') else ''}"
+                for i, t in enumerate(templates_summary)
+            ]
+        )
 
         rag_section = ""
         if rag_context:
             rag_items = "\n".join([f"- {k}: {v}" for k, v in rag_context.items()])
             rag_section = f"\n\n## 当前市场上下文（RAG）\n{rag_items}"
 
-        return f"""你是一位量化研究专家。你需要从以下 {len(templates_summary)} 个经过验证的因子模板中选择最合适的一个来生成 alpha 表达式。
+        return f"""你是一位量化研究专家。你需要从以下 {len(templates_summary)} 个经过验证的因子模板中选择最合适的一个来生成 alpha 表达式。  # noqa: E501
 
 ## 当前探索方向
 {focus_area}
@@ -388,8 +391,8 @@ class TemplateReasoningGenerator:
 4. 数值参数（如 decay_lb, medium_lb）建议范围：5-30
 
 ## 阶段1的推理参考
-- 假设: {reasoning.get('hypothesis', 'N/A')}
-- 方向: {reasoning.get('signal_direction', 'N/A')}
+- 假设: {reasoning.get("hypothesis", "N/A")}
+- 方向: {reasoning.get("signal_direction", "N/A")}
 
 ## 你的任务
 为每个参数选择合适的字段值。确保字段选择的多样性和独特性。
@@ -435,7 +438,9 @@ class TemplateReasoningGenerator:
 
         logger.warning(
             "[REASONING] Expression complexity too low (%d ops < %d), enriching | template=%s",
-            op_count, min_ops, template_id,
+            op_count,
+            min_ops,
+            template_id,
         )
 
         price = field_mapping.get("price_field", "close")
@@ -451,31 +456,33 @@ class TemplateReasoningGenerator:
                 category = tpl.category
 
         if category == "value":
-            enriched = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"  # noqa: E501
         elif category == "momentum":
-            enriched = f"ts_decay_linear(group_neutralize(rank(ts_delta(ts_rank({price}, {medium_lb}), {medium_lb})), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_neutralize(rank(ts_delta(ts_rank({price}, {medium_lb}), {medium_lb})), sector), {decay_lb})"  # noqa: E501
         elif category in ("quality", "size"):
-            enriched = f"ts_decay_linear(group_zscore(-rank(ts_delta(ts_std_dev({fundamental if category == 'quality' else price}, {medium_lb}), {medium_lb})), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_zscore(-rank(ts_delta(ts_std_dev({fundamental if category == 'quality' else price}, {medium_lb}), {medium_lb})), sector), {decay_lb})"  # noqa: E501
         elif category == "volatility":
-            enriched = f"ts_decay_linear(group_neutralize(-rank(ts_delta(ts_std_dev({price}, {medium_lb}), {medium_lb})), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_neutralize(-rank(ts_delta(ts_std_dev({price}, {medium_lb}), {medium_lb})), sector), {decay_lb})"  # noqa: E501
         elif category == "liquidity":
             vol_field = field_mapping.get("volume_field", "volume")
             cap_field = field_mapping.get("cap_field", "market_cap")
-            enriched = f"ts_decay_linear(group_neutralize(-rank(ts_delta(ts_mean({vol_field}, {medium_lb}) / {cap_field}, {medium_lb})), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_neutralize(-rank(ts_delta(ts_mean({vol_field}, {medium_lb}) / {cap_field}, {medium_lb})), sector), {decay_lb})"  # noqa: E501
         elif category == "lead_lag":
             lead = field_mapping.get("lead_field", price)
             lag = field_mapping.get("lag_field", fundamental)
             short_lb = field_mapping.get("short_lb", 5)
-            enriched = f"ts_decay_linear(group_neutralize(rank(ts_corr(ts_delta({lead}, {short_lb}), ts_delta({lag}, {short_lb}), {short_lb})), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_neutralize(rank(ts_corr(ts_delta({lead}, {short_lb}), ts_delta({lag}, {short_lb}), {short_lb})), sector), {decay_lb})"  # noqa: E501
         elif category == "mean_reversion":
-            enriched = f"ts_decay_linear(group_zscore(-rank(ts_zscore({price} - ts_mean({price}, {medium_lb}), {zscore_lb})), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_zscore(-rank(ts_zscore({price} - ts_mean({price}, {medium_lb}), {zscore_lb})), sector), {decay_lb})"  # noqa: E501
         else:
-            enriched = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"
+            enriched = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"  # noqa: E501
 
         enriched_ops = self._extract_operators(enriched)
         logger.info(
             "[REASONING] Enriched expression: %d → %d operators | %s",
-            op_count, len(enriched_ops), enriched[:100],
+            op_count,
+            len(enriched_ops),
+            enriched[:100],
         )
         return enriched
 
@@ -525,7 +532,9 @@ class TemplateReasoningGenerator:
         if overall == "APPROVE":
             logger.info("[REASONING] Phase 4: EXPRESSION APPROVED ✓")
         else:
-            logger.warning("[REASONING] Phase 4: EXPRESSION REJECTED ✗ - reason: %s", critique.get("rejection_reason", ""))
+            logger.warning(
+                "[REASONING] Phase 4: EXPRESSION REJECTED ✗ - reason: %s", critique.get("rejection_reason", "")
+            )
 
         return {
             "critique": critique,
@@ -563,7 +572,7 @@ class TemplateReasoningGenerator:
 ## 生成元信息
 - 使用模板: {template_id}
 - 字段映射: {json.dumps(field_mapping, ensure_ascii=False)}
-- 检测到的算子 ({op_count}个): {', '.join(operators_used)}
+- 检测到的算子 ({op_count}个): {", ".join(operators_used)}
 
 ## 质量检查清单
 请逐项检查并给出 PASS/FAIL：
@@ -608,23 +617,32 @@ class TemplateReasoningGenerator:
             return []
 
         summaries = []
-        templates_attr = getattr(self._lib, '_three_block_templates', {})
+        templates_attr = getattr(self._lib, "_three_block_templates", {})
         for template_id, template in templates_attr.items():
             signal_example = template.block_a.template_str[:80]
 
             is_cross_family = False
             params = template.block_a.editable_params
-            if "price_field" in params and "fundamental_field" in params or "price_field" in params and any(p in params for p in ["earnings_field", "revenue_field", "asset_field"]) or "volume_field" in params and any(p in params for p in ["cap_field", "fundamental_field"]):
+            if (
+                "price_field" in params
+                and "fundamental_field" in params
+                or "price_field" in params
+                and any(p in params for p in ["earnings_field", "revenue_field", "asset_field"])
+                or "volume_field" in params
+                and any(p in params for p in ["cap_field", "fundamental_field"])
+            ):
                 is_cross_family = True
 
-            summaries.append({
-                "id": template_id,
-                "name": template.name,
-                "category": template.category,
-                "signal_example": signal_example,
-                "editable_params": params,
-                "is_cross_family": is_cross_family,
-            })
+            summaries.append(
+                {
+                    "id": template_id,
+                    "name": template.name,
+                    "category": template.category,
+                    "signal_example": signal_example,
+                    "editable_params": params,
+                    "is_cross_family": is_cross_family,
+                }
+            )
 
         return sorted(summaries, key=lambda x: x["id"])
 
@@ -685,18 +703,20 @@ class TemplateReasoningGenerator:
                 for fid in fields[:3]:
                     finfo = self._fpm.get_field_info(fid)
                     if finfo:
-                        recommended.append({
-                            "field_id": fid,
-                            "family_id": family_id,
-                            "coverage": finfo.get("coverage", 0),
-                            "for_param": param,
-                        })
+                        recommended.append(
+                            {
+                                "field_id": fid,
+                                "family_id": family_id,
+                                "coverage": finfo.get("coverage", 0),
+                                "for_param": param,
+                            }
+                        )
 
                 if fields:
                     seen_families.add(family_id)
                     break
 
-        return recommended[:top_k * 2]
+        return recommended[: top_k * 2]
 
     def _validate_cross_family(self, template_id: str, field_mapping: dict) -> dict:
         """验证字段映射是否满足跨族要求
@@ -714,7 +734,7 @@ class TemplateReasoningGenerator:
         families_used: set[str] = set()
         high_crowd_fields = {"close", "open", "high", "low", "volume"}
 
-        for param_name, field_value in field_mapping.items():
+        for _param_name, field_value in field_mapping.items():
             if isinstance(field_value, str) and field_value.lower() in high_crowd_fields:
                 continue
 
@@ -741,7 +761,7 @@ class TemplateReasoningGenerator:
         Returns:
             list[str]: 使用的算子名称列表
         """
-        operator_pattern = r'\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b'
+        operator_pattern = r"\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b"
         operators = re.findall(operator_pattern, expression)
         return list(dict.fromkeys(operators))
 
@@ -764,13 +784,13 @@ class TemplateReasoningGenerator:
         if text.startswith("```"):
             first_nl = text.find("\n")
             if first_nl >= 0:
-                text = text[first_nl + 1:]
+                text = text[first_nl + 1 :]
             if text.endswith("```"):
                 text = text[:-3]
             text = text.strip()
 
-        text = re.sub(r'//[^\n]*', '', text)
-        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        text = re.sub(r"//[^\n]*", "", text)
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
 
         if text.startswith("{"):
             try:
@@ -780,11 +800,11 @@ class TemplateReasoningGenerator:
             except json.JSONDecodeError:
                 pass
 
-        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        json_match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
         if json_match:
             try:
-                cleaned = re.sub(r'//[^\n]*', '', json_match.group())
-                cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+                cleaned = re.sub(r"//[^\n]*", "", json_match.group())
+                cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
                 return json.loads(cleaned)
             except json.JSONDecodeError:
                 pass
@@ -806,10 +826,7 @@ class TemplateReasoningGenerator:
         import random
 
         cross_family_templates = [t for t in templates_info if t.get("is_cross_family")]
-        if cross_family_templates:
-            selected = random.choice(cross_family_templates)
-        else:
-            selected = random.choice(templates_info)
+        selected = random.choice(cross_family_templates) if cross_family_templates else random.choice(templates_info)
 
         logger.info("[REASONING] Fallback Phase 1: selected %s (random)", selected["id"])
         return {
@@ -858,10 +875,7 @@ class TemplateReasoningGenerator:
         if self._lib:
             template = self._lib.get_three_block_template(template_id)
             if template:
-                field_mapping = {
-                    param: defaults.get(param, "close")
-                    for param in template.block_a.editable_params
-                }
+                field_mapping = {param: defaults.get(param, "close") for param in template.block_a.editable_params}
             else:
                 field_mapping = {"price_field": "close"}
         else:
@@ -883,6 +897,6 @@ class TemplateReasoningGenerator:
         decay_lb = field_mapping.get("decay_lb", 10)
         zscore_lb = field_mapping.get("zscore_lb", 20)
 
-        fallback_expr = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"
+        fallback_expr = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"  # noqa: E501
         logger.warning("[REASONING] Using ultimate fallback expression: %s", fallback_expr)
         return fallback_expr

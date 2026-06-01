@@ -3,6 +3,7 @@ OpenAlpha-Brain — Lightweight Vector Store
 Stores document embeddings with metadata, supports cosine-similarity retrieval.
 Persistence via JSON (vectors serialised as base64).
 """
+
 from __future__ import annotations
 
 import base64
@@ -66,7 +67,7 @@ class VectorStore:
                     self._id_to_idx[did] = len(self._ids)
                     self._ids.append(did)
                     self._metas.append(metas[i])
-                    self._vectors = np.concatenate([self._vectors, arr[i:i+1]], axis=0)
+                    self._vectors = np.concatenate([self._vectors, arr[i : i + 1]], axis=0)
 
     def query(
         self,

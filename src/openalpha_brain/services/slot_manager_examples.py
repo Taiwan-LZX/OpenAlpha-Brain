@@ -10,6 +10,7 @@ SlotManager 集成示例
   3. 在 Launcher 中的部署方式
   4. 完整的回调函数示例（MAB 更新、日志记录等）
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # 示例 1: 基础用法 — 独立使用 SlotManager
 # ============================================================================
+
 
 async def basic_usage_example():
     """基础用法：独立使用 SlotManager 提交因子"""
@@ -104,6 +106,7 @@ async def basic_usage_example():
 # ============================================================================
 # 示例 2: 与 LoopEngine 集成 — 替换串行提交
 # ============================================================================
+
 
 class IntegratedSlotManager:
     """
@@ -189,15 +192,17 @@ class IntegratedSlotManager:
 
     async def _log_result(self, slot: SlotInfo, result: BrainGateResult):
         """记录结果到缓存"""
-        self._results_cache.append({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "slot_id": slot.slot_id,
-            "expression": slot.expression,
-            "sharpe": result.sharpe,
-            "passed": result.passed,
-            "alpha_id": result.alpha_id,
-            "elapsed_sec": slot.elapsed_sec,
-        })
+        self._results_cache.append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "slot_id": slot.slot_id,
+                "expression": slot.expression,
+                "sharpe": result.sharpe,
+                "passed": result.passed,
+                "alpha_id": result.alpha_id,
+                "elapsed_sec": slot.elapsed_sec,
+            }
+        )
 
         # 保持缓存大小
         if len(self._results_cache) > 1000:
@@ -211,6 +216,7 @@ class IntegratedSlotManager:
 # ============================================================================
 # 示例 3: 在 Launcher 中部署
 # ============================================================================
+
 
 async def launcher_integration_example():
     """
@@ -252,6 +258,7 @@ async def launcher_integration_example():
 # 示例 4: 完整的生产环境配置
 # ============================================================================
 
+
 async def production_setup():
     """生产环境的完整配置示例"""
 
@@ -267,10 +274,10 @@ async def production_setup():
     manager = SlotManager(
         cookies=cookies,
         max_slots=settings.PIPELINE_MAX_SLOTS,  # 从配置读取，默认 3
-        poll_interval=5.0,                       # BRAIN 建议 5s
-        max_queue_size=200,                      # 允许更多排队
-        max_poll_seconds=300,                    # 5 分钟超时
-        submit_timeout=60.0,                     # 60s 提交超时
+        poll_interval=5.0,  # BRAIN 建议 5s
+        max_queue_size=200,  # 允许更多排队
+        max_poll_seconds=300,  # 5 分钟超时
+        submit_timeout=60.0,  # 60s 提交超时
     )
 
     # 3. 注册多个回调（按顺序执行）
@@ -293,6 +300,7 @@ async def production_setup():
         """回调 4: 自动提交高质量 alpha 审核"""
         if result.passed and result.alpha_id and result.sharpe and result.sharpe >= 1.5:
             from openalpha_brain.services.brain_client import submit_alpha_for_review
+
             success = await submit_alpha_for_review(result.alpha_id, cookies)
             if success:
                 logger.info("🚀 Auto-submitted alpha %s for review", result.alpha_id)
@@ -312,6 +320,7 @@ async def production_setup():
 # ============================================================================
 # 示例 5: 错误处理与恢复
 # ============================================================================
+
 
 async def error_handling_example():
     """展示错误处理和恢复机制"""

@@ -6,6 +6,7 @@ Saves to brain_operators.json and brain_datafields.json.
 Usage:
     python fetch_brain_schema.py
 """
+
 from __future__ import annotations
 
 import json
@@ -72,7 +73,7 @@ def fetch_data_fields(client: httpx.Client) -> list[dict]:
                 break
             if resp.status_code == 429:
                 wait = int(resp.headers.get("Retry-After", "5")) + 1
-                print(f"  ... rate limited, waiting {wait}s (attempt {attempt+1}/{max_retries})")
+                print(f"  ... rate limited, waiting {wait}s (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait)
                 continue
             print(f"[data-fields] FAILED at offset={offset} (status={resp.status_code}): {resp.text[:300]}")

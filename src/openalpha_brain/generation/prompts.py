@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 def _load_operator_list() -> str:
     schema_path = get_data_path("brain_operators.json")
-    fallback = "rank  ts_rank  ts_mean  ts_std_dev  ts_delta  ts_zscore  ts_decay_linear  group_neutralize  abs  log  signed_power  max  min  scale  ts_delay  ts_sum  ts_corr  ts_regression  ts_arg_max  ts_arg_min  ts_backfill  trade_when  zscore  normalize  winsorize  hump  group_rank  group_zscore  ts_av_diff  ts_quantile  quantile  vec_sum  vec_avg"
+    fallback = (
+                       "rank ts_rank ts_mean ts_std_dev ts_delta ts_zscore ts_decay_linear group_neutralize"
+                       "abs log signed_power max min scale ts_delay ts_sum ts_corr ts_regression ts_arg_max"
+                       "ts_arg_min ts_backfill trade_when zscore normalize winsorize hump group_rank"
+                       "group_zscore ts_av_diff ts_quantile quantile vec_sum vec_avg"
+       )
     if not schema_path.exists():
         return fallback
     try:
@@ -36,6 +41,7 @@ def _load_operator_list() -> str:
         pass
     return fallback
 
+
 ALPHA_JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -50,9 +56,9 @@ ALPHA_JSON_SCHEMA = {
                 "turnover_min": {"type": "number"},
                 "turnover_max": {"type": "number"},
                 "returns_pct": {"type": "number"},
-                "corr_risk": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]}
+                "corr_risk": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
             },
-            "required": ["sharpe_min", "sharpe_max", "fitness_min"]
+            "required": ["sharpe_min", "sharpe_max", "fitness_min"],
         },
         "fingerprint": {
             "type": "object",
@@ -61,21 +67,18 @@ ALPHA_JSON_SCHEMA = {
                 "topology": {"type": "string"},
                 "temporal": {"type": "string"},
                 "normalization": {"type": "string"},
-                "neutral": {"type": "string"}
-            }
+                "neutral": {"type": "string"},
+            },
         },
         "ast_topology": {"type": "string", "description": "AST pattern like Rank(TSDelta(Divide, Int))"},
         "refinement_log": {"type": "string"},
         "decision": {"type": "string", "enum": ["SUBMIT CANDIDATE", "ADVANCE TO TEST", "ITERATE", "REJECT"]},
         "simulation_payload": {
             "type": "object",
-            "properties": {
-                "settings": {"type": "object"},
-                "regular": {"type": "string"}
-            }
-        }
+            "properties": {"settings": {"type": "object"}, "regular": {"type": "string"}},
+        },
     },
-    "required": ["rationale", "expression", "metrics", "fingerprint", "ast_topology", "refinement_log", "decision"]
+    "required": ["rationale", "expression", "metrics", "fingerprint", "ast_topology", "refinement_log", "decision"],
 }
 
 _SYSTEM_PROMPT_TEMPLATE = """\
@@ -242,20 +245,25 @@ SECTION 4 — ALPHA IDEATION (ECONOMIC LOGIC FIRST)
 State the inefficiency BEFORE writing any expression.
 Must be: (a) plausible, (b) non-obvious, (c) persistent.
 
-ECONOMIC EXPLANATION REQUIREMENT: For every alpha expression you generate, you MUST also provide a brief economic explanation (1-2 sentences) describing the market inefficiency or financial logic the expression captures. Format: ECONOMIC_RATIONALE: <your explanation>
+ECONOMIC EXPLANATION REQUIREMENT: (
+    "For every alpha expression you generate, you MUST also provide a brief "
+    "economic explanation (1-2 sentences) describing the market "
+    "inefficiency or financial logic the expression captures. Format: "
+    "ECONOMIC_RATIONALE: <your explanation>"
+)  # noqa: E501
 
 ▌ INNOVATION PALETTE (adapted from real BRAIN-passed patterns, ALL >=5 operators)
-  Cross-Family Value-Momentum: ts_decay_linear(group_neutralize(-rank(ts_av_diff(close, 10)) + rank(debt / enterprise_value), sector), 10)
+  Cross-Family Value-Momentum: ts_decay_linear(group_neutralize(-rank(ts_av_diff(close, 10)) + rank(debt / enterprise_value), sector), 10)  # noqa: E501
     → Combines price reversal with fundamental value, sector-neutralized, decay-weighted (Sharpe 1.77 proven, 6 ops)
-  Liquidity-Adjusted Reversal: ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(close / vwap, 20), 2)), sector), 10)
+  Liquidity-Adjusted Reversal: ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(close / vwap, 20), 2)), sector), 10)  # noqa: E501
     → Price-to-VWAP z-score with nonlinear transform, sector-neutralized (Sharpe 1.69 proven, 5 ops)
-  Volume-Quality Momentum: ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * volume / adv20, 5), 5)), sector), 10)
+  Volume-Quality Momentum: ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * volume / adv20, 5), 5)), sector), 10)  # noqa: E501
     → Returns scaled by relative volume, double-smoothed by delta+rank, neutralized (Sharpe 1.60 proven, 6 ops)
-  Volatility-Conditioned Signal: ts_decay_linear(group_neutralize(rank(signed_power(ts_decay_linear(signal / ts_std_dev(close, 20), 10), 2)), industry), 10)
+  Volatility-Conditioned Signal: ts_decay_linear(group_neutralize(rank(signed_power(ts_decay_linear(signal / ts_std_dev(close, 20), 10), 2)), industry), 10)  # noqa: E501
     → Signal normalized by volatility, nonlinear transform, industry-neutralized (5+ ops)
-  Fundamental-Price Interaction: ts_decay_linear(group_neutralize(rank(ts_delta(fund_field, 5)) * rank(ts_delta(volume / adv20, 5)), sector), 10)
+  Fundamental-Price Interaction: ts_decay_linear(group_neutralize(rank(ts_delta(fund_field, 5)) * rank(ts_delta(volume / adv20, 5)), sector), 10)  # noqa: E501
     → Fundamental change rate multiplied by volume anomaly, cross-confirmed (6 ops)
-  Correlation Lead-Lag: ts_decay_linear(group_neutralize(rank(ts_corr(ts_delta(price_field, 5), ts_delta(vol_field, 5), 5)), sector), 10)
+  Correlation Lead-Lag: ts_decay_linear(group_neutralize(rank(ts_corr(ts_delta(price_field, 5), ts_delta(vol_field, 5), 5)), sector), 10)  # noqa: E501
     → Price-volume correlation dynamics with full three-block structure (5 ops)
 
 ══════════════════════════════════════════════════════════════════════
@@ -266,10 +274,10 @@ These patterns have PASSED BRAIN validation with Sharpe>1.5.
 Study their structure and ADAPT (not copy) for your generations:
 
 PATTERN A — Cross-Family Interaction (Sharpe 1.77, Fitness 1.26):
-  Real expression: ts_decay_linear(group_neutralize(-rank(ts_av_diff(close, 10)) + rank(debt / enterprise_value), sector), 10)
+  Real expression: ts_decay_linear(group_neutralize(-rank(ts_av_diff(close, 10)) + rank(debt / enterprise_value), sector), 10)  # noqa: E501
   Structure: decay(neutralize(negation * rank(temporal) ± rank(fundamental_ratio)))
   Key insight: Mix price data with fundamental data for lower crowding risk
-  Template: ts_decay_linear(group_neutralize(-rank(ts_av_diff/ts_decay_linear(PRICE_FIELD, W)) + rank(FUND_FIELD / FUND_FIELD2), sector), W)
+  Template: ts_decay_linear(group_neutralize(-rank(ts_av_diff/ts_decay_linear(PRICE_FIELD, W)) + rank(FUND_FIELD / FUND_FIELD2), sector), W)  # noqa: E501
   Operators: ts_decay_linear + group_neutralize + rank + ts_av_diff + rank = 5+ ✅
   Why it works: price momentum captures short-term mispricing, fundamental ratio captures long-term value signal
 
@@ -277,15 +285,15 @@ PATTERN B — Ratio Decay Reversal (Sharpe 1.69, Fitness 1.07):
   Real expression: ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(close / vwap, 20), 2)), sector), 10)
   Structure: decay(neutralize(negation * rank(nonlinear(zscore(ratio)))))
   Key insight: Price-to-volume ratio captures mean-reversion in liquidity
-  Template: ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(FIELD_A / FIELD_B, ZSCORE_LB), POWER)), sector), DECAY_LB)
+  Template: ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(FIELD_A / FIELD_B, ZSCORE_LB), POWER)), sector), DECAY_LB)  # noqa: E501
   Operators: ts_decay_linear + group_neutralize + rank + signed_power + ts_zscore = 5 ✅
   Why it works: close/vwap deviation from fair value reverts; z-score normalizes; signed_power adds nonlinearity
 
 PATTERN C — Volume-Weighted Momentum (Sharpe 1.60, Fitness 1.03):
-  Real expression: ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * volume / adv20, 5), 5)), sector), 10)
+  Real expression: ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * volume / adv20, 5), 5)), sector), 10)  # noqa: E501
   Structure: decay(neutralize(negation * rank(delta(rank(volume_scaled_returns)))))
   Key insight: Scale returns by relative volume for quality-weighted signal
-  Template: ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * VOLUME_PROXY, SHORT_LB), MED_LB)), sector), DECAY_LB)
+  Template: ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * VOLUME_PROXY, SHORT_LB), MED_LB)), sector), DECAY_LB)  # noqa: E501
   Operators: ts_decay_linear + group_neutralize + rank + ts_delta + ts_rank = 5 ✅
   Why it works: high-volume returns are more informative; double-smoothing reduces noise
 
@@ -368,7 +376,7 @@ You MUST output a single valid JSON object matching this schema:
   "ast_topology": "Rank(TSDelta(Close, Int))",
   "refinement_log": "Original idea: raw delta. Fixed by adding rank normalization.",
   "decision": "SUBMIT CANDIDATE",
-  "simulation_payload": {"settings": {"delay": 1, "decay": 5}, "regular": "group_neutralize(rank(ts_delta(close, 5)), industry)"}
+  "simulation_payload": {"settings": {"delay": 1, "decay": 5}, "regular": "group_neutralize(rank(ts_delta(close, 5)), industry)"}  # noqa: E501
 }
 CRITICAL: Output ONLY the JSON object. No markdown fences, no section headers, no extra text.
 The "expression" field MUST contain ONLY the FastExpr expression — no natural language.
@@ -398,11 +406,9 @@ def build_memory_injection(state) -> str:
     for i, fp in enumerate(state.fingerprint_memory):
         topo = state.topology_map.get(fp.get("topology", ""), "PASSED")
         parts = ", ".join(f"{k}={v}" for k, v in fp.items() if v)
-        explored.append(f"  FP-{i+1} [{topo}]: {parts}")
+        explored.append(f"  FP-{i + 1} [{topo}]: {parts}")
 
-    failed_topos = [
-        t for t, status in state.topology_map.items() if status == "FAILED"
-    ]
+    failed_topos = [t for t, status in state.topology_map.items() if status == "FAILED"]
 
     dataset_usage = dict(state.dataset_usage) if state.dataset_usage else {}
 
@@ -415,8 +421,8 @@ def build_memory_injection(state) -> str:
     failure_lines = []
     for fc in state.failure_catalog[-5:]:
         failure_lines.append(
-            f"  {fc.get('failure_type','?')}: fp={fc.get('fingerprint',{})} "
-            f"metric={fc.get('metric_value','?')} mutation={fc.get('mutation_tried','?')}"
+            f"  {fc.get('failure_type', '?')}: fp={fc.get('fingerprint', {})} "
+            f"metric={fc.get('metric_value', '?')} mutation={fc.get('mutation_tried', '?')}"
         )
 
     frontiers = state.open_frontiers[:5] if state.open_frontiers else []
@@ -477,9 +483,7 @@ def build_failure_feedback(
 ) -> str:
     values_str = ""
     if values:
-        values_str = "\n     Specific values: " + ", ".join(
-            f"{k}={v}" for k, v in values.items()
-        )
+        values_str = "\n     Specific values: " + ", ".join(f"{k}={v}" for k, v in values.items())
     failures_list = "\n     - ".join(failures)
     return (
         f"Alpha {cycle} failed local validation.\n"
@@ -713,8 +717,14 @@ def _elm_fuzzy_match(check_name: str) -> str | None:
         "LOW_TURNOVER": ["TURNOVER_LOW", "STATIC_SIGNAL", "NO_TRADING"],
         "SELF_CORRELATION": ["CORRELATION", "HIGH_CORRELATION", "SIMILAR_ALPHA", "DUPLICATE"],
         "CONCENTRATED_WEIGHT": ["CONCENTRATION", "WEIGHT_CONCENTRATION", "CONCENTRATED"],
-        "BRAIN_SIMULATION_ERROR": ["SIMULATION_ERROR", "UNKNOWN_VAR", "INVALID_VARIABLE",
-                              "SYNTAX_ERROR", "PARSE_ERROR", "RUNTIME_ERROR"],
+        "BRAIN_SIMULATION_ERROR": [
+            "SIMULATION_ERROR",
+            "UNKNOWN_VAR",
+            "INVALID_VARIABLE",
+            "SYNTAX_ERROR",
+            "PARSE_ERROR",
+            "RUNTIME_ERROR",
+        ],
         "GRAPHER": ["GRAPHER_FAIL", "GRAPH_ERROR"],
         "MARGINAL": ["MARGINAL_CONTRIB", "LOW_MARGINAL", "MARGINAL_FAIL"],
         "AST_NON_ORIGINAL": ["NON_ORIGINAL", "NOT_UNIQUE", "TOPOLOGY_CLASH", "SIMILAR_TO_EXISTING"],
@@ -753,7 +763,7 @@ def build_brain_failure_feedback(
     The LLM receives exact real metrics + surgical fix instructions for each failure.
     """
     # Identify failed and pending checks
-    failed_checks  = [c for c in brain_checks if c.get("result") == "FAIL"]
+    failed_checks = [c for c in brain_checks if c.get("result") == "FAIL"]
     pending_checks = [c for c in brain_checks if c.get("result") == "PENDING"]
 
     # Build mutation instructions per failure
@@ -764,12 +774,11 @@ def build_brain_failure_feedback(
         mutation_blocks.append(_BRAIN_CHECK_MUTATIONS["BRAIN_SIMULATION_ERROR"])
     elif error_message:
         mutation_blocks.append(
-            f"BRAIN SIMULATION ERROR: {error_message[:200]}\n"
-            "  Fix the expression syntax and resubmit."
+            f"BRAIN SIMULATION ERROR: {error_message[:200]}\n  Fix the expression syntax and resubmit."
         )
 
     for chk in failed_checks:
-        name  = chk.get("name", "")
+        name = chk.get("name", "")
         value = chk.get("value")
         limit = chk.get("limit")
         mutation = _BRAIN_CHECK_MUTATIONS.get(name)
@@ -805,7 +814,7 @@ def build_brain_failure_feedback(
 
     if real_drawdown is not None and real_drawdown > 10.0:
         mutation_blocks.append(
-            f"WARNING: High drawdown ({real_drawdown:.1f}%) indicates unstable returns. Consider adding ts_decay_linear or reducing position concentration."
+            f"WARNING: High drawdown ({real_drawdown:.1f}%) indicates unstable returns. Consider adding ts_decay_linear or reducing position concentration."  # noqa: E501
         )
 
     # Determine primary failure for headline
@@ -813,7 +822,8 @@ def build_brain_failure_feedback(
 
     # Format real metrics
     def fmt(v, pct=False):
-        if v is None: return "N/A"
+        if v is None:
+            return "N/A"
         return f"{v:.3f}" + ("%" if pct else "")
 
     # Build inspiration prefix if available
@@ -824,7 +834,7 @@ def build_brain_failure_feedback(
             "These structurally similar expressions have passed BRAIN validation before:",
         ]
         for i, expr in enumerate(inspiration_exprs[:3]):
-            inspiration_lines.append(f"  {i+1}. {expr}")
+            inspiration_lines.append(f"  {i + 1}. {expr}")
         inspiration_lines.append("")
         inspiration_prefix = "\n".join(inspiration_lines) + "\n"
 
@@ -862,7 +872,7 @@ def build_brain_failure_feedback(
         "║  You MUST output ONE LINE containing ONLY a raw FastExpr expression ║",
         "║  NO JSON object. NO rationale field. NO explanation.               ║",
         "║  NO markdown fences. NO section headers.                           ║",
-        "║  DO NOT output: { \"expression\": \"...\", \"rationale\": \"...\" }      ║",
+        '║  DO NOT output: { "expression": "...", "rationale": "..." }      ║',
         "║  DO output:   group_neutralize(rank(ts_delta(close, 10)), industry) ║",
         "║                                                                    ║",
         "║  If you output ANYTHING other than a single raw expression line,    ║",
@@ -884,7 +894,7 @@ _BRAIN_CHECK_DIAGNOSTICS: dict[str, str] = {
         "  3. The time window selection may be wrong — short windows have high noise, long windows have signal decay"
     ),
     "HIGH_TURNOVER": (
-        "The indicators your hypothesis depends on fluctuate too much, causing excessive daily position changes. Possible causes:\n"
+        "The indicators your hypothesis depends on fluctuate too much, causing excessive daily position changes. Possible causes:\n"  # noqa: E501
         "  1. The indicator itself is too volatile (e.g., daily returns)\n"
         "  2. Lack of smoothing mechanism; need to incorporate trend persistence or mean reversion in the hypothesis"
     ),
@@ -967,7 +977,7 @@ _BRAIN_CHECK_DIAGNOSTICS: dict[str, str] = {
         "BRAIN SIMULATION ERROR — expression uses invalid variables:\n"
         "-> Only these bare variable names exist in BRAIN FastExpr:\n"
         "  close, open, high, low, vwap, volume, adv20, returns, cap\n"
-        "-> Other fields are dynamically provided by the system; only use fields listed in the current cycle's ALLOWED DATA FIELDS\n"
+        "-> Other fields are dynamically provided by the system; only use fields listed in the current cycle's ALLOWED DATA FIELDS\n"  # noqa: E501
         "-> Never use unlisted variables; rewrite the expression"
     ),
 }
@@ -1011,8 +1021,7 @@ def build_success_feedback(
 ) -> str:
     fp_summary = ", ".join(f"{k}={v}" for k, v in fingerprint.items() if v)
     all_fp_str = "\n".join(
-        f"  FP-{i+1}: " + ", ".join(f"{k}={v}" for k, v in fp.items() if v)
-        for i, fp in enumerate(all_fingerprints)
+        f"  FP-{i + 1}: " + ", ".join(f"{k}={v}" for k, v in fp.items() if v) for i, fp in enumerate(all_fingerprints)
     )
     return (
         f"Alpha {cycle} ({alpha_id}) PASSED all IQC gates.\n"
@@ -1046,7 +1055,8 @@ def build_family_switch_warning(family: str, cycle: int) -> str:
 def _get_decay_context_injection() -> str:
     try:
         from openalpha_brain.core import loop_state as _ls
-        detector = getattr(_ls, '_decay_detector', None)
+
+        detector = getattr(_ls, "_decay_detector", None)
         if detector is None:
             return ""
         return detector.build_decay_prompt_injection()
@@ -1057,8 +1067,9 @@ def _get_decay_context_injection() -> str:
 def _get_crossover_context_injection() -> str:
     try:
         from openalpha_brain.core import loop_state as _ls
+
         parts: list[str] = []
-        insights = getattr(_ls, '_trajectory_crossover_insights', None)
+        insights = getattr(_ls, "_trajectory_crossover_insights", None)
         if insights:
             parts.append("\n▶ TRAJECTORY CROSSOVER INSIGHTS (recently discovered strategy combinations):")
             for i, ins in enumerate(insights[:5]):
@@ -1067,7 +1078,7 @@ def _get_crossover_context_injection() -> str:
                 mechanism = ins.get("mechanism", "")
                 complementary = ins.get("complementary", [])
                 analysis = ins.get("analysis", "")
-                line = f"  {i+1}. direction={direction}, strategy={strategy}"
+                line = f"  {i + 1}. direction={direction}, strategy={strategy}"
                 if mechanism:
                     line += f", mechanism={mechanism[:120]}"
                 if complementary:
@@ -1075,21 +1086,25 @@ def _get_crossover_context_injection() -> str:
                 if analysis:
                     line += f", analysis={analysis[:150]}"
                 parts.append(line)
-            parts.append("  Consider these crossover-derived directions for your next alpha — they combine complementary strengths from multiple trajectories.")
-        alerts = getattr(_ls, '_weak_segment_alerts', None)
+            parts.append(
+                "  Consider these crossover-derived directions for your next alpha — they combine complementary strengths from multiple trajectories."  # noqa: E501
+            )
+        alerts = getattr(_ls, "_weak_segment_alerts", None)
         if alerts:
             parts.append("\n▶ WEAK SEGMENT ALERTS (recently diagnosed failure patterns from trajectory mutation):")
             for i, alert in enumerate(alerts[:5]):
                 weak_seg = alert.get("weak_segment", "?")
                 diagnosis = alert.get("diagnosis", "")
                 direction = alert.get("direction", "")
-                line = f"  {i+1}. weak_segment={weak_seg}"
+                line = f"  {i + 1}. weak_segment={weak_seg}"
                 if diagnosis:
                     line += f", diagnosis={diagnosis[:150]}"
                 if direction:
                     line += f", mutated_direction={direction}"
                 parts.append(line)
-            parts.append("  AVOID repeating these weak patterns — they have been diagnosed as failure-prone in recent trajectory mutations.")
+            parts.append(
+                "  AVOID repeating these weak patterns — they have been diagnosed as failure-prone in recent trajectory mutations."  # noqa: E501
+            )
         return "\n".join(parts) if parts else ""
     except (OSError, ValueError, AttributeError, RuntimeError):
         return ""
@@ -1122,13 +1137,11 @@ def _build_field_family_map(field_ids: list[str]) -> dict[str, tuple[str, str]] 
         "low": ("price_trend", "high"),
         "vwap": ("price_trend", "high"),
         "returns": ("price_trend", "high"),
-
         # volume_liquidity family (HIGH CROWDING)
         "volume": ("volume_liquidity", "high"),
         "adv20": ("volume_liquidity", "high"),
         "adv60": ("volume_liquidity", "high"),
         "cap": ("volume_liquidity", "medium"),
-
         # valuation family (LOW CROWDING — PREFERRED)
         "debt": ("valuation", "low"),
         "enterprise_value": ("valuation", "low"),
@@ -1147,14 +1160,12 @@ def _build_field_family_map(field_ids: list[str]) -> dict[str, tuple[str, str]] 
         "inventory": ("valuation", "low"),
         "receivables": ("valuation", "low"),
         "payables": ("valuation", "low"),
-
         # growth family (LOW CROWDING)
         "earnings_growth": ("growth", "low"),
         "revenue_growth": ("growth", "low"),
         "sales_growth": ("growth", "low"),
         "eps_growth": ("growth", "low"),
         "ebitda_growth": ("growth", "low"),
-
         # quality family (MEDIUM CROWDING)
         "roe": ("quality", "medium"),
         "roa": ("quality", "medium"),
@@ -1166,26 +1177,22 @@ def _build_field_family_map(field_ids: list[str]) -> dict[str, tuple[str, str]] 
         "quick_ratio": ("quality", "medium"),
         "debt_to_equity": ("quality", "medium"),
         "interest_coverage": ("quality", "medium"),
-
         # sentiment family (LOW CROWDING)
         "analyst_revision": ("sentiment", "low"),
         "eps_estimate": ("sentiment", "low"),
         "target_price": ("sentiment", "low"),
         "recommendation": ("sentiment", "low"),
         "consensus": ("sentiment", "low"),
-
         # microstructure family (MEDIUM CROWDING)
         "bid_ask_spread": ("microstructure", "medium"),
         "trade_count": ("microstructure", "medium"),
         "trade_size": ("microstructure", "medium"),
         "volatility": ("microstructure", "medium"),
-
         # ownership family (LOW CROWDING)
         "institutional_holdings": ("ownership", "low"),
         "insider_holdings": ("ownership", "low"),
         "short_interest": ("ownership", "low"),
         "float": ("ownership", "low"),
-
         # risk family (MEDIUM CROWDING)
         "beta": ("risk", "medium"),
         "variance": ("risk", "medium"),
@@ -1197,15 +1204,16 @@ def _build_field_family_map(field_ids: list[str]) -> dict[str, tuple[str, str]] 
     result = {}
     for field in field_ids:
         field_lower = field.lower().strip()
-        if field_lower in family_definitions:
-            result[field] = family_definitions[field_lower]
-        else:
-            result[field] = ("unknown", "medium")
+        result[field] = family_definitions.get(field_lower, ("unknown", "medium"))
 
     return result if result else None
 
 
-def build_dynamic_context(rag_context: dict | None = None, global_blacklist: list[dict] | None = None, experience_cards: list[dict] | None = None) -> str:
+def build_dynamic_context(
+    rag_context: dict | None = None,
+    global_blacklist: list[dict] | None = None,
+    experience_cards: list[dict] | None = None,
+) -> str:
     """
     Build dynamic context injection from RAG + MAB retrieval results
     and global hallucination blacklist.
@@ -1215,9 +1223,11 @@ def build_dynamic_context(rag_context: dict | None = None, global_blacklist: lis
     if rag_context is None and global_blacklist is None and experience_cards is None:
         return ""
 
-    lines = ["\n\n══════════════════════════════════════════════════════════════════════",
-             "DYNAMIC RESEARCH CONTEXT (RAG-retrieved for this cycle)",
-             "══════════════════════════════════════════════════════════════════════"]
+    lines = [
+        "\n\n══════════════════════════════════════════════════════════════════════",
+        "DYNAMIC RESEARCH CONTEXT (RAG-retrieved for this cycle)",
+        "══════════════════════════════════════════════════════════════════════",
+    ]
 
     if rag_context:
         direction = rag_context.get("exploration_direction", "")
@@ -1244,21 +1254,29 @@ def build_dynamic_context(rag_context: dict | None = None, global_blacklist: lis
         field_ids = rag_context.get("field_ids", [])
         if field_ids:
             lines.append(f"\n▶ ALLOWED DATA FIELDS THIS CYCLE: {', '.join(field_ids)}")
-            lines.append("  You may ONLY use these data fields in your expression. Using any other field will cause BRAIN ERROR.")
+            lines.append(
+                "  You may ONLY use these data fields in your expression. Using any other field will cause BRAIN ERROR."
+            )
 
             field_family_map = _build_field_family_map(field_ids)
             if field_family_map:
                 lines.append("\n▶ FIELD FAMILY ASSIGNMENT:")
                 for field, (family, crowd_level) in field_family_map.items():
-                    crowd_marker = "HIGH CROWDING — minimize usage" if crowd_level == "high" else \
-                                   "MEDIUM CROWDING" if crowd_level == "medium" else \
-                                   "LOW CROWDING — PREFERRED"
+                    crowd_marker = (
+                        "HIGH CROWDING — minimize usage"
+                        if crowd_level == "high"
+                        else "MEDIUM CROWDING"
+                        if crowd_level == "medium"
+                        else "LOW CROWDING — PREFERRED"
+                    )
                     lines.append(f"  {field} → {family} ({crowd_marker})")
 
                 low_crowd_fields = [f for f, (_, cl) in field_family_map.items() if cl == "low"]
                 high_crowd_fields = [f for f, (_, cl) in field_family_map.items() if cl == "high"]
                 if low_crowd_fields:
-                    lines.append(f"\n  RECOMMENDATION: Use at least 1 field from LOW CROWDING family: {', '.join(low_crowd_fields)}")
+                    lines.append(
+                        f"\n  RECOMMENDATION: Use at least 1 field from LOW CROWDING family: {', '.join(low_crowd_fields)}"  # noqa: E501
+                    )
                 if high_crowd_fields:
                     lines.append(f"  AVOID overusing HIGH CROWDING fields: {', '.join(high_crowd_fields)}")
 
@@ -1319,7 +1337,9 @@ def build_fine_tune_guidance(direction: str, brain_checks: list[dict] | None = N
                 elif name == "HIGH_TURNOVER":
                     hints.append("HIGH_TURNOVER detected: add smoothing (ts_decay_linear) or increase decay parameter")
                 elif name == "SELF_CORRELATION":
-                    hints.append("SELF_CORRELATION detected: replace core operator with alternative (e.g., ts_delta→ts_zscore)")
+                    hints.append(
+                        "SELF_CORRELATION detected: replace core operator with alternative (e.g., ts_delta→ts_zscore)"
+                    )
 
         return "\n".join(f"  - {h}" for h in hints) if hints else ""
     except (OSError, ValueError, RuntimeError):
@@ -1336,8 +1356,7 @@ async def llm_diagnose_failure(
         return None
 
     check_summary = "\n".join(
-        f"- {c.get('name', '?')}: value={c.get('value', 'N/A')}, limit={c.get('limit', 'N/A')}"
-        for c in brain_checks
+        f"- {c.get('name', '?')}: value={c.get('value', 'N/A')}, limit={c.get('limit', 'N/A')}" for c in brain_checks
     )
 
     prompt = (

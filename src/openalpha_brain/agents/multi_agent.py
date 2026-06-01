@@ -10,9 +10,11 @@ Design decisions (from grill-me confirmation):
   - Idea Agent data sources: RAG financial logic + historical alpha patterns + BRAIN feedback
   - Max 3 iterations, terminate after 2 consecutive no-improvement rounds
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -23,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import httpx
 
 from openalpha_brain.agents.adaptive_agent import AdaptiveAgentFactory
@@ -49,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 _DIRECTION_OPERATOR_MAP: dict[str, list[str]] = {}
 
+
 def _load_direction_operator_map() -> dict[str, list[str]]:
     global _DIRECTION_OPERATOR_MAP
     try:
@@ -66,12 +70,14 @@ def _load_direction_operator_map() -> dict[str, list[str]]:
         }
     return _DIRECTION_OPERATOR_MAP
 
+
 _load_direction_operator_map()
 
 _DIRECTION_FIELD_MAP: dict[str, list[str]] = {}
 
 _fastexpr_grammar: str | None = None
 _fastexpr_grammar_loaded: bool = False
+
 
 def _load_fastexpr_grammar() -> str | None:
     global _fastexpr_grammar, _fastexpr_grammar_loaded
@@ -90,6 +96,7 @@ def _load_fastexpr_grammar() -> str | None:
         _fastexpr_grammar = None
     return _fastexpr_grammar
 
+
 def _load_direction_field_map() -> dict[str, list[str]]:
     global _DIRECTION_FIELD_MAP
     try:
@@ -107,60 +114,69 @@ def _load_direction_field_map() -> dict[str, list[str]]:
         }
     return _DIRECTION_FIELD_MAP
 
+
 _load_direction_field_map()
 
 _fastexpr_parser = FASTEXPRParser()
+
 
 def _collect_operators_from_ast(expression: str) -> list[str]:
     try:
         tree = _fastexpr_parser.parse(expression)
         ops: list[str] = []
         seen: set[str] = set()
+
         def _walk(node: ASTNode) -> None:
             if node.op and node.op not in {"+", "-", "*", "/", "neg"} and node.op not in seen:
                 ops.append(node.op)
                 seen.add(node.op)
             for child in node.children:
                 _walk(child)
+
         _walk(tree)
         return ops
     except (ValueError, SyntaxError, TypeError):
         try:
-            pattern = r'([a-z_][a-z0-9_]*)\s*\('
+            pattern = r"([a-z_][a-z0-9_]*)\s*\("
             matches = re.findall(pattern, expression)
             return list(dict.fromkeys(matches))
         except (ValueError, TypeError):
             return []
+
 
 def _collect_fields_from_ast(expression: str) -> list[str]:
     try:
         tree = _fastexpr_parser.parse(expression)
         fields: list[str] = []
         seen: set[str] = set()
+
         def _walk(node: ASTNode) -> None:
             if node.is_field and node.value not in seen:
                 fields.append(node.value)
                 seen.add(node.value)
             for child in node.children:
                 _walk(child)
+
         _walk(tree)
         return fields
     except (ValueError, SyntaxError, TypeError):
         try:
-            all_identifiers = set(re.findall(r'\b([a-z][a-z0-9_]*)\b', expression))
-            operators = set(re.findall(r'([a-z_][a-z0-9_]*)\s*\(', expression))
-            keywords = {'and', 'or', 'not', 'if', 'else', 'true', 'false', 'nan', 'inf'}
+            all_identifiers = set(re.findall(r"\b([a-z][a-z0-9_]*)\b", expression))
+            operators = set(re.findall(r"([a-z_][a-z0-9_]*)\s*\(", expression))
+            keywords = {"and", "or", "not", "if", "else", "true", "false", "nan", "inf"}
             fields = all_identifiers - operators - keywords
             return list(fields)
         except (ValueError, TypeError):
             return []
 
+
 def _extract_max_lookback(expression: str) -> int:
     try:
-        numbers = re.findall(r',\s*(\d+)\s*\)', expression)
+        numbers = re.findall(r",\s*(\d+)\s*\)", expression)
         return max(int(n) for n in numbers) if numbers else 0
     except (ValueError, TypeError):
         return 0
+
 
 _DIRECTION_TIME_MAP = {
     "short": 10,
@@ -178,15 +194,18 @@ _MECHANISM_OPERATOR_MAP: dict[str, list[str]] = {
     "lead_lag": ["ts_delta", "ts_delay", "ts_corr"],
 }
 
+
 def _check_semantic_alignment(hypothesis, expression: str) -> float:
     try:
         from openalpha_brain.evolution.hypothesis_aligner import HypothesisAligner
+
         if not hasattr(_check_semantic_alignment, "_aligner"):
             _check_semantic_alignment._aligner = HypothesisAligner()
         result = _check_semantic_alignment._aligner.align(expression, str(hypothesis))
         return result.get("r2_score", 0.5)
     except (ValueError, TypeError, RuntimeError):
         return 0.5
+
 
 async def critique_revise_alpha(
     expression: str,
@@ -225,20 +244,22 @@ async def critique_revise_alpha(
     for round_num in range(1, max_rounds + 1):
         logger.info(
             "critique_revise: round %d/%d — expr=%s",
-            round_num, max_rounds, current_expr[:60],
+            round_num,
+            max_rounds,
+            current_expr[:60],
         )
 
-        critique_prompt = f"""You are a quantitative alpha factor critic. Analyze why this expression failed BRAIN validation.
+        critique_prompt = f"""You are a quantitative alpha factor critic. Analyze why this expression failed BRAIN validation.  # noqa: E501
 
 EXPRESSION: {current_expr}
-HYPOTHESIS: {hypothesis_text or 'Not specified'}
-DIRECTION: {direction or 'Not specified'}
+HYPOTHESIS: {hypothesis_text or "Not specified"}
+DIRECTION: {direction or "Not specified"}
 
 BRAIN RESULT:
   Status: {status_str}
-  Sharpe: {real_sharpe or 'N/A'}
-  Fitness: {real_fitness or 'N/A'}
-  Turnover: {real_turnover or 'N/A'}
+  Sharpe: {real_sharpe or "N/A"}
+  Fitness: {real_fitness or "N/A"}
+  Turnover: {real_turnover or "N/A"}
   Failed Checks: {brain_checks}
 
 Provide a structured critique:
@@ -250,11 +271,19 @@ Provide a structured critique:
 Respond in JSON format only:
 {{"root_cause": "...", "structural_issue": "...", "modification_instruction": "...", "priority": "HIGH|MEDIUM|LOW"}}"""
 
-        critique_result = {"root_cause": "", "structural_issue": "", "modification_instruction": "", "priority": "MEDIUM"}
+        critique_result = {
+            "root_cause": "",
+            "structural_issue": "",
+            "modification_instruction": "",
+            "priority": "MEDIUM",
+        }
         try:
             raw = await llm_generate(
-                critique_prompt, [], "",
-                session_id=f"critique_r{round_num}", cycle=round_num,
+                critique_prompt,
+                [],
+                "",
+                session_id=f"critique_r{round_num}",
+                cycle=round_num,
             )
             _parsed = _extract_json_from_llm(raw)
             if _parsed and isinstance(_parsed, dict):
@@ -262,19 +291,21 @@ Respond in JSON format only:
         except (ValueError, TypeError, RuntimeError) as exc:
             logger.warning("critique_revise: critique LLM call failed r%d: %s", round_num, exc)
 
-        result["critique_log"].append({
-            "round": round_num,
-            "expression_before": current_expr,
-            "critique": critique_result,
-        })
+        result["critique_log"].append(
+            {
+                "round": round_num,
+                "expression_before": current_expr,
+                "critique": critique_result,
+            }
+        )
 
-        revise_prompt = f"""You are a quantitative alpha factor engineer. Revise the failed expression based on the critique.
+        revise_prompt = f"""You are a quantitative alpha factor engineer. Revise the failed expression based on the critique.  # noqa: E501
 
 ORIGINAL EXPRESSION: {current_expr}
-CRITIQUE: {critique_result.get('root_cause', '')}
-STRUCTURAL ISSUE: {critique_result.get('structural_issue', '')}
-MODIFICATION INSTRUCTION: {critique_result.get('modification_instruction', '')}
-DIRECTION: {direction or 'Not specified'}
+CRITIQUE: {critique_result.get("root_cause", "")}
+STRUCTURAL ISSUE: {critique_result.get("structural_issue", "")}
+MODIFICATION INSTRUCTION: {critique_result.get("modification_instruction", "")}
+DIRECTION: {direction or "Not specified"}
 
 Rules:
 1. Follow the modification instruction precisely
@@ -284,13 +315,16 @@ Rules:
         revised_expr = current_expr
         try:
             raw = await llm_generate(
-                revise_prompt, [], "",
-                session_id=f"revise_r{round_num}", cycle=round_num,
+                revise_prompt,
+                [],
+                "",
+                session_id=f"revise_r{round_num}",
+                cycle=round_num,
             )
             cleaned = raw.strip()
             for prefix in ["```json", "```python", "```", "expression:", "EXPRESSION:"]:
                 if cleaned.lower().startswith(prefix.lower()):
-                    cleaned = cleaned[len(prefix):].strip()
+                    cleaned = cleaned[len(prefix) :].strip()
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
             if cleaned and len(cleaned) >= 5:
@@ -304,25 +338,31 @@ Rules:
 
         logger.info(
             "critique_revise: round %d complete — %s... → %s...",
-            round_num, expression[:40], revised_expr[:40],
+            round_num,
+            expression[:40],
+            revised_expr[:40],
         )
 
     result["expression"] = current_expr
     logger.info(
         "critique_revise: complete — %d rounds, final expr=%s...",
-        result["rounds_completed"], current_expr[:60],
+        result["rounds_completed"],
+        current_expr[:60],
     )
     return result
+
 
 MAX_ITERATIONS = 3
 NO_IMPROVEMENT_LIMIT = 2
 _monitor = AlgoMonitor.get_instance()
 
+
 def _build_direction_hints() -> str:
     hints = []
     for direction, ops in _DIRECTION_OPERATOR_MAP.items():
-        hints.append(f'- {direction}: {", ".join(ops[:3])}')
+        hints.append(f"- {direction}: {', '.join(ops[:3])}")
     return "\n".join(hints)
+
 
 def _load_brain_submit_params() -> dict:
     try:
@@ -332,7 +372,17 @@ def _load_brain_submit_params() -> dict:
                 return json.load(f)
     except (OSError, json.JSONDecodeError):
         pass
-    return {"instrumentType": "EQUITY", "delay": 1, "decay": 5, "neutralization": "INDUSTRY", "truncation": 0.05, "nanHandling": "OFF", "pasteurization": "ON", "universe": "TOP3000"}
+    return {
+        "instrumentType": "EQUITY",
+        "delay": 1,
+        "decay": 5,
+        "neutralization": "INDUSTRY",
+        "truncation": 0.05,
+        "nanHandling": "OFF",
+        "pasteurization": "ON",
+        "universe": "TOP3000",
+    }
+
 
 _IDEA_SYSTEM_PROMPT = """\
 You are a financial hypothesis generator. Your task is to generate market hypotheses \
@@ -369,12 +419,12 @@ When field_family and recommended_fields are provided, your hypothesis MUST:
 2. Explain WHY these fields capture the market inefficiency
 3. Propose a specific field combination that tests the hypothesis
 4. Map each field to its role in the factor template
-Format: {{"direction": str, "asset_class": str, "time_horizon": str, "mechanism": str, "natural_language": str, "field_family": str, "field_combination": list[str]}}
+Format: {{"direction": str, "asset_class": str, "time_horizon": str, "mechanism": str, "natural_language": str, "field_family": str, "field_combination": list[str]}}  # noqa: E501
 """
 
 _FACTOR_SYSTEM_PROMPT = """\
 === LAYER 1: PLATFORM IDENTITY ===
-You are a factor engineer on the WorldQuant BRAIN IQC 2026 quantitative competition platform. Your expressions will be backtested against real market data and validated by BRAIN's gate checks.
+You are a factor engineer on the WorldQuant BRAIN IQC 2026 quantitative competition platform. Your expressions will be backtested against real market data and validated by BRAIN's gate checks.  # noqa: E501
 
 === LAYER 2: FASTEXPR LANGUAGE CHARACTERISTICS ===
 FASTEXPR is a PURE FUNCTIONAL language. CRITICAL RULES:
@@ -425,9 +475,9 @@ IMPORTANT:
 - Output ONLY the JSON object, no markdown fences, no extra text.
 - The "expression" field MUST contain ONLY the FastExpr expression.
 - The "simulation_payload.regular" field MUST match the "expression" field.
-- The "economic_rationale" field MUST contain a brief explanation (1-2 sentences) of the market inefficiency or financial logic the expression captures.
+- The "economic_rationale" field MUST contain a brief explanation (1-2 sentences) of the market inefficiency or financial logic the expression captures.  # noqa: E501
 - Default settings: delay=1, decay=5, neutralization=INDUSTRY, universe=TOP3000
-- You MUST also include ECONOMIC_RATIONALE: <explanation> in your output describing the market inefficiency your expression captures.
+- You MUST also include ECONOMIC_RATIONALE: <explanation> in your output describing the market inefficiency your expression captures.  # noqa: E501
 """
 
 
@@ -455,6 +505,7 @@ CORRECT SYNTAX EXAMPLES:
   group_neutralize(ts_zscore(rank(ts_delta(close, 10)), 20), industry)
   group_neutralize(ts_decay_linear(rank(close / ts_mean(close, 20)), 5), industry)
 """
+
 
 @dataclass
 class Hypothesis:
@@ -509,7 +560,8 @@ class SemanticAnchor:
                 return 1.0
 
             import math
-            dot = sum(a * b for a, b in zip(self._embedding, new_vec))
+
+            dot = sum(a * b for a, b in zip(self._embedding, new_vec, strict=False))
             norm_a = math.sqrt(sum(a * a for a in self._embedding))
             norm_b = math.sqrt(sum(b * b for b in new_vec))
             if norm_a == 0 or norm_b == 0:
@@ -599,7 +651,7 @@ class IdeaAgent:
                     "financial_logic_ids": context.get("financial_logic_ids", []),
                 }
                 finlogic = context.get("financial_logic_ids", [])
-                top_ops = [op["name"] for op in context.get("top_ops_detailed", [])]
+                [op["name"] for op in context.get("top_ops_detailed", [])]
                 top_ops_desc = [f"{op['name']}({op.get('category', '')})" for op in context.get("top_ops_detailed", [])]
                 fields = context.get("field_ids", [])
                 rag_context = (
@@ -616,7 +668,9 @@ class IdeaAgent:
                 if family:
                     family_desc = f"Field family: {family.family_name} ({family.l1_category}) — {family.description}"
                     if _sched_recommended_fields:
-                        family_desc += f"\nRecommended fields for this family: {', '.join(_sched_recommended_fields[:15])}"
+                        family_desc += (
+                            f"\nRecommended fields for this family: {', '.join(_sched_recommended_fields[:15])}"
+                        )
                     rag_context += f"\n{family_desc}"
                     rag_context_dict["field_family"] = _sched_family_id
                     rag_context_dict["recommended_fields"] = _sched_recommended_fields
@@ -731,8 +785,7 @@ class IdeaAgent:
                     if extra_ops:
                         existing_ops = [op["name"] for op in rag_context_dict.get("top_ops_detailed", [])]
                         merged_ops = rag_context_dict.get("top_ops_detailed", []) + [
-                            op for op in extra_context.get("top_ops_detailed", [])
-                            if op["name"] not in existing_ops
+                            op for op in extra_context.get("top_ops_detailed", []) if op["name"] not in existing_ops
                         ]
                         rag_context_dict["top_ops_detailed"] = merged_ops
                     if extra_fields:
@@ -783,6 +836,7 @@ class HypothesisRefinementNeeded(Exception):
 
 class _AlignmentRetryError(Exception):
     """Raised when R² alignment score < 0.3, signalling generate_expression to retry."""
+
     def __init__(self, feedback: str = ""):
         super().__init__(feedback)
         self.feedback = feedback
@@ -834,19 +888,25 @@ class FactorAgent:
             alignment_level = alignment_result["alignment_level"]
             logger.info(
                 "FactorAgent: R² alignment score=%.3f (%s) for hypothesis='%s'",
-                r2_score, alignment_level.upper(), hypothesis.direction,
+                r2_score,
+                alignment_level.upper(),
+                hypothesis.direction,
             )
             if r2_score < 0.3:
                 _action = "RETRY"
                 logger.warning(
                     "FactorAgent: CRITICAL LOW R² (%.3f) — expression contradicts hypothesis '%s': %s — RETRY",
-                    r2_score, hypothesis.direction, alignment_result["diagnosis"],
+                    r2_score,
+                    hypothesis.direction,
+                    alignment_result["diagnosis"],
                 )
             elif r2_score < 0.4:
                 _action = "WEAK"
                 logger.warning(
                     "FactorAgent: LOW R² alignment (%.3f) — expression may drift from hypothesis '%s': %s",
-                    r2_score, hypothesis.direction, alignment_result["diagnosis"],
+                    r2_score,
+                    hypothesis.direction,
+                    alignment_result["diagnosis"],
                 )
             sim_payload.setdefault("metadata", {})["r2_alignment"] = {
                 "r2_score": r2_score,
@@ -859,7 +919,9 @@ class FactorAgent:
             if _action == "RETRY":
                 try:
                     _feedback = self._hypothesis_aligner.build_alignment_feedback(
-                        expression, hypothesis.direction, alignment_result,
+                        expression,
+                        hypothesis.direction,
+                        alignment_result,
                     )
                     sim_payload.setdefault("metadata", {})["_alignment_retry_feedback"] = _feedback
                 except (ValueError, TypeError, RuntimeError) as _fb_exc:
@@ -881,6 +943,7 @@ class FactorAgent:
         try:
             try:
                 from loop_engine import _algo_tick
+
                 _algo_tick("self_critique")
             except ImportError:
                 pass
@@ -889,18 +952,24 @@ class FactorAgent:
             if not critique.critique_available or critique.consistency_score is None:
                 logger.warning(
                     "FactorAgent: self_critique unavailable — critique_available=%s, consistency_score=%s",
-                    critique.critique_available, critique.consistency_score,
+                    critique.critique_available,
+                    critique.consistency_score,
                 )
             elif critique.consistency_score < 0.5:
                 logger.warning(
-                        "FactorAgent: self_critique consistency_score=%.2f < 0.5 — issues: %s",
-                        critique.consistency_score, critique.issues,
-                    )
+                    "FactorAgent: self_critique consistency_score=%.2f < 0.5 — issues: %s",
+                    critique.consistency_score,
+                    critique.issues,
+                )
         except (ValueError, TypeError, RuntimeError) as exc:
             logger.warning("FactorAgent: self_critique call failed: %s", exc)
 
     _ESSENTIAL_OPERATORS = {
-        "rank", "group_neutralize", "ts_mean", "ts_zscore", "ts_decay_linear",
+        "rank",
+        "group_neutralize",
+        "ts_mean",
+        "ts_zscore",
+        "ts_decay_linear",
     }
 
     def _validate_whitelist(self, expression: str) -> None:
@@ -938,6 +1007,7 @@ class FactorAgent:
     def _load_default_fields() -> list[str]:
         try:
             from openalpha_brain.utils.whitelist import WhitelistManager
+
             wm = WhitelistManager()
             core = wm.get_allowed_fields()
             if core:
@@ -958,12 +1028,9 @@ class FactorAgent:
                 definition = op.get("definition", "")
                 description = op.get("description", "")
                 definition = definition.split("\r\n")[0].split("\n")[0]
-                pattern = re.compile(re.escape(name) + r'\(([^()]*(?:\([^()]*\)[^()]*)*)\)')
+                pattern = re.compile(re.escape(name) + r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)")
                 match = pattern.match(definition)
-                if match:
-                    sig = f"{name}({match.group(1)})"
-                else:
-                    sig = definition if definition else f"{name}(...)"
+                sig = f"{name}({match.group(1)})" if match else definition if definition else f"{name}(...)"
                 sigs[name] = f"{sig} — {description}"
             return sigs
         except FileNotFoundError:
@@ -1014,14 +1081,17 @@ class FactorAgent:
             pass
         return None, "", ""
 
-    def _fill_template(self, template: str, rag_context_dict: dict | None = None, template_id: str = "", family_id: str = "") -> str | None:
+    def _fill_template(
+        self, template: str, rag_context_dict: dict | None = None, template_id: str = "", family_id: str = ""
+    ) -> str | None:
         try:
             filled = template
             recommended_fields: list[str] = []
             if self._field_proxy_map and template_id:
                 try:
                     recommended_fields = self._field_proxy_map.recommend_fields_for_template(
-                        template_id, family_id or None,
+                        template_id,
+                        family_id or None,
                     )
                 except (ValueError, TypeError, RuntimeError):
                     recommended_fields = []
@@ -1032,7 +1102,7 @@ class FactorAgent:
                 fields = rag_context_dict.get("field_ids", [])
             if recommended_fields:
                 fields = list(dict.fromkeys(recommended_fields + fields))
-            placeholders = re.findall(r'\{(\w+)\}', filled)
+            placeholders = re.findall(r"\{(\w+)\}", filled)
             for ph in placeholders:
                 if "op" in ph.lower() and ops:
                     op = ops[0]
@@ -1165,18 +1235,29 @@ class FactorAgent:
                 )
 
                 if _signal_arbiter is not None:
-                    rag_adapter = RAGSignalAdapter({"fields": [{"id": f, "score": 1.0} for f in rag_fields], "operators": [{"id": o, "score": 1.0} for o in (rag_ops or [])]})
+                    rag_adapter = RAGSignalAdapter(
+                        {
+                            "fields": [{"id": f, "score": 1.0} for f in rag_fields],
+                            "operators": [{"id": o, "score": 1.0} for o in (rag_ops or [])],
+                        }
+                    )
                     mab_adapter = MABSignalAdapter(_mab)
                     wl_adapter = WhitelistSignalAdapter(_whitelist_mgr)
                     field_ids_for_market = list(set(rag_fields or []))
                     op_ids_for_market = list(set(rag_ops or []))
-                    market_adapter = MarketSignalAdapter(_market_state_inferencer, hypothesis.direction, field_ids=field_ids_for_market, op_ids=op_ids_for_market)
+                    market_adapter = MarketSignalAdapter(
+                        _market_state_inferencer,
+                        hypothesis.direction,
+                        field_ids=field_ids_for_market,
+                        op_ids=op_ids_for_market,
+                    )
 
                     field_adapters = [rag_adapter, mab_adapter, wl_adapter, market_adapter]
                     op_adapters = [rag_adapter, mab_adapter, market_adapter]
 
                     ranked_fields_result, ranked_ops_result = await _signal_arbiter.rank_with_adapters(
-                        field_adapters, op_adapters,
+                        field_adapters,
+                        op_adapters,
                         top_k_fields=len(rag_fields) if rag_fields else 0,
                         top_k_ops=len(rag_ops) if rag_ops else 0,
                     )
@@ -1215,7 +1296,8 @@ class FactorAgent:
         if self._success_lib and settings.SUCCESS_CASE_LIBRARY_ENABLED:
             try:
                 similar_cases = await self._success_lib.search_similar(
-                    hypothesis.natural_language or hypothesis.direction, top_k=3,
+                    hypothesis.natural_language or hypothesis.direction,
+                    top_k=3,
                 )
                 if similar_cases:
                     ref_lines = []
@@ -1227,10 +1309,7 @@ class FactorAgent:
                         ref_lines.append(
                             f"  - (direction={ref_direction}, sharpe={ref_sharpe}, fitness={ref_fitness}): {ref_expr}",
                         )
-                    reference_section = (
-                        "Reference successful alphas:\n"
-                        + "\n".join(ref_lines)
-                    )
+                    reference_section = "Reference successful alphas:\n" + "\n".join(ref_lines)
             except (OSError, ValueError, RuntimeError):
                 logger.warning("FactorAgent: success_lib.search_similar failed")
 
@@ -1248,20 +1327,23 @@ class FactorAgent:
             for fb in brain_feedback[-3:]:
                 feedback_text = fb.get("feedback", "")
                 if "LOW_SHARPE" in feedback_text:
-                    fine_tune_hints.append("LOW_SHARPE: Try adding ts_zscore normalization or adjusting lookback window")
+                    fine_tune_hints.append(
+                        "LOW_SHARPE: Try adding ts_zscore normalization or adjusting lookback window"
+                    )
                 elif "HIGH_TURNOVER" in feedback_text:
                     fine_tune_hints.append("HIGH_TURNOVER: Try adding ts_decay_linear smoothing or increasing decay")
                 elif "LOW_TURNOVER" in feedback_text:
                     fine_tune_hints.append("LOW_TURNOVER: Try reducing decay or using shorter lookback windows")
                 elif "SELF_CORRELATION" in feedback_text:
-                    fine_tune_hints.append("SELF_CORRELATION: Replace core operator with semantically similar alternative")
+                    fine_tune_hints.append(
+                        "SELF_CORRELATION: Replace core operator with semantically similar alternative"
+                    )
 
-            feedback_section = (
-                "PREVIOUS BRAIN FEEDBACK — apply these fixes:\n"
-                + "\n".join(fb_lines)
-            )
+            feedback_section = "PREVIOUS BRAIN FEEDBACK — apply these fixes:\n" + "\n".join(fb_lines)
             if fine_tune_hints:
-                feedback_section += "\n\nFINE-TUNING HINTS (try these BEFORE replacing operators):\n" + "\n".join(f"  - {h}" for h in fine_tune_hints)
+                feedback_section += "\n\nFINE-TUNING HINTS (try these BEFORE replacing operators):\n" + "\n".join(
+                    f"  - {h}" for h in fine_tune_hints
+                )
 
         operator_signatures = self._build_operator_signatures(rag_ops)
 
@@ -1280,12 +1362,14 @@ class FactorAgent:
         _sched_template_id = ""
         _sched_family_id = ""
         template_mode = settings.FACTOR_TEMPLATE_MODE
-        if template_mode in ('template_first', 'hybrid'):
+        if template_mode in ("template_first", "hybrid"):
             template, _sched_template_id, _sched_family_id = self._select_template(hypothesis)
             if template:
-                template_expression = self._fill_template(template, rag_context_dict, template_id=_sched_template_id, family_id=_sched_family_id)
+                template_expression = self._fill_template(
+                    template, rag_context_dict, template_id=_sched_template_id, family_id=_sched_family_id
+                )
 
-        if template_mode == 'template_first' and template_expression:
+        if template_mode == "template_first" and template_expression:
             logger.info("FactorAgent: template_first mode — using filled template directly (no LLM refinement)")
             brain_params = _load_brain_submit_params()
             sim_payload = {
@@ -1305,7 +1389,14 @@ class FactorAgent:
                 },
                 "regular": template_expression,
             }
-            _monitor.record("STEP", "factor_agent", "template_fill", template_expression[:80], session_id="factor_agent", alpha_id="")
+            _monitor.record(
+                "STEP",
+                "factor_agent",
+                "template_fill",
+                template_expression[:80],
+                session_id="factor_agent",
+                alpha_id="",
+            )
             await self._run_self_critique(template_expression, hypothesis_str)
             self._validate_whitelist(template_expression)
             sim_payload, align_action = self._check_and_attach_alignment(template_expression, hypothesis, sim_payload)
@@ -1313,14 +1404,17 @@ class FactorAgent:
             sim_payload.setdefault("metadata", {})["family_id"] = _sched_family_id
             return template_expression, sim_payload, None, align_action
 
-        if template_mode == 'hybrid' and template_expression:
+        if template_mode == "hybrid" and template_expression:
             logger.info("FactorAgent: hybrid mode — refining template expression via LLM")
             refined_expression = await self._refine_template_expression(
-                template_expression, hypothesis_str, brain_feedback,
+                template_expression,
+                hypothesis_str,
+                brain_feedback,
             )
             if refined_expression and refined_expression != template_expression:
                 try:
                     from openalpha_brain.validation import validator as val
+
                     syntax_result = val.validate_syntax(refined_expression)
                     if syntax_result.passed:
                         try:
@@ -1328,10 +1422,13 @@ class FactorAgent:
                             refined_score = val.estimate_sharpe_likelihood(refined_expression)
                             logger.info(
                                 "FactorAgent: hybrid mode — Sharpe likelihood: template=%.2f refined=%.2f",
-                                template_score, refined_score,
+                                template_score,
+                                refined_score,
                             )
                             if refined_score < template_score * 0.5:
-                                logger.info("FactorAgent: hybrid mode — refined Sharpe likelihood much lower, keeping template")
+                                logger.info(
+                                    "FactorAgent: hybrid mode — refined Sharpe likelihood much lower, keeping template"
+                                )
                                 raise ValueError("refined Sharpe likelihood too low")
                         except ValueError:
                             raise
@@ -1339,23 +1436,27 @@ class FactorAgent:
                             pass
                         if "ts_decay_linear" not in refined_expression:
                             _auto_wrap_score = None
-                            try:
+                            with contextlib.suppress(NameError):
                                 _auto_wrap_score = refined_score
-                            except NameError:
-                                pass
                             if _auto_wrap_score is None or _auto_wrap_score > 0.3:
-                                _m = re.match(r'^(group_neutralize\()(.+)(,\s*industry\))$', refined_expression)
+                                _m = re.match(r"^(group_neutralize\()(.+)(,\s*industry\))$", refined_expression)
                                 if _m:
                                     _wrapped_refined = f"{_m.group(1)}ts_decay_linear({_m.group(2)}, 10){_m.group(3)}"
                                     try:
                                         _wrap_result = val.validate_syntax(_wrapped_refined)
                                         if _wrap_result.passed:
-                                            logger.info("FactorAgent: hybrid mode — auto-wrapped refined with ts_decay_linear(window=10)")
+                                            logger.info(
+                                                "FactorAgent: hybrid mode — auto-wrapped refined with ts_decay_linear(window=10)"  # noqa: E501
+                                            )
                                             refined_expression = _wrapped_refined
                                         else:
-                                            logger.info("FactorAgent: hybrid mode — auto-wrap of refined failed syntax, keeping unwrapped")
+                                            logger.info(
+                                                "FactorAgent: hybrid mode — auto-wrap of refined failed syntax, keeping unwrapped"  # noqa: E501
+                                            )
                                     except (OSError, ValueError, RuntimeError):
-                                        logger.info("FactorAgent: hybrid mode — auto-wrap of refined validation error, keeping unwrapped")
+                                        logger.info(
+                                            "FactorAgent: hybrid mode — auto-wrap of refined validation error, keeping unwrapped"  # noqa: E501
+                                        )
                         logger.info("FactorAgent: hybrid mode — LLM refinement passed syntax validation")
                         brain_params = _load_brain_submit_params()
                         sim_payload = {
@@ -1375,39 +1476,59 @@ class FactorAgent:
                             },
                             "regular": refined_expression,
                         }
-                        _monitor.record("STEP", "factor_agent", "hybrid_refine_pass", refined_expression[:80], session_id="factor_agent", alpha_id="")
+                        _monitor.record(
+                            "STEP",
+                            "factor_agent",
+                            "hybrid_refine_pass",
+                            refined_expression[:80],
+                            session_id="factor_agent",
+                            alpha_id="",
+                        )
                         await self._run_self_critique(refined_expression, hypothesis_str)
                         self._validate_whitelist(refined_expression)
-                        sim_payload, align_action = self._check_and_attach_alignment(refined_expression, hypothesis, sim_payload)
+                        sim_payload, align_action = self._check_and_attach_alignment(
+                            refined_expression, hypothesis, sim_payload
+                        )
                         sim_payload.setdefault("metadata", {})["template_id"] = _sched_template_id
                         sim_payload.setdefault("metadata", {})["family_id"] = _sched_family_id
                         return refined_expression, sim_payload, None, align_action
                     logger.warning(
-                        "FactorAgent: hybrid mode — LLM refinement failed syntax validation (%s), falling back to template",
+                        "FactorAgent: hybrid mode — LLM refinement failed syntax validation (%s), falling back to template",  # noqa: E501
                         syntax_result.failures,
                     )
                 except ImportError:
-                    logger.warning("FactorAgent: hybrid mode — validator module not available, falling back to template")
+                    logger.warning(
+                        "FactorAgent: hybrid mode — validator module not available, falling back to template"
+                    )
             else:
-                logger.info("FactorAgent: hybrid mode — LLM returned empty or unchanged expression, falling back to template")
+                logger.info(
+                    "FactorAgent: hybrid mode — LLM returned empty or unchanged expression, falling back to template"
+                )
 
             if "ts_decay_linear" not in template_expression:
                 try:
                     from openalpha_brain.validation import validator as _val
+
                     _template_score = _val.estimate_sharpe_likelihood(template_expression)
                     if _template_score > 0.3:
-                        _m = re.match(r'^(group_neutralize\()(.+)(,\s*industry\))$', template_expression)
+                        _m = re.match(r"^(group_neutralize\()(.+)(,\s*industry\))$", template_expression)
                         if _m:
                             _wrapped_template = f"{_m.group(1)}ts_decay_linear({_m.group(2)}, 10){_m.group(3)}"
                             try:
                                 _wrap_result = _val.validate_syntax(_wrapped_template)
                                 if _wrap_result.passed:
-                                    logger.info("FactorAgent: hybrid mode — auto-wrapped template with ts_decay_linear(window=10)")
+                                    logger.info(
+                                        "FactorAgent: hybrid mode — auto-wrapped template with ts_decay_linear(window=10)"  # noqa: E501
+                                    )
                                     template_expression = _wrapped_template
                                 else:
-                                    logger.info("FactorAgent: hybrid mode — auto-wrap of template failed syntax, keeping unwrapped")
+                                    logger.info(
+                                        "FactorAgent: hybrid mode — auto-wrap of template failed syntax, keeping unwrapped"  # noqa: E501
+                                    )
                             except (ValueError, TypeError, RuntimeError):
-                                logger.info("FactorAgent: hybrid mode — auto-wrap of template validation error, keeping unwrapped")
+                                logger.info(
+                                    "FactorAgent: hybrid mode — auto-wrap of template validation error, keeping unwrapped"  # noqa: E501
+                                )
                 except (ValueError, TypeError, RuntimeError):
                     pass
 
@@ -1429,7 +1550,14 @@ class FactorAgent:
                 },
                 "regular": template_expression,
             }
-            _monitor.record("STEP", "factor_agent", "hybrid_fallback", template_expression[:80], session_id="factor_agent", alpha_id="")
+            _monitor.record(
+                "STEP",
+                "factor_agent",
+                "hybrid_fallback",
+                template_expression[:80],
+                session_id="factor_agent",
+                alpha_id="",
+            )
             await self._run_self_critique(template_expression, hypothesis_str)
             self._validate_whitelist(template_expression)
             sim_payload, align_action = self._check_and_attach_alignment(template_expression, hypothesis, sim_payload)
@@ -1454,12 +1582,11 @@ class FactorAgent:
             try:
                 parent_cell = self._feature_map.sample_parent()
                 if parent_cell is not None and parent_cell.best_expr:
-                    user_msg += (
-                        f"\n\nEvolution parent expression for mutation: {parent_cell.best_expr}"
-                    )
+                    user_msg += f"\n\nEvolution parent expression for mutation: {parent_cell.best_expr}"
                     logger.info(
                         "FactorAgent: injected FeatureMap parent (fitness=%.3f): %s",
-                        parent_cell.best_fitness, parent_cell.best_expr[:80],
+                        parent_cell.best_fitness,
+                        parent_cell.best_expr[:80],
                     )
             except (ValueError, KeyError, OSError) as exc:
                 logger.warning("FactorAgent: FeatureMap sample_parent failed: %s", exc)
@@ -1470,12 +1597,13 @@ class FactorAgent:
                 _last_diversity_stats,
                 _last_unexplored_directions,
             )
+
             if _last_unexplored_directions and _diversity_last_cycle > 0:
                 _unexp_fa = _last_unexplored_directions[:5]
                 if _unexp_fa:
                     _fa_div_lines = ["\n\n▶ UNEXPLORED DIRECTIONS (consider these under-explored regions for novelty):"]
                     for _fi, _fd in enumerate(_unexp_fa):
-                        _fa_div_lines.append(f"  {_fi+1}. {_fd}")
+                        _fa_div_lines.append(f"  {_fi + 1}. {_fd}")
                     if _last_diversity_stats:
                         _fa_cov = _last_diversity_stats.get("coverage", 0) * 100
                         _fa_div_lines.append(f"  Current feature-space coverage: {_fa_cov:.1f}%")
@@ -1485,13 +1613,18 @@ class FactorAgent:
 
         try:
             from openalpha_brain.core.loop_state import _previous_expressions
+
             if _previous_expressions:
                 _prev_expr_list = list(_previous_expressions)[-5:]
                 if len(_prev_expr_list) >= 2:
-                    _dup_avoid_lines = ["\n\n⛔ PREVIOUSLY GENERATED EXPRESSIONS (DO NOT repeat any of these — they already exist):"]
+                    _dup_avoid_lines = [
+                        "\n\n⛔ PREVIOUSLY GENERATED EXPRESSIONS (DO NOT repeat any of these — they already exist):"
+                    ]
                     for _pi, _pe in enumerate(_prev_expr_list):
-                        _dup_avoid_lines.append(f"  [{_pi+1}] {_pe[:120]}")
-                    _dup_avoid_lines.append("\nYou MUST generate a DIFFERENT expression. Change operators, fields, parameters, or structure.")
+                        _dup_avoid_lines.append(f"  [{_pi + 1}] {_pe[:120]}")
+                    _dup_avoid_lines.append(
+                        "\nYou MUST generate a DIFFERENT expression. Change operators, fields, parameters, or structure."  # noqa: E501
+                    )
                     user_msg += "\n".join(_dup_avoid_lines)
         except (ImportError, ValueError, KeyError, TypeError):
             pass
@@ -1534,7 +1667,7 @@ class FactorAgent:
         }
 
         economic_rationale = None
-        rationale_match = re.search(r'ECONOMIC[_ ]RATIONALE\s*:\s*(.+)', raw, re.IGNORECASE)
+        rationale_match = re.search(r"ECONOMIC[_ ]RATIONALE\s*:\s*(.+)", raw, re.IGNORECASE)
         if rationale_match:
             economic_rationale = rationale_match.group(1).strip()
 
@@ -1572,7 +1705,7 @@ class FactorAgent:
             expr = raw.strip()
             if expr.startswith("```"):
                 first_newline = expr.index("\n") if "\n" in expr else len(expr)
-                expr = expr[first_newline + 1:]
+                expr = expr[first_newline + 1 :]
                 if expr.endswith("```"):
                     expr = expr[:-3]
                 expr = expr.strip()
@@ -1603,13 +1736,13 @@ class EvalAgent:
         return _check_semantic_alignment(hypothesis, expression)
 
     async def _llm_align_check(self, hypothesis, expression: str) -> dict:
-        hyp_text = getattr(hypothesis, 'natural_language', '') or getattr(hypothesis, 'direction', '')
-        hyp_mechanism = getattr(hypothesis, 'mechanism', '')
+        hyp_text = getattr(hypothesis, "natural_language", "") or getattr(hypothesis, "direction", "")
+        hyp_mechanism = getattr(hypothesis, "mechanism", "")
 
         align_prompt = f"""You are evaluating how well an alpha expression implements a quantitative hypothesis.
 
 HYPOTHESIS:
-Direction: {getattr(hypothesis, 'direction', '')}
+Direction: {getattr(hypothesis, "direction", "")}
 Mechanism: {hyp_mechanism}
 Description: {hyp_text}
 
@@ -1637,8 +1770,11 @@ Return ONLY a JSON object:
         try:
             raw = await asyncio.wait_for(
                 self._llm_generate(
-                    align_prompt, [], "",
-                    session_id="align_check", cycle=0,
+                    align_prompt,
+                    [],
+                    "",
+                    session_id="align_check",
+                    cycle=0,
                 ),
                 timeout=30.0,
             )
@@ -1657,17 +1793,23 @@ Return ONLY a JSON object:
             logger.warning("EvalAgent: LLM align check failed: %s", exc)
 
         static_score = self._check_alignment(hypothesis, expression)
-        return {"alignment_score": static_score, "reason": "fallback static check", "needs_regeneration": static_score < 0.6}
+        return {
+            "alignment_score": static_score,
+            "reason": "fallback static check",
+            "needs_regeneration": static_score < 0.6,
+        }
 
     async def _archive_success(self, expression: str, result: dict) -> None:
         try:
             emb = await llm_client.embed(expression)
-            self._success_pool.append({
-                "expression": expression,
-                "embedding": emb,
-                "sharpe": result.get("sharpe", 0),
-                "timestamp": result.get("submitted_at", 0),
-            })
+            self._success_pool.append(
+                {
+                    "expression": expression,
+                    "embedding": emb,
+                    "sharpe": result.get("sharpe", 0),
+                    "timestamp": result.get("submitted_at", 0),
+                }
+            )
             logger.info("EvalAgent: archived success alpha to pool (total=%d)", len(self._success_pool))
         except (OSError, ValueError, RuntimeError) as exc:
             logger.warning("EvalAgent: failed to archive success alpha: %s", exc)
@@ -1687,7 +1829,7 @@ Return ONLY a JSON object:
             existing_emb = entry.get("embedding")
             if not existing_emb:
                 continue
-            dot = sum(a * b for a, b in zip(new_emb, existing_emb))
+            dot = sum(a * b for a, b in zip(new_emb, existing_emb, strict=False))
             norm_a = math.sqrt(sum(a * a for a in new_emb))
             norm_b = math.sqrt(sum(b * b for b in existing_emb))
             if norm_a == 0 or norm_b == 0:
@@ -1721,7 +1863,10 @@ Return ONLY a JSON object:
         is_duplicate = len(semantic_duplicates) > 0
         logger.info(
             "EvalAgent: dedup check — cos=%.3f candidates=%d semantic_dups=%d verdict=%s",
-            max_sim, len(top5), len(semantic_duplicates), "DUPLICATE" if is_duplicate else "OK",
+            max_sim,
+            len(top5),
+            len(semantic_duplicates),
+            "DUPLICATE" if is_duplicate else "OK",
         )
         return {
             "is_duplicate": is_duplicate,
@@ -1782,16 +1927,16 @@ Return ONLY a JSON object: {{"equivalent": true/false, "reasoning": "brief expla
         max_depth = 0
         node_count = 0
         for ch in expression:
-            if ch == '(':
+            if ch == "(":
                 depth += 1
                 max_depth = max(max_depth, depth)
                 node_count += 1
-            elif ch == ')':
+            elif ch == ")":
                 depth -= 1
-            elif ch == ',':
+            elif ch == ",":
                 node_count += 1
         node_count = max(node_count, 1)
-        operator_count = len(re.findall(r'\b[a-zA-Z_]\w*\s*\(', expression))
+        operator_count = len(re.findall(r"\b[a-zA-Z_]\w*\s*\(", expression))
         return {
             "ast_depth": max_depth,
             "node_count": node_count,
@@ -1822,8 +1967,11 @@ Return ONLY a JSON:
 
         try:
             raw = await self._llm_generate(
-                simplify_prompt, [], "",
-                session_id="simplify", cycle=0,
+                simplify_prompt,
+                [],
+                "",
+                session_id="simplify",
+                cycle=0,
             )
             parsed = _extract_json_from_llm(raw)
             if parsed and isinstance(parsed, dict):
@@ -1831,7 +1979,8 @@ Return ONLY a JSON:
                 if simplified and simplified != expression:
                     logger.info(
                         "EvalAgent: LLM simplified expression — changes=%s new=%s",
-                        parsed.get("changes_made", "?")[:80], simplified[:80],
+                        parsed.get("changes_made", "?")[:80],
+                        simplified[:80],
                     )
                     return simplified
         except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
@@ -1840,6 +1989,7 @@ Return ONLY a JSON:
 
     async def _ensure_auth(self) -> httpx.Cookies:
         from openalpha_brain.config.config import settings
+
         if self._cookies is None:
             self._cookies = await brain_client.authenticate(
                 settings.BRAIN_EMAIL,
@@ -1857,6 +2007,7 @@ Return ONLY a JSON:
         syntax_errors: list[str] = []
         try:
             from openalpha_brain.validation import validator as val
+
             syntax_result = val.validate_syntax(expression)
             syntax_passed = syntax_result.passed
             if not syntax_passed and syntax_result.errors:
@@ -1873,7 +2024,11 @@ Return ONLY a JSON:
 
         if not syntax_passed:
             brain_checks = [
-                {"name": "SYNTAX_CHECK", "result": "FAIL", "value": str(syntax_errors) if syntax_errors else "syntax error"},
+                {
+                    "name": "SYNTAX_CHECK",
+                    "result": "FAIL",
+                    "value": str(syntax_errors) if syntax_errors else "syntax error",
+                },
             ]
             llm_feedback = f"Syntax validation failed: {syntax_errors[0] if syntax_errors else 'unknown error'}"
         elif self._llm_generate:
@@ -1893,7 +2048,7 @@ Return ONLY a JSON:
             overfit_warn = {
                 "name": "OVERFITTING_RISK",
                 "result": "WARN",
-                "value": f"depth={complexity_result['ast_depth']} nodes={complexity_result['node_count']} ops={complexity_result['operator_count']}",
+                "value": f"depth={complexity_result['ast_depth']} nodes={complexity_result['node_count']} ops={complexity_result['operator_count']}",  # noqa: E501
             }
             brain_checks.append(overfit_warn)
             logger.info(
@@ -1919,6 +2074,7 @@ Return ONLY a JSON:
             if self._brain_submit is not None:
                 try:
                     from openalpha_brain.config.config import settings as _settings
+
                     if getattr(_settings, "BRAIN_SUBMIT_ENABLED", True):
                         cookies = await self._ensure_auth()
                         if cookies is not None:
@@ -1977,19 +2133,24 @@ Return ONLY a JSON:
             "drawdown": brain_drawdown,
             "margin": brain_margin,
             "brain_checks": brain_checks,
-            "semantic_alignment_score": await self._check_alignment(direction, expression) if not syntax_passed else 0.5,
+            "semantic_alignment_score": await self._check_alignment(direction, expression)
+            if not syntax_passed
+            else 0.5,
             "hierarchical_reward": 0.0,
             "direction": direction,
         }
 
     async def _llm_structure_check(
-        self, expression: str, direction: str, simulation_payload: dict,
+        self,
+        expression: str,
+        direction: str,
+        simulation_payload: dict,
     ) -> dict:
         settings_obj = simulation_payload.get("settings", {})
         universe = settings_obj.get("universe", "unknown")
         horizon = settings_obj.get("horizon", "unknown")
 
-        check_prompt = f"""You are a quantitative finance auditor. Analyze this alpha expression for STRUCTURAL ISSUES only.
+        check_prompt = f"""You are a quantitative finance auditor. Analyze this alpha expression for STRUCTURAL ISSUES only.  # noqa: E501
 
 Direction: {direction}
 Expression: {expression}
@@ -2023,10 +2184,13 @@ IMPORTANT: Do NOT invent scores. Only flag structural issues. Return ONLY the JS
             logger.info("EvalAgent: _llm_structure_check started (expr=%s)", expression[:60])
             raw = await asyncio.wait_for(
                 self._llm_generate(
-                    check_prompt, [], "",
-                    session_id="eval_agent", cycle=0,
+                    check_prompt,
+                    [],
+                    "",
+                    session_id="eval_agent",
+                    cycle=0,
                 ),
-                timeout=settings.LLM_TIMEOUT if hasattr(settings, 'LLM_TIMEOUT') else 15.0,
+                timeout=settings.LLM_TIMEOUT if hasattr(settings, "LLM_TIMEOUT") else 15.0,
             )
             logger.info("EvalAgent: _llm_structure_check LLM response received (len=%d)", len(raw or ""))
             result = _extract_json_from_llm(raw)
@@ -2041,7 +2205,10 @@ IMPORTANT: Do NOT invent scores. Only flag structural issues. Return ONLY the JS
                 ],
             }
         except TimeoutError:
-            logger.warning("EvalAgent: _llm_structure_check timed out after %.1fs", settings.LLM_TIMEOUT if hasattr(settings, 'LLM_TIMEOUT') else 15.0)
+            logger.warning(
+                "EvalAgent: _llm_structure_check timed out after %.1fs",
+                settings.LLM_TIMEOUT if hasattr(settings, "LLM_TIMEOUT") else 15.0,
+            )
             return {
                 "feedback": "LLM structure check timed out",
                 "brain_checks": [
@@ -2112,7 +2279,9 @@ class MultiAgentOrchestrator:
     def inject_successful_alphas(self, expressions: list[str]) -> None:
         if expressions:
             self._successful_alphas = list(expressions[-20:])
-            logger.info("MultiAgentOrchestrator: injected %d successful alpha expressions", len(self._successful_alphas))
+            logger.info(
+                "MultiAgentOrchestrator: injected %d successful alpha expressions", len(self._successful_alphas)
+            )
 
     async def critique_revise_loop(
         self,
@@ -2134,30 +2303,52 @@ class MultiAgentOrchestrator:
             logger.info("MultiAgent: critique_revise_loop skipped — no brain_result")
             return result
 
-        brain_checks = brain_result.get("brain_checks", []) if isinstance(brain_result, dict) else getattr(brain_result, "brain_checks", []) or []
-        real_sharpe = brain_result.get("real_sharpe", None) if isinstance(brain_result, dict) else getattr(brain_result, "real_sharpe", None)
-        real_fitness = brain_result.get("real_fitness", None) if isinstance(brain_result, dict) else getattr(brain_result, "real_fitness", None)
-        real_turnover = brain_result.get("real_turnover", None) if isinstance(brain_result, dict) else getattr(brain_result, "real_turnover", None)
-        status = brain_result.get("status", "FAIL") if isinstance(brain_result, dict) else getattr(brain_result, "status", "FAIL")
+        brain_checks = (
+            brain_result.get("brain_checks", [])
+            if isinstance(brain_result, dict)
+            else getattr(brain_result, "brain_checks", []) or []
+        )
+        real_sharpe = (
+            brain_result.get("real_sharpe", None)
+            if isinstance(brain_result, dict)
+            else getattr(brain_result, "real_sharpe", None)
+        )
+        real_fitness = (
+            brain_result.get("real_fitness", None)
+            if isinstance(brain_result, dict)
+            else getattr(brain_result, "real_fitness", None)
+        )
+        real_turnover = (
+            brain_result.get("real_turnover", None)
+            if isinstance(brain_result, dict)
+            else getattr(brain_result, "real_turnover", None)
+        )
+        status = (
+            brain_result.get("status", "FAIL")
+            if isinstance(brain_result, dict)
+            else getattr(brain_result, "status", "FAIL")
+        )
 
         current_expr = expression
         for round_num in range(1, max_rounds + 1):
             logger.info(
                 "MultiAgent: critique_revise_loop round %d/%d — expr=%s",
-                round_num, max_rounds, current_expr[:60],
+                round_num,
+                max_rounds,
+                current_expr[:60],
             )
 
-            critique_prompt = f"""You are a quantitative alpha factor critic. Analyze why this expression failed BRAIN validation.
+            critique_prompt = f"""You are a quantitative alpha factor critic. Analyze why this expression failed BRAIN validation.  # noqa: E501
 
 EXPRESSION: {current_expr}
-HYPOTHESIS: {hypothesis_text or 'Not specified'}
-DIRECTION: {direction or 'Not specified'}
+HYPOTHESIS: {hypothesis_text or "Not specified"}
+DIRECTION: {direction or "Not specified"}
 
 BRAIN RESULT:
   Status: {status}
-  Sharpe: {real_sharpe or 'N/A'}
-  Fitness: {real_fitness or 'N/A'}
-  Turnover: {real_turnover or 'N/A'}
+  Sharpe: {real_sharpe or "N/A"}
+  Fitness: {real_fitness or "N/A"}
+  Turnover: {real_turnover or "N/A"}
   Failed Checks: {brain_checks}
 
 Provide a structured critique:
@@ -2169,12 +2360,20 @@ Provide a structured critique:
 Respond in JSON format only:
 {{"root_cause": "...", "structural_issue": "...", "modification_instruction": "...", "priority": "HIGH|MEDIUM|LOW"}}"""
 
-            critique_result = {"root_cause": "", "structural_issue": "", "modification_instruction": "", "priority": "MEDIUM"}
+            critique_result = {
+                "root_cause": "",
+                "structural_issue": "",
+                "modification_instruction": "",
+                "priority": "MEDIUM",
+            }
             try:
                 if self._eval_agent._llm_generate:
                     raw = await self._eval_agent._llm_generate(
-                        critique_prompt, [], "",
-                        session_id=f"critique_r{round_num}", cycle=round_num,
+                        critique_prompt,
+                        [],
+                        "",
+                        session_id=f"critique_r{round_num}",
+                        cycle=round_num,
                     )
                     _parsed = _extract_json_from_llm(raw)
                     if _parsed and isinstance(_parsed, dict):
@@ -2182,19 +2381,21 @@ Respond in JSON format only:
             except (ValueError, TypeError, RuntimeError) as exc:
                 logger.warning("MultiAgent: critique LLM call failed r%d: %s", round_num, exc)
 
-            result["critique_log"].append({
-                "round": round_num,
-                "expression_before": current_expr,
-                "critique": critique_result,
-            })
+            result["critique_log"].append(
+                {
+                    "round": round_num,
+                    "expression_before": current_expr,
+                    "critique": critique_result,
+                }
+            )
 
-            revise_prompt = f"""You are a quantitative alpha factor engineer. Revise the failed expression based on the critique.
+            revise_prompt = f"""You are a quantitative alpha factor engineer. Revise the failed expression based on the critique.  # noqa: E501
 
 ORIGINAL EXPRESSION: {current_expr}
-CRITIQUE: {critique_result.get('root_cause', '')}
-STRUCTURAL ISSUE: {critique_result.get('structural_issue', '')}
-MODIFICATION INSTRUCTION: {critique_result.get('modification_instruction', '')}
-DIRECTION: {direction or 'Not specified'}
+CRITIQUE: {critique_result.get("root_cause", "")}
+STRUCTURAL ISSUE: {critique_result.get("structural_issue", "")}
+MODIFICATION INSTRUCTION: {critique_result.get("modification_instruction", "")}
+DIRECTION: {direction or "Not specified"}
 
 Rules:
 1. Follow the modification instruction precisely
@@ -2205,13 +2406,16 @@ Rules:
             try:
                 if self._factor_agent._llm_generate:
                     raw = await self._factor_agent._llm_generate(
-                        revise_prompt, [], "",
-                        session_id=f"revise_r{round_num}", cycle=round_num,
+                        revise_prompt,
+                        [],
+                        "",
+                        session_id=f"revise_r{round_num}",
+                        cycle=round_num,
                     )
                     cleaned = raw.strip()
                     for prefix in ["```json", "```python", "```", "expression:", "EXPRESSION:"]:
                         if cleaned.lower().startswith(prefix.lower()):
-                            cleaned = cleaned[len(prefix):].strip()
+                            cleaned = cleaned[len(prefix) :].strip()
                     if cleaned.endswith("```"):
                         cleaned = cleaned[:-3].strip()
                     if cleaned and len(cleaned) >= 5:
@@ -2225,14 +2429,16 @@ Rules:
 
             logger.info(
                 "MultiAgent: critique_revise_loop round %d — revised: orig=%s... → new=%s...",
-                round_num, current_expr[:40], revised_expr[:40],
+                round_num,
+                current_expr[:40],
+                revised_expr[:40],
             )
 
-        semantic_check_prompt = f"""You are verifying that a revised alpha expression preserves the original economic intuition.
+        semantic_check_prompt = f"""You are verifying that a revised alpha expression preserves the original economic intuition.  # noqa: E501
 
 ORIGINAL: {expression}
 FINAL_REVISED: {current_expr}
-DIRECTION: {direction or 'Not specified'}
+DIRECTION: {direction or "Not specified"}
 
 Is the FINAL_REVISED expression semantically equivalent to the ORIGINAL in its core signal concept?
 Consider: does it target the same economic phenomenon and signal direction?
@@ -2242,8 +2448,11 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
         try:
             if self._eval_agent._llm_generate:
                 raw = await self._eval_agent._llm_generate(
-                    semantic_check_prompt, [], "",
-                    session_id="semantic_check", cycle=0,
+                    semantic_check_prompt,
+                    [],
+                    "",
+                    session_id="semantic_check",
+                    cycle=0,
                 )
                 _parsed = _extract_json_from_llm(raw)
                 if _parsed and isinstance(_parsed, dict):
@@ -2254,7 +2463,8 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
         result["expression"] = current_expr
         logger.info(
             "MultiAgent: critique_revise_loop complete — %d rounds, final expr=%s...",
-            result["rounds_completed"], current_expr[:60],
+            result["rounds_completed"],
+            current_expr[:60],
         )
         return result
 
@@ -2279,7 +2489,9 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
         for iteration in range(1, MAX_ITERATIONS + 1):
             logger.info(
                 "MultiAgent: iteration %d/%d, direction=%s",
-                iteration, MAX_ITERATIONS, direction,
+                iteration,
+                MAX_ITERATIONS,
+                direction,
             )
 
             bus_messages = self._message_bus.receive("idea_agent")
@@ -2312,21 +2524,26 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     direction=hypothesis.direction,
                     core_operators=list(_DIRECTION_OPERATOR_MAP.get(hypothesis.direction.lower(), [])),
                 )
-                if self._rag_engine and hasattr(self._rag_engine, '_embed_fn') and self._rag_engine._embed_fn is not None:
-                    try:
+                if (
+                    self._rag_engine
+                    and hasattr(self._rag_engine, "_embed_fn")
+                    and self._rag_engine._embed_fn is not None
+                ):
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
                         await anchor.compute_embedding(self._rag_engine._embed_fn)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
                 else:
-                    try:
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
                         await anchor.compute_embedding(llm_client.embed)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
             except (OSError, ValueError, RuntimeError):
                 anchor = None
 
             _MAX_ALIGN_RETRIES = 2
-            expression, sim_payload, _iteration_economic_rationale, align_action = await self._factor_agent.generate_expression(
+            (
+                expression,
+                sim_payload,
+                _iteration_economic_rationale,
+                align_action,
+            ) = await self._factor_agent.generate_expression(
                 hypothesis=hypothesis,
                 operators=operators,
                 fields=fields,
@@ -2339,7 +2556,9 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 _retry_fb = (sim_payload.get("metadata") or {}).get("_alignment_retry_feedback", "")
                 logger.info(
                     "MultiAgent: alignment retry %d/%d — R² too low, regenerating (feedback: %s)",
-                    _align_retry + 1, _MAX_ALIGN_RETRIES, (_retry_fb or "")[:120],
+                    _align_retry + 1,
+                    _MAX_ALIGN_RETRIES,
+                    (_retry_fb or "")[:120],
                 )
                 if _retry_fb:
                     hypothesis_str_retry = (
@@ -2350,7 +2569,12 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     )
                     _orig_hypothesis_nl = hypothesis.natural_language
                     hypothesis.natural_language = hypothesis_str_retry
-                expression, sim_payload, _iteration_economic_rationale, align_action = await self._factor_agent.generate_expression(
+                (
+                    expression,
+                    sim_payload,
+                    _iteration_economic_rationale,
+                    align_action,
+                ) = await self._factor_agent.generate_expression(
                     hypothesis=hypothesis,
                     operators=operators,
                     fields=fields,
@@ -2361,21 +2585,27 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     hypothesis.natural_language = _orig_hypothesis_nl
             if align_action == "WEAK":
                 logger.warning(
-                    "MultiAgent: WEAK R² alignment after generation — expression may partially drift from hypothesis '%s'",
+                    "MultiAgent: WEAK R² alignment after generation — expression may partially drift from hypothesis '%s'",  # noqa: E501
                     hypothesis.direction,
                 )
             critique = self._factor_agent._last_critique_result
-            if critique is not None and (not critique.critique_available or critique.consistency_score is None or critique.consistency_score < 0.5):
+            if critique is not None and (
+                not critique.critique_available
+                or critique.consistency_score is None
+                or critique.consistency_score < 0.5
+            ):
                 _warning_reason = ""
                 if not critique.critique_available or critique.consistency_score is None:
-                    _warning_reason = f"Self-critique unavailable (critique_available={critique.critique_available}, consistency_score={critique.consistency_score})."
+                    _warning_reason = f"Self-critique unavailable (critique_available={critique.critique_available}, consistency_score={critique.consistency_score})."  # noqa: E501
                 else:
                     _warning_reason = f"Self-critique consistency_score={critique.consistency_score:.2f} < 0.5."
-                factor_feedback.append({
-                    "sharpe": "N/A",
-                    "status": "LOW_CONSISTENCY",
-                    "feedback": f"{_warning_reason} Issues: {'; '.join(critique.issues)}. Suggestions: {'; '.join(critique.suggestions)}",
-                })
+                factor_feedback.append(
+                    {
+                        "sharpe": "N/A",
+                        "status": "LOW_CONSISTENCY",
+                        "feedback": f"{_warning_reason} Issues: {'; '.join(critique.issues)}. Suggestions: {'; '.join(critique.suggestions)}",  # noqa: E501
+                    }
+                )
             logger.info(
                 "MultiAgent: FactorAgent generated expression — %s",
                 expression[:80],
@@ -2388,17 +2618,18 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
             best_align_hypothesis = hypothesis
             for _align_llm_retry in range(_MAX_LLM_ALIGN_RETRIES + 1):
                 align_result = await self._eval_agent._llm_align_check(
-                    best_align_hypothesis, best_align_expression,
+                    best_align_hypothesis,
+                    best_align_expression,
                 )
                 align_score = align_result.get("alignment_score", 0.5)
                 logger.info(
                     "MultiAgent: LLM align check — score=%.2f retry=%d needs_regeneration=%s",
-                    align_score, _align_llm_retry, align_result.get("needs_regeneration", False),
+                    align_score,
+                    _align_llm_retry,
+                    align_result.get("needs_regeneration", False),
                 )
                 if best_align_result is None or align_score > best_align_result.get("alignment_score", 0):
                     best_align_result = align_result
-                    best_align_expression_saved = best_align_expression
-                    best_align_sim_payload_saved = best_align_sim_payload
                 if not align_result.get("needs_regeneration", False) or _align_llm_retry >= _MAX_LLM_ALIGN_RETRIES:
                     break
                 align_feedback = (
@@ -2407,10 +2638,12 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     "Please generate a MORE SPECIFIC hypothesis that makes the economic mechanism clearer "
                     "so the FactorAgent can produce a better-matching expression."
                 )
-                regen_idea_feedback = idea_feedback + [{
-                    "status": "LOW_ALIGNMENT",
-                    "feedback": align_feedback,
-                }]
+                regen_idea_feedback = idea_feedback + [
+                    {
+                        "status": "LOW_ALIGNMENT",
+                        "feedback": align_feedback,
+                    }
+                ]
                 regen_hypothesis, rag_context_dict = await self._idea_agent.generate_hypothesis(
                     direction=direction,
                     history=history,
@@ -2418,9 +2651,15 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 )
                 logger.info(
                     "MultiAgent: IdeaAgent regenerated hypothesis — align_retry=%d: %s",
-                    _align_llm_retry + 1, regen_hypothesis.natural_language[:100],
+                    _align_llm_retry + 1,
+                    regen_hypothesis.natural_language[:100],
                 )
-                regen_expr, regen_sim_payload, _regeneration_economic_rationale, _regen_align_action = await self._factor_agent.generate_expression(
+                (
+                    regen_expr,
+                    regen_sim_payload,
+                    _regeneration_economic_rationale,
+                    _regen_align_action,
+                ) = await self._factor_agent.generate_expression(
                     hypothesis=regen_hypothesis,
                     operators=operators,
                     fields=fields,
@@ -2429,7 +2668,8 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 )
                 logger.info(
                     "MultiAgent: FactorAgent regenerated expression — align_retry=%d: %s",
-                    _align_llm_retry + 1, regen_expr[:80],
+                    _align_llm_retry + 1,
+                    regen_expr[:80],
                 )
                 best_align_expression = regen_expr
                 best_align_sim_payload = regen_sim_payload
@@ -2446,7 +2686,9 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
             try:
                 if trajectory is not None:
                     trajectory.add_expression_version(expression)
-                    rag_ops = [op["name"] for op in rag_context_dict.get("top_ops_detailed", [])] if rag_context_dict else []
+                    rag_ops = (
+                        [op["name"] for op in rag_context_dict.get("top_ops_detailed", [])] if rag_context_dict else []
+                    )
                     if rag_ops:
                         for op in rag_ops[:3]:
                             trajectory.add_decision("operator", op, [o for o in rag_ops if o != op][:2])
@@ -2457,7 +2699,8 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
             if self._originality_checker and settings.ORIGINALITY_CHECK_ENABLED:
                 try:
                     originality_score = self._originality_checker.check_originality(
-                        f"multi_agent_iter_{iteration}", expression,
+                        f"multi_agent_iter_{iteration}",
+                        expression,
                     )
                 except (OSError, ValueError, RuntimeError) as exc:
                     logger.warning("MultiAgent: originality check failed: %s", exc)
@@ -2477,8 +2720,9 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     }
                     if not ok:
                         logger.warning(
-                                "MultiAgent: complexity check failed — %s", reason,
-                            )
+                            "MultiAgent: complexity check failed — %s",
+                            reason,
+                        )
                 except (ValueError, TypeError, RuntimeError) as exc:
                     logger.warning("MultiAgent: complexity check failed: %s", exc)
 
@@ -2487,11 +2731,13 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 simulation_payload=sim_payload,
                 direction=hypothesis.direction,
             )
-            if self._rag_engine and hasattr(self._rag_engine, 'update_weights_from_feedback') and eval_result.get("brain_checks"):
-                try:
+            if (
+                self._rag_engine
+                and hasattr(self._rag_engine, "update_weights_from_feedback")
+                and eval_result.get("brain_checks")
+            ):
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._rag_engine.update_weights_from_feedback(direction, eval_result["brain_checks"])
-                except (OSError, ValueError, RuntimeError):
-                    pass
 
             if eval_result.get("brain_checks"):
                 rule_diagnosis = build_idea_diagnostic_feedback(
@@ -2501,30 +2747,37 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     eval_result.get("turnover"),
                     direction,
                 )
-                idea_feedback.append({
-                    "iteration": iteration,
-                    "diagnosis_source": "rule_mapping",
-                    "diagnosis": rule_diagnosis,
-                })
+                idea_feedback.append(
+                    {
+                        "iteration": iteration,
+                        "diagnosis_source": "rule_mapping",
+                        "diagnosis": rule_diagnosis,
+                    }
+                )
 
                 if not rule_diagnosis or rule_diagnosis.strip() == "":
                     if settings.DIAGNOSIS_LLM_ENABLED:
                         try:
                             from openalpha_brain.generation.prompts import llm_diagnose_failure
+
                             llm_result = await llm_diagnose_failure(
                                 brain_checks=eval_result["brain_checks"],
                                 expression=expression,
                                 hypothesis_text=hypothesis.natural_language or hypothesis.direction,
-                                llm_call_fn=self._idea_agent._llm_generate if hasattr(self._idea_agent, '_llm_generate') else None,
+                                llm_call_fn=self._idea_agent._llm_generate
+                                if hasattr(self._idea_agent, "_llm_generate")
+                                else None,
                             )
                             if llm_result:
-                                idea_feedback.append({
-                                    "iteration": iteration,
-                                    "diagnosis_source": "llm_diagnosis",
-                                    "diagnosis": f"LLM诊断: {llm_result['root_cause']}. 建议: {llm_result['suggested_fix']}",
-                                    "llm_result": llm_result,
-                                })
-                                logic_lib = getattr(self._idea_agent, '_logic_library', None)
+                                idea_feedback.append(
+                                    {
+                                        "iteration": iteration,
+                                        "diagnosis_source": "llm_diagnosis",
+                                        "diagnosis": f"LLM诊断: {llm_result['root_cause']}. 建议: {llm_result['suggested_fix']}",  # noqa: E501
+                                        "llm_result": llm_result,
+                                    }
+                                )
+                                logic_lib = getattr(self._idea_agent, "_logic_library", None)
                                 if logic_lib:
                                     logic_lib.accumulate_diagnosis(hypothesis.direction, llm_result)
                         except (ValueError, TypeError, RuntimeError):
@@ -2536,37 +2789,44 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     if _ft in ("SELF_CORRELATION", "LOW_SHARPE") and self._agent_factory is not None:
                         try:
                             from loop_engine import _algo_tick
+
                             _algo_tick("specialist_agent_create")
                         except ImportError:
                             pass
                         _spec_agent = self._agent_factory.create_specialist_agent(_ft, direction)
                         if _spec_agent is not None:
                             _spec_prompt = self._agent_factory.get_specialist_prompt(
-                                _spec_agent.agent_type, expression, _failure_str,
+                                _spec_agent.agent_type,
+                                expression,
+                                _failure_str,
                             )
-                            factor_feedback.append({
-                                "sharpe": eval_result.get("sharpe", "N/A"),
-                                "status": _ft,
-                                "feedback": _spec_prompt,
-                            })
+                            factor_feedback.append(
+                                {
+                                    "sharpe": eval_result.get("sharpe", "N/A"),
+                                    "status": _ft,
+                                    "feedback": _spec_prompt,
+                                }
+                            )
 
             eval_status = eval_result.get("status", "PENDING")
             alignment_score = eval_result.get("semantic_alignment_score", 0.5)
 
-            self._message_bus.send(AgentMessage(
-                sender="eval_agent",
-                receiver="idea_agent",
-                msg_type="DiagnosisFeedback",
-                payload={
-                    "iteration": iteration,
-                    "status": eval_status,
-                    "sharpe": eval_result.get("sharpe"),
-                    "fitness": eval_result.get("fitness"),
-                    "turnover": eval_result.get("turnover"),
-                    "brain_checks": eval_result.get("brain_checks", []),
-                    "feedback": eval_result.get("feedback", ""),
-                },
-            ))
+            self._message_bus.send(
+                AgentMessage(
+                    sender="eval_agent",
+                    receiver="idea_agent",
+                    msg_type="DiagnosisFeedback",
+                    payload={
+                        "iteration": iteration,
+                        "status": eval_status,
+                        "sharpe": eval_result.get("sharpe"),
+                        "fitness": eval_result.get("fitness"),
+                        "turnover": eval_result.get("turnover"),
+                        "brain_checks": eval_result.get("brain_checks", []),
+                        "feedback": eval_result.get("feedback", ""),
+                    },
+                )
+            )
 
             try:
                 if trajectory is not None:
@@ -2577,7 +2837,8 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
 
             logger.info(
                 "MultiAgent: EvalAgent result — status=%s, alignment=%.2f",
-                eval_status, alignment_score,
+                eval_status,
+                alignment_score,
             )
 
             current_result = AgentResult(
@@ -2630,11 +2891,13 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                                 "MultiAgent: trajectory mutation generated variant — %s",
                                 _traj_mutated_expr[:80],
                             )
-                            factor_feedback.append({
-                                "sharpe": eval_result.get("sharpe", "N/A"),
-                                "status": "TRAJECTORY_MUTATION",
-                                "feedback": f"Trajectory mutation variant: {_traj_mutated_expr}",
-                            })
+                            factor_feedback.append(
+                                {
+                                    "sharpe": eval_result.get("sharpe", "N/A"),
+                                    "status": "TRAJECTORY_MUTATION",
+                                    "feedback": f"Trajectory mutation variant: {_traj_mutated_expr}",
+                                }
+                            )
                         else:
                             logger.info("MultiAgent: trajectory mutation produced no useful variant")
                     else:
@@ -2649,13 +2912,17 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 if settings.EVIDENCE_RECORDING_ENABLED:
                     try:
                         from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
+
                         lib = AlphaLogicLibrary()
                         logics = lib.get_logic_for_direction(direction)
                         for logic in logics[:1]:
-                            lib.record_evidence(logic.logic_id, alignment_score >= 0.7,
+                            lib.record_evidence(
+                                logic.logic_id,
+                                alignment_score >= 0.7,
                                 expression=expression,
                                 direction=direction,
-                                fix_success=alignment_score >= 0.7)
+                                fix_success=alignment_score >= 0.7,
+                            )
                     except (ValueError, TypeError, RuntimeError):
                         pass
 
@@ -2693,7 +2960,14 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                                 filtered_variants.append(v)
                             else:
                                 logger.info("Semantic drift rejected: score=%.3f expr=%s", drift_score, v[:50])
-                                _monitor.record("STEP", "drift_guard", "reject", f"score={drift_score:.3f}", session_id="drift_guard", alpha_id="")
+                                _monitor.record(
+                                    "STEP",
+                                    "drift_guard",
+                                    "reject",
+                                    f"score={drift_score:.3f}",
+                                    session_id="drift_guard",
+                                    alpha_id="",
+                                )
                         except (OSError, ValueError, RuntimeError):
                             filtered_variants.append(v)
                     else:
@@ -2703,12 +2977,16 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 best_result.variants = variants
                 best_result.converged = True
                 if self._reflection_engine is not None:
-                    self._next_plan = self._reflection_engine.plan_next_iteration(evolution_db=self._evo_db, feature_map=self._feature_map)
+                    self._next_plan = self._reflection_engine.plan_next_iteration(
+                        evolution_db=self._evo_db, feature_map=self._feature_map
+                    )
                 return best_result
 
         if best_result is not None:
             if self._reflection_engine is not None:
-                self._next_plan = self._reflection_engine.plan_next_iteration(evolution_db=self._evo_db, feature_map=self._feature_map)
+                self._next_plan = self._reflection_engine.plan_next_iteration(
+                    evolution_db=self._evo_db, feature_map=self._feature_map
+                )
             if self._agent_factory is not None:
                 self._agent_factory.cleanup_idle_agents(max_idle_cycles=10)
             return best_result

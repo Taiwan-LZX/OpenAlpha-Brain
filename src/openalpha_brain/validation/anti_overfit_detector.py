@@ -47,10 +47,7 @@ class AntiOverfitResult:
             "recommendation": self.recommendation,
             "passed_count": self.passed_count,
             "total_count": self.total_count,
-            "tests": [
-                {"name": t.name, "passed": t.passed, "details": t.details}
-                for t in self.tests
-            ],
+            "tests": [{"name": t.name, "passed": t.passed, "details": t.details} for t in self.tests],
         }
 
 
@@ -138,17 +135,25 @@ class LightweightAntiOverfitDetector:
 
         if len(self._historical_sharpes) < 3:
             logger.debug("[ANTI-FIT] 历史Sharpe不足3条，跳过一致性检验")
-            return TestResult("Sharpe一致性", True, {
-                "current_sharpe": round(sharpe, 4),
-                "note": "历史数据不足，默认通过",
-            })
+            return TestResult(
+                "Sharpe一致性",
+                True,
+                {
+                    "current_sharpe": round(sharpe, 4),
+                    "note": "历史数据不足，默认通过",
+                },
+            )
 
         valid = [s for s in self._historical_sharpes if isinstance(s, (int, float)) and math.isfinite(s)]
         if len(valid) < 3:
-            return TestResult("Sharpe一致性", True, {
-                "current_sharpe": round(sharpe, 4),
-                "note": "有效历史数据不足",
-            })
+            return TestResult(
+                "Sharpe一致性",
+                True,
+                {
+                    "current_sharpe": round(sharpe, 4),
+                    "note": "有效历史数据不足",
+                },
+            )
 
         mean_s = sum(valid) / len(valid)
         variance = sum((s - mean_s) ** 2 for s in valid) / len(valid)
@@ -161,16 +166,23 @@ class LightweightAntiOverfitDetector:
 
         logger.debug(
             "[ANTI-FIT] Sharpe一致性: current=%.4f mean=%.4f std=%.4f deviation=%.2fσ",
-            sharpe, mean_s, std_dev, deviation,
+            sharpe,
+            mean_s,
+            std_dev,
+            deviation,
         )
 
-        return TestResult("Sharpe一致性", passed, {
-            "current_sharpe": round(sharpe, 4),
-            "historical_mean": round(mean_s, 4),
-            "historical_std": round(std_dev, 4),
-            "deviation_sigma": round(deviation, 2),
-            "threshold_sigma": threshold,
-        })
+        return TestResult(
+            "Sharpe一致性",
+            passed,
+            {
+                "current_sharpe": round(sharpe, 4),
+                "historical_mean": round(mean_s, 4),
+                "historical_std": round(std_dev, 4),
+                "deviation_sigma": round(deviation, 2),
+                "threshold_sigma": threshold,
+            },
+        )
 
     def _test_turnover_sanity(self, turnover: float | None) -> TestResult:
         """Test 2: Turnover rate sanity check.
@@ -186,15 +198,16 @@ class LightweightAntiOverfitDetector:
         turnover = float(turnover)
 
         if turnover <= 0:
-            return TestResult("换手率合理性", False, {
-                "turnover": turnover,
-                "reason": "换手率为零或负数",
-            })
+            return TestResult(
+                "换手率合理性",
+                False,
+                {
+                    "turnover": turnover,
+                    "reason": "换手率为零或负数",
+                },
+            )
 
-        if turnover > 1.0:
-            turnover_pct = turnover
-        else:
-            turnover_pct = turnover * 100
+        turnover_pct = turnover if turnover > 1.0 else turnover * 100
 
         if turnover_pct < 1.0:
             passed = False
@@ -214,10 +227,14 @@ class LightweightAntiOverfitDetector:
 
         logger.debug("[ANTI-FIT] 换手率检查: %.2f%% → %s (%s)", turnover_pct, "PASS" if passed else "FAIL", reason)
 
-        return TestResult("换手率合理性", passed, {
-            "turnover_percent": round(turnover_pct, 2),
-            "reason": reason,
-        })
+        return TestResult(
+            "换手率合理性",
+            passed,
+            {
+                "turnover_percent": round(turnover_pct, 2),
+                "reason": reason,
+            },
+        )
 
     def _test_fitness_efficiency(
         self,
@@ -241,35 +258,38 @@ class LightweightAntiOverfitDetector:
         if turnover_val <= 0:
             turnover_val = 0.125
 
-        if turnover_val > 1.0:
-            turnover_normalized = turnover_val / 100.0
-        else:
-            turnover_normalized = turnover_val
+        turnover_normalized = turnover_val / 100.0 if turnover_val > 1.0 else turnover_val
 
         effective_to = max(turnover_normalized, 0.125)
 
         expected_fitness_lower = abs(sharpe_val) * 0.5 / effective_to if effective_to > 0 else 0.0
         expected_fitness_upper = abs(sharpe_val) * 3.0 / effective_to if effective_to > 0 else 10.0
 
-        suspicious = (
-            fitness > expected_fitness_upper * 1.5
-            and abs(sharpe_val) < 1.0
-        )
+        suspicious = fitness > expected_fitness_upper * 1.5 and abs(sharpe_val) < 1.0
 
         passed = not suspicious
 
         logger.debug(
             "[ANTI-FIT] Fitness效率: fitness=%.4f sharpe=%.4f TO=%.4f expected=[%.4f, %.4f] suspicious=%s",
-            fitness, sharpe_val, turnover_val, expected_fitness_lower, expected_fitness_upper, suspicious,
+            fitness,
+            sharpe_val,
+            turnover_val,
+            expected_fitness_lower,
+            expected_fitness_upper,
+            suspicious,
         )
 
-        return TestResult("Fitness效率", passed, {
-            "fitness": round(fitness, 4),
-            "sharpe": round(sharpe_val, 4),
-            "turnover": round(turnover_val, 4),
-            "expected_range": [round(expected_fitness_lower, 4), round(expected_fitness_upper, 4)],
-            "suspicious": suspicious,
-        })
+        return TestResult(
+            "Fitness效率",
+            passed,
+            {
+                "fitness": round(fitness, 4),
+                "sharpe": round(sharpe_val, 4),
+                "turnover": round(turnover_val, 4),
+                "expected_range": [round(expected_fitness_lower, 4), round(expected_fitness_upper, 4)],
+                "suspicious": suspicious,
+            },
+        )
 
     def _test_drawdown_stability(
         self,
@@ -284,9 +304,13 @@ class LightweightAntiOverfitDetector:
         """
         if drawdown is None:
             logger.debug("[ANTI-FIT] 无回撤数据，跳过回撤稳定性检验")
-            return TestResult("回撤稳定性", True, {
-                "note": "无回撤数据，默认通过",
-            })
+            return TestResult(
+                "回撤稳定性",
+                True,
+                {
+                    "note": "无回撤数据，默认通过",
+                },
+            )
 
         if not isinstance(drawdown, (int, float)):
             return TestResult("回撤稳定性", False, {"error": "回撤数据格式错误"})
@@ -308,14 +332,20 @@ class LightweightAntiOverfitDetector:
 
         logger.debug(
             "[ANTI-FIT] 回撤稳定性: dd=%.4f sharpe=%.4f warnings=%d",
-            drawdown, sharpe_val, len(warnings),
+            drawdown,
+            sharpe_val,
+            len(warnings),
         )
 
-        return TestResult("回撤稳定性", passed, {
-            "drawdown": round(drawdown, 4),
-            "sharpe": round(sharpe_val, 4),
-            "warnings": warnings,
-        })
+        return TestResult(
+            "回撤稳定性",
+            passed,
+            {
+                "drawdown": round(drawdown, 4),
+                "sharpe": round(sharpe_val, 4),
+                "warnings": warnings,
+            },
+        )
 
     def _test_check_pattern(self, checks: list | None) -> TestResult:
         """Test 5: Failed-check pattern analysis.
@@ -326,9 +356,13 @@ class LightweightAntiOverfitDetector:
         """
         if not checks or not isinstance(checks, list):
             logger.debug("[ANTI-FIT] 无checks数据，跳过模式分析")
-            return TestResult("检查模式分析", True, {
-                "note": "无检查数据，默认通过",
-            })
+            return TestResult(
+                "检查模式分析",
+                True,
+                {
+                    "note": "无检查数据，默认通过",
+                },
+            )
 
         failed_names = set()
         for ck in checks:
@@ -356,14 +390,20 @@ class LightweightAntiOverfitDetector:
 
         logger.debug(
             "[ANTI-FIT] 检查模式: failed=%d patterns=%d severity=%s",
-            len(failed_names), len(patterns), severity,
+            len(failed_names),
+            len(patterns),
+            severity,
         )
 
-        return TestResult("检查模式分析", passed, {
-            "failed_checks": sorted(failed_names),
-            "patterns": patterns,
-            "severity": severity,
-        })
+        return TestResult(
+            "检查模式分析",
+            passed,
+            {
+                "failed_checks": sorted(failed_names),
+                "patterns": patterns,
+                "severity": severity,
+            },
+        )
 
 
 class FullAntiOverfitDetector:
@@ -457,7 +497,7 @@ class _QuantGPTAntiOverfitDetector:
     def __init__(self, factor_df: Any, holding_period: int = 5):
         import pandas as pd
 
-        if not hasattr(factor_df, 'copy') or not hasattr(factor_df, 'columns'):
+        if not hasattr(factor_df, "copy") or not hasattr(factor_df, "columns"):
             raise ValueError("factor_df must be a pandas DataFrame")
 
         self.df = factor_df.copy()
@@ -467,10 +507,9 @@ class _QuantGPTAntiOverfitDetector:
 
     def _prepare_forward_returns(self):
         self.df = self.df.sort_values(["stock_code", "trade_date"])
-        self.df["fwd_ret"] = (
-            self.df.groupby("stock_code")["daily_ret"]
-            .transform(
-                lambda s: s.shift(-1)
+        self.df["fwd_ret"] = self.df.groupby("stock_code")["daily_ret"].transform(
+            lambda s: (
+                s.shift(-1)
                 .rolling(self.holding_period, min_periods=self.holding_period)
                 .sum()
                 .shift(-(self.holding_period - 1))
@@ -539,12 +578,16 @@ class _QuantGPTAntiOverfitDetector:
 
         passed = (positive_rate >= 0.55) and (abs(ic_mean) >= 0.02) and (not has_reversal)
 
-        return TestResult("IC稳定性", passed, {
-            "ic_mean": round(ic_mean, 4),
-            "positive_rate": round(positive_rate, 4),
-            "yearly_ic": {str(y): round(float(v), 4) for y, v in yearly_ic.items()},
-            "has_reversal": has_reversal,
-        })
+        return TestResult(
+            "IC稳定性",
+            passed,
+            {
+                "ic_mean": round(ic_mean, 4),
+                "positive_rate": round(positive_rate, 4),
+                "yearly_ic": {str(y): round(float(v), 4) for y, v in yearly_ic.items()},
+                "has_reversal": has_reversal,
+            },
+        )
 
     def test_subsample_stress(self) -> TestResult:
         import numpy as np
@@ -590,11 +633,15 @@ class _QuantGPTAntiOverfitDetector:
         consistency = same_sign_count / len(sub_ics)
         passed = consistency >= 0.6
 
-        return TestResult("子样本压力", passed, {
-            "overall_ic_sign": int(overall_sign),
-            "sub_sample_ics": {k: round(v, 4) for k, v in sub_ics.items()},
-            "consistency": round(consistency, 4),
-        })
+        return TestResult(
+            "子样本压力",
+            passed,
+            {
+                "overall_ic_sign": int(overall_sign),
+                "sub_sample_ics": {k: round(v, 4) for k, v in sub_ics.items()},
+                "consistency": round(consistency, 4),
+            },
+        )
 
     def test_placebo(self, n_permutations: int = 20) -> TestResult:
         import numpy as np
@@ -642,13 +689,17 @@ class _QuantGPTAntiOverfitDetector:
 
         passed = perm_pass and decay_ok
 
-        return TestResult("安慰剂检验", passed, {
-            "real_ic": round(real_ic, 4),
-            "perm_95th": round(perm_95, 4),
-            "perm_pass": perm_pass,
-            "shift_ics": {str(k): round(v, 4) for k, v in shift_ics.items()},
-            "decay_ok": decay_ok,
-        })
+        return TestResult(
+            "安慰剂检验",
+            passed,
+            {
+                "real_ic": round(real_ic, 4),
+                "perm_95th": round(perm_95, 4),
+                "perm_pass": perm_pass,
+                "shift_ics": {str(k): round(v, 4) for k, v in shift_ics.items()},
+                "decay_ok": decay_ok,
+            },
+        )
 
     def test_half_life(self) -> TestResult:
         import numpy as np
@@ -663,14 +714,8 @@ class _QuantGPTAntiOverfitDetector:
         valid = valid[valid["trade_date"].isin(sampled_dates)]
 
         for p in periods:
-            valid[f"fwd_ret_{p}"] = (
-                valid.groupby("stock_code")["daily_ret"]
-                .transform(
-                    lambda s: s.shift(-1)
-                    .rolling(p, min_periods=p)
-                    .sum()
-                    .shift(-(p - 1))
-                )
+            valid[f"fwd_ret_{p}"] = valid.groupby("stock_code")["daily_ret"].transform(
+                lambda s: s.shift(-1).rolling(p, min_periods=p).sum().shift(-(p - 1))
             )
             sub = valid.dropna(subset=["factor_value", f"fwd_ret_{p}"])
             if sub.empty:
@@ -678,6 +723,7 @@ class _QuantGPTAntiOverfitDetector:
 
             def _spearman_p(g, col=f"fwd_ret_{p}"):
                 from scipy import stats as sp_stats
+
                 if len(g) < 5 or g["factor_value"].nunique() < 2:
                     return np.nan
                 corr, _ = sp_stats.spearmanr(g["factor_value"], g[col])
@@ -694,6 +740,7 @@ class _QuantGPTAntiOverfitDetector:
         y = np.array(list(period_ics.values()), dtype=float)
 
         try:
+
             def exp_decay(t, a, b):
                 return a * np.exp(-b * t)
 
@@ -716,7 +763,11 @@ class _QuantGPTAntiOverfitDetector:
 
         passed = half_life > 5.0
 
-        return TestResult("半衰期估计", passed, {
-            "half_life_days": round(half_life, 1),
-            "period_ics": {str(k): round(v, 4) for k, v in period_ics.items()},
-        })
+        return TestResult(
+            "半衰期估计",
+            passed,
+            {
+                "half_life_days": round(half_life, 1),
+                "period_ics": {str(k): round(v, 4) for k, v in period_ics.items()},
+            },
+        )

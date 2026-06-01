@@ -14,6 +14,7 @@ Options:
   --max-cycles N        Maximum cycles to run (default: from config)
   --web                 Start in web mode (alias for 'monitor')
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -2,6 +2,7 @@
 OpenAlpha - Quant — FastAPI Application
 All routes return immediately. The generation loop runs as a background asyncio task.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,11 +49,11 @@ async def lifespan(app: FastAPI):
             "LLM_API_KEY is not set! Sessions will ERROR when the loop tries to call the LLM. "
             "Set it in your .env file.",
         )
-    getattr(loop_engine, 'init_intelligent_search', lambda: None)()
+    getattr(loop_engine, "init_intelligent_search", lambda: None)()
 
     ws_broadcaster.attach(get_event_bus())
 
-    heartbeat = getattr(loop_engine, '_heartbeat', None)
+    heartbeat = getattr(loop_engine, "_heartbeat", None)
     if heartbeat:
         await heartbeat.startup_scan(sm)
         heartbeat.start_background_task()
@@ -101,6 +102,7 @@ if not _DEV_MODE and _frontend_dist.exists():
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+
 @app.websocket("/ws/events")
 async def websocket_events(websocket: WebSocket):
     await ws_broadcaster.connect(websocket)
@@ -115,11 +117,18 @@ async def websocket_events(websocket: WebSocket):
 async def websocket_session(websocket: WebSocket, session_id: str):
     await websocket.accept()
     queue: asyncio.Queue[AlphaEvent] = asyncio.Queue()
-    _SESSION_EVENTS = frozenset({
-        "cycle_complete", "alpha_generated", "alpha_passed",
-        "alpha_failed", "brain_submitted", "brain_result",
-        "log", "session_complete",
-    })
+    _SESSION_EVENTS = frozenset(
+        {
+            "cycle_complete",
+            "alpha_generated",
+            "alpha_passed",
+            "alpha_failed",
+            "brain_submitted",
+            "brain_result",
+            "log",
+            "session_complete",
+        }
+    )
     loop = asyncio.get_running_loop()
 
     def _on_session_event(event: AlphaEvent) -> None:
@@ -145,10 +154,15 @@ async def websocket_session(websocket: WebSocket, session_id: str):
 async def websocket_monitor(websocket: WebSocket):
     await websocket.accept()
     queue: asyncio.Queue[AlphaEvent] = asyncio.Queue()
-    _MONITOR_EVENTS = frozenset({
-        "brain_submit", "brain_result", "mab_update",
-        "generator_update", "metrics_update",
-    })
+    _MONITOR_EVENTS = frozenset(
+        {
+            "brain_submit",
+            "brain_result",
+            "mab_update",
+            "generator_update",
+            "metrics_update",
+        }
+    )
     loop = asyncio.get_running_loop()
 
     def _on_monitor_event(event: AlphaEvent) -> None:
@@ -198,6 +212,7 @@ async def sessions_health():
 @app.get("/api/dashboard/algo-status")
 async def algo_status():
     from openalpha_brain.cli.algo_monitor import AlgoMonitor
+
     return AlgoMonitor.get_instance().get_status()
 
 
@@ -277,6 +292,7 @@ async def stop_session(session_id: str):
 @app.post("/session/{session_id}/pause")
 async def pause_session(session_id: str):
     from openalpha_brain.core import loop_state as _ls
+
     if _ls._console_pause_event is not None:
         _ls._console_pause_event.clear()
         return {"status": "paused", "session_id": session_id}
@@ -292,22 +308,25 @@ async def list_sessions():
         state = await sm.load_session(sid)
         if state is None:
             continue
-        sessions.append({
-            "id": sid,
-            "status": state.status.value if hasattr(state.status, "value") else str(state.status),
-            "cycle": state.cycle,
-            "focus_area": state.focus_area,
-            "passed_count": len(state.passed_alphas),
-            "failed_count": len(getattr(state, "failed_alphas", [])),
-            "created_at": state.created_at.isoformat() if state.created_at else None,
-            "updated_at": state.updated_at.isoformat() if state.updated_at else None,
-        })
+        sessions.append(
+            {
+                "id": sid,
+                "status": state.status.value if hasattr(state.status, "value") else str(state.status),
+                "cycle": state.cycle,
+                "focus_area": state.focus_area,
+                "passed_count": len(state.passed_alphas),
+                "failed_count": len(getattr(state, "failed_alphas", [])),
+                "created_at": state.created_at.isoformat() if state.created_at else None,
+                "updated_at": state.updated_at.isoformat() if state.updated_at else None,
+            }
+        )
     return {"sessions": sessions, "total": len(sessions)}
 
 
 @app.post("/session/{session_id}/resume")
 async def resume_session(session_id: str):
     from openalpha_brain.core import loop_state as _ls
+
     if _ls._console_pause_event is not None:
         _ls._console_pause_event.set()
         return {"status": "resumed", "session_id": session_id}
@@ -318,6 +337,7 @@ async def resume_session(session_id: str):
 @app.get("/")
 async def serve_frontend():
     from fastapi.responses import FileResponse, RedirectResponse
+
     if _DEV_MODE:
         return RedirectResponse(url="http://localhost:5173")
     if _frontend_dist.exists():
@@ -369,7 +389,7 @@ async def _run_loop_safe(session_id: str) -> None:
             state.error_message = str(exc)
             await sm.save_session(state)
     finally:
-        heartbeat = getattr(loop_engine, '_heartbeat', None)
+        heartbeat = getattr(loop_engine, "_heartbeat", None)
         if heartbeat:
             heartbeat.remove(session_id)
         _running_tasks.pop(session_id, None)

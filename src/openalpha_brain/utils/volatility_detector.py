@@ -45,23 +45,19 @@ def estimate_garch11(returns: list[float], max_iter: int = 100, tol: float = 1e-
             if cond_var[t] <= 0:
                 cond_var[t] = 1e-10
 
-        if alpha + beta < 1.0:
-            omega_new = var * (1 - alpha - beta)
-        else:
-            omega_new = var * 0.01
+        omega_new = var * (1 - alpha - beta) if alpha + beta < 1.0 else var * 0.01
 
-        sq_res = [r ** 2 for r in residuals[1:]]
+        sq_res = [r**2 for r in residuals[1:]]
         sq_res_prev = [residuals[i - 1] ** 2 for i in range(1, n)]
         if len(sq_res) > 2:
             mean_sq = sum(sq_res) / len(sq_res)
             mean_sq_prev = sum(sq_res_prev) / len(sq_res_prev)
             if mean_sq_prev > 0 and mean_sq > 0:
-                cov = sum(a * b for a, b in zip(sq_res, sq_res_prev)) / len(sq_res) - mean_sq * mean_sq_prev
-                var_sq = sum(a ** 2 for a in sq_res_prev) / len(sq_res_prev) - mean_sq_prev ** 2
-                if var_sq > 0:
-                    alpha_new = max(0.01, min(0.5, cov / var_sq))
-                else:
-                    alpha_new = alpha
+                cov = (
+                    sum(a * b for a, b in zip(sq_res, sq_res_prev, strict=False)) / len(sq_res) - mean_sq * mean_sq_prev
+                )
+                var_sq = sum(a**2 for a in sq_res_prev) / len(sq_res_prev) - mean_sq_prev**2
+                alpha_new = max(0.01, min(0.5, cov / var_sq)) if var_sq > 0 else alpha
             else:
                 alpha_new = alpha
         else:

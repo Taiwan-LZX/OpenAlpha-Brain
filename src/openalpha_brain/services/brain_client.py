@@ -12,13 +12,17 @@ Full pipeline:
 Auth: email + password via HTTP Basic Auth.
 Credentials stored in .env as BRAIN_EMAIL / BRAIN_PASSWORD.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+import aiohttp
 import httpx
 
 from openalpha_brain.services.http_pool import get_client
@@ -27,12 +31,12 @@ from openalpha_brain.utils.algo_logger import Timer, algo_log
 logger = logging.getLogger(__name__)
 
 BRAIN_BASE = "https://api.worldquantbrain.com"
-_AUTH_URL  = f"{BRAIN_BASE}/authentication"
-_SIM_URL   = f"{BRAIN_BASE}/simulations"
+_AUTH_URL = f"{BRAIN_BASE}/authentication"
+_SIM_URL = f"{BRAIN_BASE}/simulations"
 
 # IQC real-metric hard gates
-GATE_SHARPE_MIN   = 1.25
-GATE_FITNESS_MIN  = 1.0
+GATE_SHARPE_MIN = 1.25
+GATE_FITNESS_MIN = 1.0
 GATE_TURNOVER_MIN = 1.0
 GATE_TURNOVER_MAX = 70.0
 
@@ -70,23 +74,24 @@ class BrainPollError(Exception):
 @dataclass
 class BrainGateResult:
     """Results from real IQC gate checks on BRAIN simulation output."""
+
     passed: bool
-    sharpe: float | None        = None
-    fitness: float | None       = None
-    turnover: float | None      = None
-    returns: float | None       = None
-    drawdown: float | None      = None
-    margin: float | None        = None
-    os_sharpe: float | None       = None
-    os_fitness: float | None      = None
-    os_returns: float | None      = None
+    sharpe: float | None = None
+    fitness: float | None = None
+    turnover: float | None = None
+    returns: float | None = None
+    drawdown: float | None = None
+    margin: float | None = None
+    os_sharpe: float | None = None
+    os_fitness: float | None = None
+    os_returns: float | None = None
     is_os_decay_ratio: float | None = None
-    overfitting_warning: bool        = False
-    failures: list[str]            = field(default_factory=list)
-    warnings: list[str]            = field(default_factory=list)
-    brain_checks: list[dict]       = field(default_factory=list)  # raw checks[] from BRAIN
-    alpha_id: str | None        = None   # BRAIN alpha ID after submission
-    simulation_status: str         = "UNKNOWN"
+    overfitting_warning: bool = False
+    failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    brain_checks: list[dict] = field(default_factory=list)  # raw checks[] from BRAIN
+    alpha_id: str | None = None  # BRAIN alpha ID after submission
+    simulation_status: str = "UNKNOWN"
 
 
 async def authenticate(email: str, password: str) -> httpx.Cookies:
@@ -139,13 +144,11 @@ async def submit_and_poll(
     if "type" in simulation_payload:
         payload["type"] = simulation_payload["type"]
 
-
     client = get_client()
 
     # ── 1. Submit simulation ────────────────────────────────────────────
     with Timer("brain_submit"):
-        logger.info("[brain] Submitting simulation for expression: %s...",
-                    str(payload.get("regular", ""))[:60])
+        logger.info("[brain] Submitting simulation for expression: %s...", str(payload.get("regular", ""))[:60])
 
         sim_resp = await client.post(_SIM_URL, json=payload, cookies=cookies, timeout=60.0)
 
@@ -201,12 +204,13 @@ async def submit_and_poll(
                         retry_after = None
 
                 if retry_after is None:
-                    logger.info("[brain] Simulation complete after %ds / %d polls",
-                                elapsed, poll_count)
+                    logger.info("[brain] Simulation complete after %ds / %d polls", elapsed, poll_count)
                     prelim = _extract_gate_result(data)
                     alpha_id = prelim.alpha_id
                     if prelim.simulation_status == "ERROR":
-                        logger.warning("[brain] BRAIN simulation ERROR: %s", prelim.failures[0] if prelim.failures else "unknown")
+                        logger.warning(
+                            "[brain] BRAIN simulation ERROR: %s", prelim.failures[0] if prelim.failures else "unknown"
+                        )
                         return prelim
                     if alpha_id:
                         logger.info("[brain] Fetching alpha %s details for real metrics", alpha_id)
@@ -214,7 +218,9 @@ async def submit_and_poll(
                         if alpha_data:
                             result = _extract_gate_result(alpha_data)
                             if result.sharpe is None and not result.brain_checks:
-                                logger.info("[brain] No metrics in alpha details — calling check API for alpha %s", alpha_id)
+                                logger.info(
+                                    "[brain] No metrics in alpha details — calling check API for alpha %s", alpha_id
+                                )
                                 check_data = await check_alpha(alpha_id, cookies)
                                 if check_data:
                                     result = _extract_gate_result(check_data)
@@ -225,7 +231,8 @@ async def submit_and_poll(
                 wait = max(min(retry_after, 30.0), 1.0)
                 logger.info(
                     "[brain] Simulation running — Retry-After=%.0fs, elapsed=%ds",
-                    retry_after, elapsed,
+                    retry_after,
+                    elapsed,
                 )
                 await asyncio.sleep(wait)
                 elapsed += wait
@@ -247,7 +254,6 @@ async def submit_and_poll(
         raise BrainPollError(
             f"BRAIN simulation did not complete within {max_poll_seconds}s",
         )
-
 
 
 async def fetch_alpha_details(
@@ -386,7 +392,9 @@ async def submit_alpha_for_review(
         msg = body.get("message", resp.text[:200]) if body else resp.text[:200]
         logger.warning(
             "[brain] Submit alpha %s for review returned HTTP %d: %s",
-            alpha_id, resp.status_code, msg,
+            alpha_id,
+            resp.status_code,
+            msg,
         )
         return False
     retry_after_raw = resp.headers.get("Retry-After")
@@ -448,7 +456,7 @@ async def fetch_yearly_performance(
                         schema_props = data.get("schema", {}).get("properties", [])
                         if schema_props:
                             columns = [p.get("name", f"col_{i}") for i, p in enumerate(schema_props)]
-                            parsed = [dict(zip(columns, rec)) for rec in records if isinstance(rec, list)]
+                            parsed = [dict(zip(columns, rec, strict=False)) for rec in records if isinstance(rec, list)]
                             if parsed:
                                 logger.info("[brain] Got yearly performance from /yearly-stats for alpha %s", alpha_id)
                                 return parsed
@@ -489,22 +497,31 @@ async def fetch_yearly_performance(
         retry_after = float(resp.headers.get("Retry-After", "0"))
         if retry_after > 0:
             wait = max(min(retry_after, 30.0), 1.0)
-            logger.info("[brain] PnL data not ready for yearly computation of alpha %s — Retry-After=%.0fs", alpha_id, retry_after)
+            logger.info(
+                "[brain] PnL data not ready for yearly computation of alpha %s — Retry-After=%.0fs",
+                alpha_id,
+                retry_after,
+            )
             await asyncio.sleep(wait)
             pnl_elapsed += wait
             continue
         if resp.status_code == 200:
             break
-        logger.warning("[brain] Failed to fetch PnL for yearly computation of alpha %s: HTTP %d", alpha_id, resp.status_code)
+        logger.warning(
+            "[brain] Failed to fetch PnL for yearly computation of alpha %s: HTTP %d", alpha_id, resp.status_code
+        )
         return None
     else:
-        logger.warning("[brain] PnL polling timed out for yearly computation of alpha %s after %ds", alpha_id, max_poll_seconds)
+        logger.warning(
+            "[brain] PnL polling timed out for yearly computation of alpha %s after %ds", alpha_id, max_poll_seconds
+        )
         return None
 
     raw = _safe_json(resp)
     records = raw.get("records", []) if isinstance(raw, dict) else []
     import math
     from collections import defaultdict
+
     grouped: dict[int, list[float]] = defaultdict(list)
     for r in records:
         if isinstance(r, (list, tuple)) and len(r) >= 2:
@@ -560,7 +577,11 @@ async def fetch_pnl_curve(
                 if isinstance(r, (list, tuple)) and len(r) >= 2:
                     pnl_values.append(float(r[1]))
             if pnl_values:
-                logger.info("[brain] Got daily PnL from /recordsets/daily-pnl for alpha %s (%d values)", alpha_id, len(pnl_values))
+                logger.info(
+                    "[brain] Got daily PnL from /recordsets/daily-pnl for alpha %s (%d values)",
+                    alpha_id,
+                    len(pnl_values),
+                )
                 return pnl_values
         break
 
@@ -569,7 +590,7 @@ async def fetch_pnl_curve(
     while submit_elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:  # noqa: SIM105
             logger.error("[brain] Error fetching PnL curve for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 404:
@@ -617,7 +638,9 @@ async def fetch_correlations(
     except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
         logger.error("[brain] Error fetching correlations endpoint for alpha %s: %s", alpha_id, exc)
 
-    logger.info("[brain] Correlations endpoint not available for alpha %s — falling back to /correlations/self", alpha_id)
+    logger.info(
+        "[brain] Correlations endpoint not available for alpha %s — falling back to /correlations/self", alpha_id
+    )
     self_corr_url = f"{BRAIN_BASE}/alphas/{alpha_id}/correlations/self"
     try:
         elapsed: float = 0
@@ -640,10 +663,8 @@ async def fetch_correlations(
                         corr_values = []
                         for rec in records:
                             if isinstance(rec, (list, tuple)) and len(rec) >= 3:
-                                try:
+                                with contextlib.suppress(ValueError, TypeError):
                                     corr_values.append(float(rec[-1]))
-                                except (ValueError, TypeError):
-                                    pass
                         if corr_values:
                             return {"self_correlation": max(corr_values), "max": max_corr, "records": records}
                     if max_corr is not None:
@@ -666,7 +687,7 @@ async def fetch_correlations(
                     val = chk.get("value")
                     if isinstance(val, (int, float)):
                         return {"self_correlation": float(val)}
-    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
+    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:  # noqa: SIM105
         logger.error("[brain] Error fetching correlations from check API for alpha %s: %s", alpha_id, exc)
     return None
 
@@ -754,7 +775,7 @@ async def fetch_yearly_stats(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:  # noqa: SIM105
             logger.error("[brain] Error fetching yearly-stats for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:
@@ -775,7 +796,7 @@ async def fetch_yearly_stats(
                     schema_props = data.get("schema", {}).get("properties", [])
                     if schema_props:
                         columns = [p.get("name", f"col_{i}") for i, p in enumerate(schema_props)]
-                        return [dict(zip(columns, rec)) for rec in records if isinstance(rec, list)]
+                        return [dict(zip(columns, rec, strict=False)) for rec in records if isinstance(rec, list)]
                     return [{"raw": rec} for rec in records]
             return None
         break
@@ -793,7 +814,7 @@ async def fetch_daily_pnl(
     while elapsed < max_poll_seconds:
         try:
             resp = await client.get(url, cookies=cookies, timeout=30.0)
-        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:  # noqa: SIM105
             logger.error("[brain] Error fetching daily-pnl for alpha %s: %s", alpha_id, exc)
             return None
         if resp.status_code == 401:
@@ -822,7 +843,7 @@ async def fetch_daily_pnl(
 def _extract_gate_result(data: dict) -> BrainGateResult:
     """
     Parse BRAIN simulation/alpha result JSON into a BrainGateResult.
-    
+
     BRAIN API returns simulation results with the alpha registered under data["alpha"].
     Real metrics are under data["is"] (in-sample).
     Gate checks are under data["is"]["checks"].
@@ -839,7 +860,7 @@ def _extract_gate_result(data: dict) -> BrainGateResult:
         alpha_id = alpha_raw
     else:
         alpha_id = data.get("id")
-    error_msg  = data.get("message", "")
+    error_msg = data.get("message", "")
 
     # ── Handle ERROR status (unknown variable, syntax error, etc.) ───────────
     if sim_status == "ERROR":
@@ -857,22 +878,22 @@ def _extract_gate_result(data: dict) -> BrainGateResult:
     # Confirmed field names from live BRAIN API response
     is_data = data.get("is", {}) or {}
 
-    sharpe   = _get_float(is_data, ["sharpe"])
-    fitness  = _get_float(is_data, ["fitness"])
-    turnover = _get_float(is_data, ["turnover"])   # decimal (0.35 = 35%)
-    returns  = _get_float(is_data, ["returns"])    # decimal (-0.12 = -12%)
+    sharpe = _get_float(is_data, ["sharpe"])
+    fitness = _get_float(is_data, ["fitness"])
+    turnover = _get_float(is_data, ["turnover"])  # decimal (0.35 = 35%)
+    returns = _get_float(is_data, ["returns"])  # decimal (-0.12 = -12%)
     drawdown = _get_float(is_data, ["drawdown"])
-    margin   = _get_float(is_data, ["margin"])
+    margin = _get_float(is_data, ["margin"])
 
     turnover_pct = (turnover * 100) if turnover is not None else None
-    returns_pct  = (returns  * 100) if returns  is not None else None
+    returns_pct = (returns * 100) if returns is not None else None
     drawdown_pct = (drawdown * 100) if drawdown is not None else None
 
     os_data = data.get("os", {}) or {}
 
-    os_sharpe   = _get_float(os_data, ["sharpe"])
-    os_fitness  = _get_float(os_data, ["fitness"])
-    os_returns  = _get_float(os_data, ["returns"])
+    os_sharpe = _get_float(os_data, ["sharpe"])
+    os_fitness = _get_float(os_data, ["fitness"])
+    os_returns = _get_float(os_data, ["returns"])
 
     _os_sharpe_pct = (os_sharpe * 100) if os_sharpe is not None else None
     os_returns_pct = (os_returns * 100) if os_returns is not None else None
@@ -888,10 +909,10 @@ def _extract_gate_result(data: dict) -> BrainGateResult:
     # ── Parse BRAIN's own gate checks[] array ────────────────────────────────
     brain_checks = is_data.get("checks", [])
     for chk in brain_checks:
-        name   = chk.get("name", "")
+        name = chk.get("name", "")
         result = chk.get("result", "")
-        value  = chk.get("value")
-        limit  = chk.get("limit")
+        value = chk.get("value")
+        limit = chk.get("limit")
 
         if result == "FAIL":
             failures.append(
@@ -903,10 +924,10 @@ def _extract_gate_result(data: dict) -> BrainGateResult:
     # ── Log real metrics ──────────────────────────────────────────────────────
     logger.info(
         "[brain] Simulation COMPLETE — sharpe=%.3f fitness=%.3f turnover=%.1f%% returns=%.1f%%",
-        sharpe   or 0.0,
-        fitness  or 0.0,
+        sharpe or 0.0,
+        fitness or 0.0,
         turnover_pct or 0.0,
-        returns_pct  or 0.0,
+        returns_pct or 0.0,
     )
 
     # If BRAIN's own checks had failures → mark as FAIL
@@ -947,7 +968,7 @@ def _extract_gate_result(data: dict) -> BrainGateResult:
         overfitting_warning=overfitting_warning,
         failures=failures,
         warnings=warnings,
-        brain_checks=brain_checks,       # pass raw checks[] through
+        brain_checks=brain_checks,  # pass raw checks[] through
         alpha_id=alpha_id,
         simulation_status=sim_status,
     )
@@ -956,7 +977,7 @@ def _extract_gate_result(data: dict) -> BrainGateResult:
 def _safe_json(resp: httpx.Response) -> dict | None:
     try:
         return resp.json()
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # noqa: SIM105
         return None
 
 

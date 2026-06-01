@@ -105,7 +105,8 @@ class CircuitBreaker:
             self._opened_at = time.monotonic()
             logger.warning(
                 "[CircuitBreaker:%s] HALF_OPEN -> OPEN (trial failed): %s",
-                self.name, reason[:100],
+                self.name,
+                reason[:100],
             )
             return
 
@@ -114,7 +115,9 @@ class CircuitBreaker:
             self._opened_at = time.monotonic()
             logger.warning(
                 "[CircuitBreaker:%s] CLOSED -> OPEN (%d consecutive failures): %s",
-                self.name, self._failure_count, reason[:100],
+                self.name,
+                self._failure_count,
+                reason[:100],
             )
 
     def _reset(self) -> None:
@@ -196,10 +199,14 @@ async def with_async_retry(
                 logger.warning("[Retry:%s] Exhausted %d retries: %s", name, max_retries, exc)
                 raise
 
-            delay = min(base_delay * (2 ** attempt), max_delay)
+            delay = min(base_delay * (2**attempt), max_delay)
             logger.warning(
                 "[Retry:%s] Attempt %d/%d failed, retrying in %.1fs: %s",
-                name, attempt + 1, max_retries, delay, exc,
+                name,
+                attempt + 1,
+                max_retries,
+                delay,
+                exc,
             )
             await asyncio.sleep(delay)
 

@@ -10,6 +10,7 @@ Core concepts:
   - Logic Library = structured collection of all known market logics
   - Logic-guided factor generation = new factors must derive from a logic
 """
+
 from __future__ import annotations
 
 import json
@@ -97,7 +98,8 @@ class ThreeBlockTemplate:
         if result.errors:
             logger.warning(
                 "ThreeBlockTemplate.validate_assembly: [DEFENSIVE_LOG] AST 校验发现致命错误: %s | expr=%s",
-                result.errors, expr[:100],
+                result.errors,
+                expr[:100],
             )
             return False
 
@@ -109,16 +111,16 @@ class ThreeBlockTemplate:
             logger.info(
                 "ThreeBlockTemplate.validate_assembly: 三段式结构不完整 | "
                 "has_neutralize=%s | has_decay=%s | is_valid_three_block=%s | warnings=%s",
-                has_neutralize, has_decay, is_valid_three_block,
+                has_neutralize,
+                has_decay,
+                is_valid_three_block,
                 result.warnings[:3] if result.warnings else [],
             )
             return False
 
         if result.warnings:
             for w in result.warnings:
-                logger.debug(
-                    "ThreeBlockTemplate.validate_assembly: [DEFENSIVE_LOG] AST 警告: %s", w
-                )
+                logger.debug("ThreeBlockTemplate.validate_assembly: [DEFENSIVE_LOG] AST 警告: %s", w)
 
         log_call(
             "ThreeBlockTemplate.AST_validate",
@@ -300,8 +302,8 @@ def _build_default_logics() -> dict[str, MarketLogic]:
     logics["volatility_low_vol_anomaly"] = MarketLogic(
         logic_id="volatility_low_vol_anomaly",
         category="volatility",
-        hypothesis="Low-volatility stocks deliver superior risk-adjusted returns due to leverage constraints and lottery preferences",
-        mechanism="Investors overpay for lottery-like payoffs in high-vol stocks, depressing their risk-adjusted returns",
+        hypothesis="Low-volatility stocks deliver superior risk-adjusted returns due to leverage constraints and lottery preferences",  # noqa: E501
+        mechanism="Investors overpay for lottery-like payoffs in high-vol stocks, depressing their risk-adjusted returns",  # noqa: E501
         factor_templates=[
             "-rank(ts_std_dev({price_field}, {vol_lb}))",
             "-rank(ts_std_dev(ts_returns({price_field}, 1), {vol_lb}))",
@@ -326,7 +328,7 @@ def _build_default_logics() -> dict[str, MarketLogic]:
     logics["liquidity_premium"] = MarketLogic(
         logic_id="liquidity_premium",
         category="liquidity",
-        hypothesis="Illiquid stocks earn higher returns as compensation for higher transaction costs and difficulty of exit",
+        hypothesis="Illiquid stocks earn higher returns as compensation for higher transaction costs and difficulty of exit",  # noqa: E501
         mechanism="Liquidity premium compensates for the risk of being unable to sell quickly at fair value",
         factor_templates=[
             "-rank({volume_field} / {cap_field})",
@@ -357,14 +359,14 @@ def _build_default_logics() -> dict[str, MarketLogic]:
         factor_templates=[
             "rank(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}))",
             "rank(ts_corr(ts_delta({price_field}, 1), ts_delta({volume_field}, 1), {corr_lb}))",
-            "rank(group_neutralize(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}), industry))",
+            "rank(group_neutralize(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}), industry))",  # noqa: E501
         ],
         time_horizon="short",
     )
     logics["lead_lag_cross_field"] = MarketLogic(
         logic_id="lead_lag_cross_field",
         category="lead_lag",
-        hypothesis="One data field's movement precedes another: cross-field lead-lag captures information diffusion delay",
+        hypothesis="One data field's movement precedes another: cross-field lead-lag captures information diffusion delay",  # noqa: E501
         mechanism="Different data sources update at different speeds, creating exploitable temporal gaps",
         factor_templates=[
             "rank(ts_delta({lead_field}, {short_lb}) - ts_delta({lag_field}, {short_lb}))",
@@ -378,7 +380,7 @@ def _build_default_logics() -> dict[str, MarketLogic]:
     logics["momentum_long_term_reversal"] = MarketLogic(
         logic_id="momentum_long_term_reversal",
         category="momentum",
-        hypothesis="Long-term winners underperform long-term losers over multi-year horizons due to overreaction correction",
+        hypothesis="Long-term winners underperform long-term losers over multi-year horizons due to overreaction correction",  # noqa: E501
         mechanism="De Bondt & Thaler overreaction: extreme past returns predict reversal over 3-5 year horizons",
         factor_templates=[
             "-rank(ts_delta({price_field}, {long_lb}))",
@@ -392,10 +394,10 @@ def _build_default_logics() -> dict[str, MarketLogic]:
     logics["lead_lag_industry_rotation"] = MarketLogic(
         logic_id="lead_lag_industry_rotation",
         category="lead_lag",
-        hypothesis="Industry rotation follows predictable patterns: leading industries' returns predict lagging industries",
+        hypothesis="Industry rotation follows predictable patterns: leading industries' returns predict lagging industries",  # noqa: E501
         mechanism="Sector fund flows and economic cycle create temporal lead-lag across industries",
         factor_templates=[
-            "rank(ts_corr(ts_delta({price_field}, {short_lb}), ts_delta(group_mean({price_field}, sector), {short_lb}), {corr_lb}))",
+            "rank(ts_corr(ts_delta({price_field}, {short_lb}), ts_delta(group_mean({price_field}, sector), {short_lb}), {corr_lb}))",  # noqa: E501
             "rank(ts_delta({price_field}, {medium_lb}) - ts_delta(group_mean({price_field}, sector), {medium_lb}))",
             "rank(group_neutralize(ts_delta({price_field}, {long_lb}) - ts_delta({cap_field}, {long_lb}), sector))",
         ],
@@ -444,10 +446,10 @@ def _build_default_logics() -> dict[str, MarketLogic]:
     logics["volatility_clustering"] = MarketLogic(
         logic_id="volatility_clustering",
         category="volatility",
-        hypothesis="Volatility clusters persist: periods of high (low) volatility tend to be followed by high (low) volatility",
+        hypothesis="Volatility clusters persist: periods of high (low) volatility tend to be followed by high (low) volatility",  # noqa: E501
         mechanism="Volatility regime persistence creates predictable risk premium variation",
         factor_templates=[
-            "rank(ts_mean(ts_std_dev({price_field}, {short_lb}), {medium_lb}) - ts_std_dev({price_field}, {medium_lb}))",
+            "rank(ts_mean(ts_std_dev({price_field}, {short_lb}), {medium_lb}) - ts_std_dev({price_field}, {medium_lb}))",  # noqa: E501
             "rank(ts_corr(ts_std_dev({price_field}, {short_lb}), ts_std_dev({price_field}, {medium_lb}), {corr_lb}))",
             "-rank(ts_delta(ts_std_dev({price_field}, {short_lb}), {medium_lb}))",
         ],
@@ -501,124 +503,246 @@ def _build_three_block_templates() -> dict[str, ThreeBlockTemplate]:
         return {"block_b": b, "block_c": c}
 
     templates["momentum_short_term"] = ThreeBlockTemplate(
-        template_id="momentum_short_term", name="短期动量反转", category="momentum",
-        block_a=TemplateBlock(BlockType.SIGNAL, "ts_rank({price_field}, {short_lb}) - ts_rank({price_field}, {long_lb})", False, ["price_field", "short_lb", "long_lb"]),
+        template_id="momentum_short_term",
+        name="短期动量反转",
+        category="momentum",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "ts_rank({price_field}, {short_lb}) - ts_rank({price_field}, {long_lb})",
+            False,
+            ["price_field", "short_lb", "long_lb"],
+        ),
         **_std_bc("momentum"),
     )
     templates["momentum_medium_term"] = ThreeBlockTemplate(
-        template_id="momentum_medium_term", name="中期动量延续", category="momentum",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_delta({price_field}, {medium_lb}))", False, ["price_field", "medium_lb"]),
+        template_id="momentum_medium_term",
+        name="中期动量延续",
+        category="momentum",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "rank(ts_delta({price_field}, {medium_lb}))", False, ["price_field", "medium_lb"]
+        ),
         **_std_bc("momentum"),
     )
     templates["momentum_volume_confirmed"] = ThreeBlockTemplate(
-        template_id="momentum_volume_confirmed", name="量价确认动量", category="momentum",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_corr(ts_delta({price_field}, {lb}), ts_delta({volume_field}, {lb}), {corr_lb}))", False, ["price_field", "volume_field", "lb", "corr_lb"]),
+        template_id="momentum_volume_confirmed",
+        name="量价确认动量",
+        category="momentum",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "rank(ts_corr(ts_delta({price_field}, {lb}), ts_delta({volume_field}, {lb}), {corr_lb}))",
+            False,
+            ["price_field", "volume_field", "lb", "corr_lb"],
+        ),
         **_std_bc("momentum"),
     )
 
     templates["value_regression"] = ThreeBlockTemplate(
-        template_id="value_regression", name="价值回归", category="value",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank({price_field} / {fundamental_field})", False, ["price_field", "fundamental_field"]),
+        template_id="value_regression",
+        name="价值回归",
+        category="value",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "-rank({price_field} / {fundamental_field})", False, ["price_field", "fundamental_field"]
+        ),
         **_std_bc("value"),
     )
     templates["value_earnings_quality"] = ThreeBlockTemplate(
-        template_id="value_earnings_quality", name="盈利质量价值", category="value",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_sum({earnings_field}, {sum_lb}) / {price_field})", False, ["earnings_field", "sum_lb", "price_field"]),
+        template_id="value_earnings_quality",
+        name="盈利质量价值",
+        category="value",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "rank(ts_sum({earnings_field}, {sum_lb}) / {price_field})",
+            False,
+            ["earnings_field", "sum_lb", "price_field"],
+        ),
         **_std_bc("value"),
     )
 
     templates["quality_earnings_stability"] = ThreeBlockTemplate(
-        template_id="quality_earnings_stability", name="盈利稳定性", category="quality",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(ts_std_dev({earnings_field}, {std_lb}))", False, ["earnings_field", "std_lb"]),
+        template_id="quality_earnings_stability",
+        name="盈利稳定性",
+        category="quality",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "-rank(ts_std_dev({earnings_field}, {std_lb}))", False, ["earnings_field", "std_lb"]
+        ),
         **_std_bc("quality"),
     )
     templates["quality_asset_turnover"] = ThreeBlockTemplate(
-        template_id="quality_asset_turnover", name="资产周转率", category="quality",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank({revenue_field} / {asset_field})", False, ["revenue_field", "asset_field"]),
+        template_id="quality_asset_turnover",
+        name="资产周转率",
+        category="quality",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "rank({revenue_field} / {asset_field})", False, ["revenue_field", "asset_field"]
+        ),
         **_std_bc("quality"),
     )
 
     templates["size_small_cap_premium"] = ThreeBlockTemplate(
-        template_id="size_small_cap_premium", name="小市值溢价", category="size",
+        template_id="size_small_cap_premium",
+        name="小市值溢价",
+        category="size",
         block_a=TemplateBlock(BlockType.SIGNAL, "-rank({cap_field})", False, ["cap_field"]),
         **_std_bc("size"),
     )
 
     templates["volatility_low_vol_anomaly"] = ThreeBlockTemplate(
-        template_id="volatility_low_vol_anomaly", name="低波动异象", category="volatility",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(ts_std_dev({price_field}, {vol_lb}))", False, ["price_field", "vol_lb"]),
+        template_id="volatility_low_vol_anomaly",
+        name="低波动异象",
+        category="volatility",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "-rank(ts_std_dev({price_field}, {vol_lb}))", False, ["price_field", "vol_lb"]
+        ),
         **_std_bc("volatility"),
     )
     templates["volatility_change_signal"] = ThreeBlockTemplate(
-        template_id="volatility_change_signal", name="波动率变化信号", category="volatility",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(ts_delta(ts_std_dev({price_field}, {vol_lb}), {delta_lb}))", False, ["price_field", "vol_lb", "delta_lb"]),
+        template_id="volatility_change_signal",
+        name="波动率变化信号",
+        category="volatility",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "-rank(ts_delta(ts_std_dev({price_field}, {vol_lb}), {delta_lb}))",
+            False,
+            ["price_field", "vol_lb", "delta_lb"],
+        ),
         **_std_bc("volatility"),
     )
     templates["volatility_clustering"] = ThreeBlockTemplate(
-        template_id="volatility_clustering", name="波动率聚类", category="volatility",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_mean(ts_std_dev({price_field}, {short_lb}), {medium_lb}) - ts_std_dev({price_field}, {medium_lb}))", False, ["price_field", "short_lb", "medium_lb"]),
+        template_id="volatility_clustering",
+        name="波动率聚类",
+        category="volatility",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "rank(ts_mean(ts_std_dev({price_field}, {short_lb}), {medium_lb}) - ts_std_dev({price_field}, {medium_lb}))",  # noqa: E501
+            False,
+            ["price_field", "short_lb", "medium_lb"],
+        ),
         **_std_bc("volatility"),
     )
 
     templates["liquidity_premium"] = ThreeBlockTemplate(
-        template_id="liquidity_premium", name="流动性溢价", category="liquidity",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank({volume_field} / {cap_field})", False, ["volume_field", "cap_field"]),
+        template_id="liquidity_premium",
+        name="流动性溢价",
+        category="liquidity",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "-rank({volume_field} / {cap_field})", False, ["volume_field", "cap_field"]
+        ),
         **_std_bc("liquidity"),
     )
     templates["liquidity_improvement_signal"] = ThreeBlockTemplate(
-        template_id="liquidity_improvement_signal", name="流动性改善信号", category="liquidity",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_delta({volume_field}, {liq_lb}))", False, ["volume_field", "liq_lb"]),
+        template_id="liquidity_improvement_signal",
+        name="流动性改善信号",
+        category="liquidity",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "rank(ts_delta({volume_field}, {liq_lb}))", False, ["volume_field", "liq_lb"]
+        ),
         **_std_bc("liquidity"),
     )
 
     templates["lead_lag_price_volume"] = ThreeBlockTemplate(
-        template_id="lead_lag_price_volume", name="价格领先量", category="lead_lag",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}))", False, ["price_field", "volume_field", "short_lb"]),
+        template_id="lead_lag_price_volume",
+        name="价格领先量",
+        category="lead_lag",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "rank(ts_delta({price_field}, {short_lb}) - ts_delta({volume_field}, {short_lb}))",
+            False,
+            ["price_field", "volume_field", "short_lb"],
+        ),
         **_std_bc("lead_lag"),
     )
     templates["lead_lag_cross_field"] = ThreeBlockTemplate(
-        template_id="lead_lag_cross_field", name="跨字段领先滞后", category="lead_lag",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_delta({lead_field}, {short_lb}) - ts_delta({lag_field}, {short_lb}))", False, ["lead_field", "lag_field", "short_lb"]),
+        template_id="lead_lag_cross_field",
+        name="跨字段领先滞后",
+        category="lead_lag",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "rank(ts_delta({lead_field}, {short_lb}) - ts_delta({lag_field}, {short_lb}))",
+            False,
+            ["lead_field", "lag_field", "short_lb"],
+        ),
         **_std_bc("lead_lag"),
     )
     templates["lead_lag_industry_rotation"] = ThreeBlockTemplate(
-        template_id="lead_lag_industry_rotation", name="行业轮动", category="lead_lag",
-        block_a=TemplateBlock(BlockType.SIGNAL, "rank(ts_delta({price_field}, {medium_lb}) - ts_delta(group_mean({price_field}, sector), {medium_lb}))", False, ["price_field", "medium_lb"]),
+        template_id="lead_lag_industry_rotation",
+        name="行业轮动",
+        category="lead_lag",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "rank(ts_delta({price_field}, {medium_lb}) - ts_delta(group_mean({price_field}, sector), {medium_lb}))",
+            False,
+            ["price_field", "medium_lb"],
+        ),
         **_std_bc("lead_lag"),
     )
 
     templates["momentum_long_term_reversal"] = ThreeBlockTemplate(
-        template_id="momentum_long_term_reversal", name="长期动量反转", category="momentum",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(ts_delta({price_field}, {long_lb}))", False, ["price_field", "long_lb"]),
+        template_id="momentum_long_term_reversal",
+        name="长期动量反转",
+        category="momentum",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL, "-rank(ts_delta({price_field}, {long_lb}))", False, ["price_field", "long_lb"]
+        ),
         **_std_bc("momentum"),
     )
 
     templates["mean_reversion_zscore"] = ThreeBlockTemplate(
-        template_id="mean_reversion_zscore", name="均值回归Z分", category="mean_reversion",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(ts_zscore(ts_delta({price_field}, {short_lb}), {zscore_lb}))", False, ["price_field", "short_lb", "zscore_lb"]),
+        template_id="mean_reversion_zscore",
+        name="均值回归Z分",
+        category="mean_reversion",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "-rank(ts_zscore(ts_delta({price_field}, {short_lb}), {zscore_lb}))",
+            False,
+            ["price_field", "short_lb", "zscore_lb"],
+        ),
         **_std_bc("mean_reversion"),
     )
     templates["mean_reversion_bollinger"] = ThreeBlockTemplate(
-        template_id="mean_reversion_bollinger", name="布林带回归", category="mean_reversion",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(({price_field} - ts_mean({price_field}, {medium_lb})) / ts_std_dev({price_field}, {medium_lb}))", False, ["price_field", "medium_lb"]),
+        template_id="mean_reversion_bollinger",
+        name="布林带回归",
+        category="mean_reversion",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "-rank(({price_field} - ts_mean({price_field}, {medium_lb})) / ts_std_dev({price_field}, {medium_lb}))",
+            False,
+            ["price_field", "medium_lb"],
+        ),
         **_std_bc("mean_reversion"),
     )
     templates["mean_reversion_valuation"] = ThreeBlockTemplate(
-        template_id="mean_reversion_valuation", name="估值均值回归", category="mean_reversion",
-        block_a=TemplateBlock(BlockType.SIGNAL, "-rank(group_zscore({price_field} / {fundamental_field}, sector))", False, ["price_field", "fundamental_field"]),
+        template_id="mean_reversion_valuation",
+        name="估值均值回归",
+        category="mean_reversion",
+        block_a=TemplateBlock(
+            BlockType.SIGNAL,
+            "-rank(group_zscore({price_field} / {fundamental_field}, sector))",
+            False,
+            ["price_field", "fundamental_field"],
+        ),
         **_std_bc("mean_reversion"),
     )
 
     core_template_ids = [
-        "momentum_short_term", "momentum_medium_term", "momentum_volume_confirmed",
-        "value_regression", "value_earnings_quality",
-        "quality_earnings_stability", "quality_asset_turnover",
+        "momentum_short_term",
+        "momentum_medium_term",
+        "momentum_volume_confirmed",
+        "value_regression",
+        "value_earnings_quality",
+        "quality_earnings_stability",
+        "quality_asset_turnover",
         "size_small_cap_premium",
-        "volatility_low_vol_anomaly", "volatility_change_signal", "volatility_clustering",
-        "liquidity_premium", "liquidity_improvement_signal",
-        "lead_lag_price_volume", "lead_lag_cross_field", "lead_lag_industry_rotation",
+        "volatility_low_vol_anomaly",
+        "volatility_change_signal",
+        "volatility_clustering",
+        "liquidity_premium",
+        "liquidity_improvement_signal",
+        "lead_lag_price_volume",
+        "lead_lag_cross_field",
+        "lead_lag_industry_rotation",
         "momentum_long_term_reversal",
-        "mean_reversion_zscore", "mean_reversion_bollinger", "mean_reversion_valuation",
+        "mean_reversion_zscore",
+        "mean_reversion_bollinger",
+        "mean_reversion_valuation",
     ]
     for tid in core_template_ids:
         orig = templates.get(tid)
@@ -658,11 +782,7 @@ class AlphaLogicLibrary:
         )
 
     def get_logics_by_category(self, category: str) -> list[MarketLogic]:
-        return [
-            logic
-            for logic in self._logics.values()
-            if logic.category == category
-        ]
+        return [logic for logic in self._logics.values() if logic.category == category]
 
     def get_logic_for_direction(self, direction: str) -> list[MarketLogic]:
         categories = _DIRECTION_CATEGORY_MAP.get(direction)
@@ -678,11 +798,19 @@ class AlphaLogicLibrary:
                     result.append(logic)
         return result
 
-    def record_evidence(self, logic_id: str, passed: bool,
-                        expression: str = "", sharpe: float | None = None,
-                        fitness: float | None = None, turnover: float | None = None,
-                        direction: str = "", failure_type: str = "",
-                        fix_attempt: str = "", fix_success: bool = False) -> None:
+    def record_evidence(
+        self,
+        logic_id: str,
+        passed: bool,
+        expression: str = "",
+        sharpe: float | None = None,
+        fitness: float | None = None,
+        turnover: float | None = None,
+        direction: str = "",
+        failure_type: str = "",
+        fix_attempt: str = "",
+        fix_success: bool = False,
+    ) -> None:
         logic = self._logics.get(logic_id)
         if logic is None:
             logger.warning("AlphaLogicLibrary: unknown logic_id %s", logic_id)
@@ -693,17 +821,19 @@ class AlphaLogicLibrary:
             logic.evidence_count = max(0, logic.evidence_count - 1)
         logic.last_updated = time.time()
         if expression:
-            logic.evidence_records.append({
-                "expression": expression[:200],
-                "sharpe": sharpe,
-                "fitness": fitness,
-                "turnover": turnover,
-                "direction": direction,
-                "failure_type": failure_type,
-                "fix_attempt": fix_attempt[:200] if fix_attempt else "",
-                "fix_success": fix_success,
-                "timestamp": time.time(),
-            })
+            logic.evidence_records.append(
+                {
+                    "expression": expression[:200],
+                    "sharpe": sharpe,
+                    "fitness": fitness,
+                    "turnover": turnover,
+                    "direction": direction,
+                    "failure_type": failure_type,
+                    "fix_attempt": fix_attempt[:200] if fix_attempt else "",
+                    "fix_success": fix_success,
+                    "timestamp": time.time(),
+                }
+            )
             if len(logic.evidence_records) > 100:
                 logic.evidence_records = logic.evidence_records[-100:]
         _monitor.record("STEP", "alpha_logics", "record_evidence", f"logic={logic_id} passed={passed}")
@@ -752,7 +882,7 @@ class AlphaLogicLibrary:
             _monitor.record("STEP", "alpha_logics", "instantiate_template", f"template={template_id} mode=three_block")
             all_kwargs = {**fields}
             if params:
-                all_kwargs.update({k: v for k, v in params.items()})
+                all_kwargs.update(dict(params.items()))
             expr = three_block.assemble(**all_kwargs)
 
             # ── AST 硬校验 + auto-fix（AlphaBench ICLR'26）────────────────────
@@ -762,7 +892,9 @@ class AlphaLogicLibrary:
                 logger.warning(
                     "P2_TEMPLATE_LOCK: [DEFENSIVE_LOG] AST 校验失败，强制注入默认 B/C 段 | "
                     "template=%s | errors=%s | warnings=%s",
-                    template_id, ast_result.errors, ast_result.warnings[:3],
+                    template_id,
+                    ast_result.errors,
+                    ast_result.warnings[:3],
                 )
                 log_call(
                     "AlphaLogicLibrary.AST_auto_fix",
@@ -781,9 +913,16 @@ class AlphaLogicLibrary:
                 for key, value in fields.items():
                     signal_expr = signal_expr.replace("{" + key + "}", str(value))
                 neutralized = three_block.block_b.template_str.replace("{signal}", signal_expr)
-                expr = three_block.block_c.template_str.replace("{neutralized}", neutralized).replace("{decay_lb}", str(default_decay_lb))
+                expr = three_block.block_c.template_str.replace("{neutralized}", neutralized).replace(
+                    "{decay_lb}", str(default_decay_lb)
+                )
 
-            _monitor.record("PASS", "alpha_logics", "instantiate_template", f"template={template_id} mode=three_block validated=True")
+            _monitor.record(
+                "PASS",
+                "alpha_logics",
+                "instantiate_template",
+                f"template={template_id} mode=three_block validated=True",
+            )
             return expr
 
         logic = self._logics.get(template_id)
@@ -798,18 +937,20 @@ class AlphaLogicLibrary:
         _monitor.record("PASS", "alpha_logics", "instantiate_template", f"logic={template_id} mode=legacy")
         return template
 
-    def get_templates_for_direction(self, direction: str, adaptive_weights: dict[str, float] | None = None) -> list[str]:
+    def get_templates_for_direction(
+        self, direction: str, adaptive_weights: dict[str, float] | None = None
+    ) -> list[str]:
         try:
             categories = _DIRECTION_CATEGORY_MAP.get(direction)
             if not categories:
                 categories = [direction]
             templates: list[str] = []
             for logic in self._logics.values():
-                if logic.category in categories:
-                    if logic.factor_templates:
-                        templates.extend(logic.factor_templates)
+                if logic.category in categories and logic.factor_templates:
+                    templates.extend(logic.factor_templates)
 
             import logging
+
             _logger = logging.getLogger(__name__)
 
             if adaptive_weights and len(templates) > 1:
@@ -852,14 +993,16 @@ class AlphaLogicLibrary:
     def accumulate_diagnosis(self, direction: str, diagnosis_result: dict) -> None:
         try:
             for logic in self._logics.values():
-                logic_dir = logic.category.lower() if hasattr(logic, 'category') else ""
+                logic_dir = logic.category.lower() if hasattr(logic, "category") else ""
                 if direction.lower() in logic_dir or logic_dir in direction.lower():
-                    logic.accumulated_diagnoses.append({
-                        "failure_type": diagnosis_result.get("failure_type", "unknown"),
-                        "root_cause": diagnosis_result.get("root_cause", ""),
-                        "suggested_fix": diagnosis_result.get("suggested_fix", ""),
-                        "confidence": diagnosis_result.get("confidence", 0.5),
-                    })
+                    logic.accumulated_diagnoses.append(
+                        {
+                            "failure_type": diagnosis_result.get("failure_type", "unknown"),
+                            "root_cause": diagnosis_result.get("root_cause", ""),
+                            "suggested_fix": diagnosis_result.get("suggested_fix", ""),
+                            "confidence": diagnosis_result.get("confidence", 0.5),
+                        }
+                    )
                     self._save()
                     break
         except (OSError, ValueError, RuntimeError):
@@ -917,7 +1060,13 @@ class AlphaLogicLibrary:
                 )
                 self._logics[child_id] = child
                 split_count += 1
-            logic.evidence_records = [{"split_into": [f"{lid}_{k.split('|')[0]}_{k.split('|')[1]}".replace(" ", "_").lower() for k in sub_patterns]}]
+            logic.evidence_records = [
+                {
+                    "split_into": [
+                        f"{lid}_{k.split('|')[0]}_{k.split('|')[1]}".replace(" ", "_").lower() for k in sub_patterns
+                    ]
+                }
+            ]
 
         all_logics = list(self._logics.values())
         to_merge: list[tuple[str, str]] = []
@@ -970,7 +1119,18 @@ class AlphaLogicLibrary:
         for d in _DIRECTION_CATEGORY_MAP:
             if d not in covered_directions:
                 gaps.append(f"direction:{d}")
-        _known_mechanism_types = {"overreaction", "gradual", "volume", "value", "earnings", "volatility", "liquidity", "size", "momentum", "mean_reversion"}
+        _known_mechanism_types = {
+            "overreaction",
+            "gradual",
+            "volume",
+            "value",
+            "earnings",
+            "volatility",
+            "liquidity",
+            "size",
+            "momentum",
+            "mean_reversion",
+        }
         for mech in _known_mechanism_types:
             if mech not in covered_mechanisms:
                 gaps.append(f"mechanism:{mech}")
@@ -999,7 +1159,7 @@ class AlphaLogicLibrary:
             "You are a quantitative finance researcher. A gap has been identified in our market logic library.\n"
             f"Gap: {gap_description}\n\n"
             "Propose a new market logic to fill this gap. Output ONLY a JSON object with:\n"
-            '{"hypothesis": "...", "mechanism": "...", "factor_templates": ["..."], "category": "...", "time_horizon": "short|medium|long"}\n\n'
+            '{"hypothesis": "...", "mechanism": "...", "factor_templates": ["..."], "category": "...", "time_horizon": "short|medium|long"}\n\n'  # noqa: E501
             "Requirements:\n"
             "- hypothesis: a specific, testable market hypothesis\n"
             "- mechanism: the economic rationale\n"
@@ -1019,7 +1179,7 @@ class AlphaLogicLibrary:
             if text.startswith("```"):
                 first_nl = text.find("\n")
                 if first_nl >= 0:
-                    text = text[first_nl + 1:]
+                    text = text[first_nl + 1 :]
                 if text.endswith("```"):
                     text = text[:-3]
                 text = text.strip()
@@ -1050,12 +1210,10 @@ class AlphaLogicLibrary:
     def _save(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                lid: logic.to_dict()
-                for lid, logic in self._logics.items()
-            }
+            data = {lid: logic.to_dict() for lid, logic in self._logics.items()}
             import shutil
             import tempfile
+
             fd, tmp_path = tempfile.mkstemp(
                 suffix=".json.tmp",
                 dir=str(self._path.parent),
@@ -1068,6 +1226,7 @@ class AlphaLogicLibrary:
             except Exception:
                 try:
                     import os
+
                     os.unlink(tmp_path)
                 except OSError:
                     pass
@@ -1081,9 +1240,7 @@ class AlphaLogicLibrary:
         try:
             raw = self._path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            self._logics = {
-                lid: MarketLogic.from_dict(d) for lid, d in data.items()
-            }
+            self._logics = {lid: MarketLogic.from_dict(d) for lid, d in data.items()}
             logger.info(
                 "AlphaLogicLibrary: loaded %d logics from %s",
                 len(self._logics),

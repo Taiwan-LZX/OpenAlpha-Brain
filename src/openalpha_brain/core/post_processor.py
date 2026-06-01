@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
 
@@ -75,7 +76,7 @@ async def _post_process_brain_result(
     brain_result: BrainSubmissionResult,
 ) -> None:
     """Background post-processing after BRAIN submission result returns.
-    
+
     Runs as fire-and-forget task so the worker can immediately pick up
     the next alpha from the pool and fill BRAIN slots concurrently.
     """
@@ -94,7 +95,7 @@ async def _post_process_brain_result(
             logger.warning("[%s] post_process worker-%d: alpha %s not found", session_id, worker_id, alpha_id)
             return
 
-        _engine = getattr(_ls, '_crossover_engine', None)
+        _engine = getattr(_ls, "_crossover_engine", None)
         if _engine is not None:
             _accepted = brain_result.status == BrainSimStatus.PASS
             _reject_reason = None
@@ -114,7 +115,7 @@ async def _post_process_brain_result(
                 reject_reason=_reject_reason,
             )
 
-        _classifier = getattr(_ls, '_strategy_classifier', None)
+        _classifier = getattr(_ls, "_strategy_classifier", None)
         if _classifier is not None and brain_result.status == BrainSimStatus.PASS:
             try:
                 _brain_dict = {
@@ -126,7 +127,7 @@ async def _post_process_brain_result(
             except (OSError, ValueError, RuntimeError):
                 pass
 
-        _aligner = getattr(_ls, '_hypothesis_aligner', None)
+        _aligner = getattr(_ls, "_hypothesis_aligner", None)
         if _aligner is not None:
             try:
                 _alignment = _aligner.align(
@@ -136,18 +137,23 @@ async def _post_process_brain_result(
                 if _alignment["alignment_level"] in ("contradictory", "weak"):
                     logger.warning(
                         "[%s] post_process worker-%d HypothesisAligner: %s alignment (R²=%.3f) - %s",
-                        session_id, worker_id, _alignment["alignment_level"].upper(),
-                        _alignment["r2_score"], _alignment["diagnosis"],
+                        session_id,
+                        worker_id,
+                        _alignment["alignment_level"].upper(),
+                        _alignment["r2_score"],
+                        _alignment["diagnosis"],
                     )
                     _alignment_feedback = _aligner.build_alignment_feedback(_alignment)
-                    _fb_buf_align = getattr(_ls, '_brain_feedback_buffer', None)
+                    _fb_buf_align = getattr(_ls, "_brain_feedback_buffer", None)
                     if _fb_buf_align is None:
                         _ls._brain_feedback_buffer = []
                         _fb_buf_align = _ls._brain_feedback_buffer
-                    _fb_buf_align.append({
-                        "role": "user",
-                        "content": _alignment_feedback,
-                    })
+                    _fb_buf_align.append(
+                        {
+                            "role": "user",
+                            "content": _alignment_feedback,
+                        }
+                    )
             except (OSError, ValueError, RuntimeError):
                 pass
 
@@ -160,15 +166,22 @@ async def _post_process_brain_result(
                     expression=alpha.expression or "",
                     direction=alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
                 )
-                logger.info("[%s] post_process alpha_channel: route=%s sharpe=%.2f", session_id, _route, brain_result.real_sharpe)
+                logger.info(
+                    "[%s] post_process alpha_channel: route=%s sharpe=%.2f",
+                    session_id,
+                    _route,
+                    brain_result.real_sharpe,
+                )
                 if _route == "stream" and _ls._alpha_channel_integrator is not None:
                     _ls._algo_tick("alpha_channel_stream_process")
-                    await _ls._alpha_channel_integrator.process_stream_alpha({
-                        "alpha_id": brain_result.alpha_id or "",
-                        "sharpe": brain_result.real_sharpe,
-                        "expression": alpha.expression or "",
-                        "direction": alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                    })
+                    await _ls._alpha_channel_integrator.process_stream_alpha(
+                        {
+                            "alpha_id": brain_result.alpha_id or "",
+                            "sharpe": brain_result.real_sharpe,
+                            "expression": alpha.expression or "",
+                            "direction": alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
+                        }
+                    )
                 _batch = await _ls._alpha_channel.get_batch()
                 if _batch and _ls._alpha_channel_integrator is not None:
                     _ls._algo_tick("alpha_channel_batch_process")
@@ -197,16 +210,20 @@ async def _post_process_brain_result(
 
         alpha.pipeline_status = PipelineStatus.BRAIN_RESULT
 
-        if (settings.PARAM_OPTIMIZATION_ENABLED
-                and _ls._param_optimizer
-                and brain_result.status == BrainSimStatus.FAIL
-                and brain_result.real_sharpe is not None
-                and _ls._param_optimizer.should_optimize(
-                    brain_result.real_sharpe, brain_client.GATE_SHARPE_MIN)):
-            _ls._log(state, "PARAM_OPT",
-                 f"Sharpe={brain_result.real_sharpe:.3f} near gate "
-                 f"{brain_client.GATE_SHARPE_MIN} — running param optimization (pipeline)",
-                 {"sharpe": brain_result.real_sharpe})
+        if (
+            settings.PARAM_OPTIMIZATION_ENABLED
+            and _ls._param_optimizer
+            and brain_result.status == BrainSimStatus.FAIL
+            and brain_result.real_sharpe is not None
+            and _ls._param_optimizer.should_optimize(brain_result.real_sharpe, brain_client.GATE_SHARPE_MIN)
+        ):
+            _ls._log(
+                state,
+                "PARAM_OPT",
+                f"Sharpe={brain_result.real_sharpe:.3f} near gate "
+                f"{brain_client.GATE_SHARPE_MIN} — running param optimization (pipeline)",
+                {"sharpe": brain_result.real_sharpe},
+            )
             for i, a in enumerate(state.passed_alphas):
                 if a.alpha_id == alpha_id:
                     state.passed_alphas[i] = alpha
@@ -215,11 +232,14 @@ async def _post_process_brain_result(
 
             _ls._algo_tick("param_optimization")
             opt_result = await _run_param_optimization(
-                alpha.expression, session_id, alpha.cycle_num,
+                alpha.expression,
+                session_id,
+                alpha.cycle_num,
             )
 
             state = await sm.load_session(session_id)
-            if state is None: return
+            if state is None:
+                return
             for i, a in enumerate(state.passed_alphas):
                 if a.alpha_id == alpha_id:
                     alpha = a
@@ -228,7 +248,9 @@ async def _post_process_brain_result(
                 if brain_result.real_sharpe is None or opt_result.real_sharpe > brain_result.real_sharpe:
                     logger.info(
                         "[%s] Param optimization improved Sharpe: %.3f → %.3f",
-                        session_id, brain_result.real_sharpe or 0, opt_result.real_sharpe,
+                        session_id,
+                        brain_result.real_sharpe or 0,
+                        opt_result.real_sharpe,
                     )
                     brain_result = opt_result
                     _log_brain_result(state, brain_result, alpha.expression, attempt=0)
@@ -239,19 +261,21 @@ async def _post_process_brain_result(
                         alpha.simulation_payload["settings"]["decay"] = cached_params["decay"]
                         alpha.simulation_payload["settings"]["neutralization"] = cached_params["neutralization"]
 
-                    _pop_round = getattr(alpha, '_improvement_round', 0) + 1
+                    _pop_round = getattr(alpha, "_improvement_round", 0) + 1
                     alpha._improvement_round = _pop_round
                     _pop_aid = f"{alpha_id}_paramopt{_pop_round}"
                     _pop_alpha = AlphaResult(
                         alpha_id=_pop_aid,
                         family=alpha.family,
                         expression=alpha.expression,
-                        rationale=f"Param optimized r{_pop_round}: decay={cached_params.get('decay') if cached_params else 'N/A'} neut={cached_params.get('neutralization') if cached_params else 'N/A'}",
+                        rationale=f"Param optimized r{_pop_round}: decay={cached_params.get('decay') if cached_params else 'N/A'} neut={cached_params.get('neutralization') if cached_params else 'N/A'}",  # noqa: E501
                         metrics=AlphaMetrics(),
                         fingerprint=AlphaFingerprint(),
                         decision="SUBMIT",
                         simulation_payload={
-                            "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                            "settings": dict(alpha.simulation_payload.get("settings", {}))
+                            if alpha.simulation_payload
+                            else {},
                             "regular": alpha.expression,
                         },
                         cycle_num=alpha.cycle_num,
@@ -264,7 +288,11 @@ async def _post_process_brain_result(
                     await pool.enqueue(_pop_aid, priority="high")
                     logger.info(
                         "[%s] SELF_LEARN_PARAMOPT: alpha %s r=%d re-enqueued high — Sharpe %.3f→%.3f",
-                        session_id, _pop_aid, _pop_round, brain_result.real_sharpe or 0.0, opt_result.real_sharpe,
+                        session_id,
+                        _pop_aid,
+                        _pop_round,
+                        brain_result.real_sharpe or 0.0,
+                        opt_result.real_sharpe,
                     )
                 else:
                     _ls._log(state, "PARAM_OPT", "Param optimization did not improve Sharpe", {})
@@ -296,9 +324,13 @@ async def _post_process_brain_result(
             _pipeline_brain_checks = getattr(brain_result, "brain_checks", []) or []
             if _pipeline_brain_checks:
                 _pipeline_failed_checks = [c["name"] for c in _pipeline_brain_checks if c.get("result") == "FAIL"]
-                _pipeline_original_failure_type = "; ".join(_pipeline_failed_checks[:3]) if _pipeline_failed_checks else "BRAIN_FAIL"
+                _pipeline_original_failure_type = (
+                    "; ".join(_pipeline_failed_checks[:3]) if _pipeline_failed_checks else "BRAIN_FAIL"
+                )
             elif brain_result.gate_failures:
-                _pipeline_original_failure_type = brain_result.gate_failures[0] if brain_result.gate_failures else "BRAIN_FAIL"
+                _pipeline_original_failure_type = (
+                    brain_result.gate_failures[0] if brain_result.gate_failures else "BRAIN_FAIL"
+                )
 
             improved_result = await _brain_improvement_loop(
                 initial_result=brain_result,
@@ -312,7 +344,8 @@ async def _post_process_brain_result(
             )
 
             state = await sm.load_session(session_id)
-            if state is None: return
+            if state is None:
+                return
             for i, a in enumerate(state.passed_alphas):
                 if a.alpha_id == alpha_id:
                     alpha = a
@@ -345,7 +378,7 @@ async def _post_process_brain_result(
                     except (OSError, ValueError, RuntimeError):
                         logger.warning("ToolFactory record_fix_pattern (pipeline fix) failed", exc_info=True)
 
-                _impr_round = getattr(alpha, '_improvement_round', 0) + 1
+                _impr_round = getattr(alpha, "_improvement_round", 0) + 1
                 alpha._improvement_round = _impr_round
                 _new_aid = f"{alpha_id}_impr{_impr_round}"
                 _impr_alpha = AlphaResult(
@@ -357,7 +390,9 @@ async def _post_process_brain_result(
                     fingerprint=AlphaFingerprint(),
                     decision="SUBMIT",
                     simulation_payload={
-                        "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                        "settings": dict(alpha.simulation_payload.get("settings", {}))
+                        if alpha.simulation_payload
+                        else {},
                         "regular": alpha.expression,
                     },
                     cycle_num=alpha.cycle_num,
@@ -370,20 +405,26 @@ async def _post_process_brain_result(
                 await pool.enqueue(_new_aid, priority="high")
                 logger.info(
                     "[%s] SELF_LEARN_REINJECT: alpha %s r=%d re-enqueued high — improved from %s",
-                    session_id, _new_aid, _impr_round, _pipeline_original_failure_type,
+                    session_id,
+                    _new_aid,
+                    _impr_round,
+                    _pipeline_original_failure_type,
                 )
             else:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     await record_fail_feedback(
-                        brain_result, alpha, alpha.expression,
+                        brain_result,
+                        alpha,
+                        alpha.expression,
                         alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                        session_id, alpha.fingerprint.model_dump() if alpha.fingerprint else {},
-                        alpha.cycle_num, state,
-                        0.0, exp_card_rule_ids=alpha.exp_card_rule_ids,
+                        session_id,
+                        alpha.fingerprint.model_dump() if alpha.fingerprint else {},
+                        alpha.cycle_num,
+                        state,
+                        0.0,
+                        exp_card_rule_ids=alpha.exp_card_rule_ids,
                     )
-                except (OSError, ValueError, RuntimeError):
-                    pass
-                _impr_fail_round = getattr(alpha, '_improvement_round', 0) + 1
+                _impr_fail_round = getattr(alpha, "_improvement_round", 0) + 1
                 alpha._improvement_round = _impr_fail_round
                 if _impr_fail_round < 3:
                     _retry_aid = f"{alpha_id}_retry{_impr_fail_round}"
@@ -396,7 +437,9 @@ async def _post_process_brain_result(
                         fingerprint=AlphaFingerprint(),
                         decision="SUBMIT",
                         simulation_payload={
-                            "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                            "settings": dict(alpha.simulation_payload.get("settings", {}))
+                            if alpha.simulation_payload
+                            else {},
                             "regular": alpha.expression,
                         },
                         cycle_num=alpha.cycle_num,
@@ -409,39 +452,58 @@ async def _post_process_brain_result(
                     await pool.enqueue(_retry_aid, priority="normal")
                     logger.info(
                         "[%s] SELF_LEARN_RETRY: alpha %s r=%d/%d re-enqueued — still failing (%s)",
-                        session_id, _retry_aid, _impr_fail_round, 3, _pipeline_original_failure_type,
+                        session_id,
+                        _retry_aid,
+                        _impr_fail_round,
+                        3,
+                        _pipeline_original_failure_type,
                     )
                 else:
                     alpha.pipeline_status = PipelineStatus.ABANDONED
                     logger.info(
                         "[%s] SELF_LEARN_EXHAUSTED: alpha %s r=%d — abandoned after max retries",
-                        session_id, alpha_id, _impr_fail_round,
+                        session_id,
+                        alpha_id,
+                        _impr_fail_round,
                     )
                 pipeline_fail_reward = 0.0
                 if settings.HIERARCHICAL_REWARD_ENABLED:
                     pipeline_fail_brain_dict = _build_brain_result_dict(improved_result)
                     pipeline_fail_reward = compute_hierarchical_reward(alpha.expression, pipeline_fail_brain_dict)
                     pipeline_fail_level, _ = get_reward_level(pipeline_fail_reward)
-                    logger.info("[%s] Hierarchical reward (fail path): %.2f (%s) — decision point", session_id, pipeline_fail_reward, pipeline_fail_level)
+                    logger.info(
+                        "[%s] Hierarchical reward (fail path): %.2f (%s) — decision point",
+                        session_id,
+                        pipeline_fail_reward,
+                        pipeline_fail_level,
+                    )
                     alpha.hierarchical_reward = pipeline_fail_reward
                     alpha.hierarchical_level = pipeline_fail_level
                 if improved_result.status == BrainSimStatus.ERROR:
                     if settings.HIERARCHICAL_REWARD_ENABLED and pipeline_fail_reward >= 0.3:
-                        logger.info("[%s] Pipeline fail path hierarchical reward %.2f >= 0.3 — BRAIN ERROR but soft penalty", session_id, pipeline_fail_reward)
+                        logger.info(
+                            "[%s] Pipeline fail path hierarchical reward %.2f >= 0.3 — BRAIN ERROR but soft penalty",
+                            session_id,
+                            pipeline_fail_reward,
+                        )
                         if _ls._scheduler is not None:
-                            try:
-                                _ls._scheduler.record_direction_result(alpha.exploration_direction or "", penalty=PENALTY_BRAIN_FAIL)
-                            except (OSError, ValueError, RuntimeError):
-                                pass
+                            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                                _ls._scheduler.record_direction_result(
+                                    alpha.exploration_direction or "", penalty=PENALTY_BRAIN_FAIL
+                                )
                     else:
                         if _ls._scheduler is not None:
-                            try:
-                                _ls._scheduler.record_direction_result(alpha.exploration_direction or "", penalty=PENALTY_BRAIN_ERROR)
-                            except (OSError, ValueError, RuntimeError):
-                                pass
+                            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                                _ls._scheduler.record_direction_result(
+                                    alpha.exploration_direction or "", penalty=PENALTY_BRAIN_ERROR
+                                )
                 else:
                     if settings.HIERARCHICAL_REWARD_ENABLED and pipeline_fail_reward >= 0.6:
-                        logger.info("[%s] Pipeline fail path hierarchical reward %.2f >= 0.6 (Quality level) — soft pass, recording as quality_pass", session_id, pipeline_fail_reward)
+                        logger.info(
+                            "[%s] Pipeline fail path hierarchical reward %.2f >= 0.6 (Quality level) — soft pass, recording as quality_pass",  # noqa: E501
+                            session_id,
+                            pipeline_fail_reward,
+                        )
                         if _ls._success_lib and settings.SUCCESS_CASE_LIBRARY_ENABLED:
                             try:
                                 _ls._algo_tick("success_case_add")
@@ -455,22 +517,32 @@ async def _post_process_brain_result(
                                     session_id=session_id,
                                 )
                             except (OSError, ValueError, RuntimeError):
-                                logger.warning("SuccessCaseLibrary add_case (pipeline quality_pass) failed", exc_info=True)
+                                logger.warning(
+                                    "SuccessCaseLibrary add_case (pipeline quality_pass) failed", exc_info=True
+                                )
                         if _ls._scheduler is not None:
-                            try:
-                                _ls._scheduler.record_direction_result(alpha.exploration_direction or "", reward=REWARD_SHARPE_05)
-                            except (OSError, ValueError, RuntimeError):
-                                pass
+                            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                                _ls._scheduler.record_direction_result(
+                                    alpha.exploration_direction or "", reward=REWARD_SHARPE_05
+                                )
                     elif settings.HIERARCHICAL_REWARD_ENABLED and pipeline_fail_reward >= 0.3:
-                        logger.info("[%s] Pipeline fail path hierarchical reward %.2f >= 0.3 (Basic level) — no penalty", session_id, pipeline_fail_reward)
+                        logger.info(
+                            "[%s] Pipeline fail path hierarchical reward %.2f >= 0.3 (Basic level) — no penalty",
+                            session_id,
+                            pipeline_fail_reward,
+                        )
                     else:
-                        logger.info("[%s] Pipeline fail path hierarchical reward %.2f < 0.3 — penalty applied", session_id, pipeline_fail_reward)
+                        logger.info(
+                            "[%s] Pipeline fail path hierarchical reward %.2f < 0.3 — penalty applied",
+                            session_id,
+                            pipeline_fail_reward,
+                        )
                         if _ls._scheduler is not None:
-                            try:
-                                _ls._scheduler.record_direction_result(alpha.exploration_direction or "", penalty=PENALTY_BRAIN_FAIL)
-                            except (OSError, ValueError, RuntimeError):
-                                pass
-                if _ls._rag_engine and hasattr(_ls._rag_engine, 'update_weights_from_feedback'):
+                            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                                _ls._scheduler.record_direction_result(
+                                    alpha.exploration_direction or "", penalty=PENALTY_BRAIN_FAIL
+                                )
+                if _ls._rag_engine and hasattr(_ls._rag_engine, "update_weights_from_feedback"):
                     try:
                         direction = alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION
                         brain_checks = getattr(improved_result, "brain_checks", []) or []
@@ -483,25 +555,34 @@ async def _post_process_brain_result(
                         logics = _ls._logic_library.get_logic_for_direction(direction)
                         _ls._algo_tick("evidence_recording")
                         for logic in logics[:1]:
-                            _ls._logic_library.record_evidence(logic.logic_id, False,
+                            _ls._logic_library.record_evidence(
+                                logic.logic_id,
+                                False,
                                 expression=alpha.expression,
                                 sharpe=improved_result.real_sharpe,
                                 fitness=improved_result.real_fitness,
                                 turnover=improved_result.real_turnover,
                                 direction=alpha.exploration_direction or "",
                                 failure_type=str(getattr(improved_result, "gate_failures", [])[:3]),
-                                fix_success=False)
+                                fix_success=False,
+                            )
                     except (OSError, ValueError, RuntimeError):
                         pass
                     _sync_mab_bias_from_evidence()
-                state.failure_catalog.append({
-                    "fingerprint": alpha.fingerprint.model_dump() if alpha.fingerprint else {},
-                    "failure_type": "API_ERROR" if improved_result.status == BrainSimStatus.ERROR else "BRAIN_EXHAUSTED",
-                    "mutations_tried": state.brain_mutation_count,
-                })
+                state.failure_catalog.append(
+                    {
+                        "fingerprint": alpha.fingerprint.model_dump() if alpha.fingerprint else {},
+                        "failure_type": "API_ERROR"
+                        if improved_result.status == BrainSimStatus.ERROR
+                        else "BRAIN_EXHAUSTED",
+                        "mutations_tried": state.brain_mutation_count,
+                    }
+                )
                 if _ls._failure_lib and settings.FAILURE_FIX_LIBRARY_ENABLED:
                     try:
-                        _pipeline_fail_type = "API_ERROR" if improved_result.status == BrainSimStatus.ERROR else "BRAIN_EXHAUSTED"
+                        _pipeline_fail_type = (
+                            "API_ERROR" if improved_result.status == BrainSimStatus.ERROR else "BRAIN_EXHAUSTED"
+                        )
                         _ls._algo_tick("failure_fix_add")
                         await _ls._failure_lib.add_failure(
                             expr=alpha.expression,
@@ -526,14 +607,27 @@ async def _post_process_brain_result(
                         logger.warning("ToolFactory record_fix_pattern (pipeline abandon) failed", exc_info=True)
                 if _ls._evo_db is not None:
                     _ls._algo_tick("add_record")
-                    await _ls._evo_db.add_record(alpha.expression, sharpe=improved_result.real_sharpe, fitness=improved_result.real_fitness, turnover=improved_result.real_turnover, direction=alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION, session_id=session_id, status="FAIL")
-                state.conversation_history.append({
-                    "role": "user",
-                    "content": build_restart_trigger(
-                        alpha.cycle_num + 1,
-                        _summarise_rejected([alpha.fingerprint.model_dump() if alpha.fingerprint else {}] + state.rejected_motifs[-3:]),
-                    ),
-                })
+                    await _ls._evo_db.add_record(
+                        alpha.expression,
+                        sharpe=improved_result.real_sharpe,
+                        fitness=improved_result.real_fitness,
+                        turnover=improved_result.real_turnover,
+                        direction=alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
+                        session_id=session_id,
+                        status="FAIL",
+                    )
+                state.conversation_history.append(
+                    {
+                        "role": "user",
+                        "content": build_restart_trigger(
+                            alpha.cycle_num + 1,
+                            _summarise_rejected(
+                                [alpha.fingerprint.model_dump() if alpha.fingerprint else {}]
+                                + state.rejected_motifs[-3:]
+                            ),
+                        ),
+                    }
+                )
                 for i, a in enumerate(state.passed_alphas):
                     if a.alpha_id == alpha_id:
                         state.passed_alphas[i] = alpha
@@ -543,13 +637,15 @@ async def _post_process_brain_result(
                 await pool.release_slot(alpha_id)
                 if settings.CROSSOVER_ENABLED:
                     try:
-                        _engine_local = getattr(_ls, '_crossover_engine', None)
+                        _engine_local = getattr(_ls, "_crossover_engine", None)
                         if _engine_local is not None:
                             mutator = _engine_local._mutation
-                            mutator.record_population_fitness([
-                                improved_result.real_sharpe or 0.0,
-                                improved_result.real_fitness or 0.0,
-                            ])
+                            mutator.record_population_fitness(
+                                [
+                                    improved_result.real_sharpe or 0.0,
+                                    improved_result.real_fitness or 0.0,
+                                ]
+                            )
                         else:
                             mutator = GradientMutation(originality_checker=val.get_originality_checker())
                         mut_brain_feedback = {
@@ -572,7 +668,9 @@ async def _post_process_brain_result(
                                 fingerprint=AlphaFingerprint(),
                                 decision="SUBMIT",
                                 simulation_payload={
-                                    "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                                    "settings": dict(alpha.simulation_payload.get("settings", {}))
+                                    if alpha.simulation_payload
+                                    else {},
                                     "regular": mr.mutated_expression,
                                 },
                                 cycle_num=alpha.cycle_num,
@@ -584,11 +682,14 @@ async def _post_process_brain_result(
                             await pool.enqueue(vid, priority="low")
                             logger.info(
                                 "[%s] GradientMutation variant enqueued: %s (%s)",
-                                session_id, vid, mr.mutation_type,
+                                session_id,
+                                vid,
+                                mr.mutation_type,
                             )
                             if _engine_local is not None:
                                 _engine_local._mutation.record_operator_result(
-                                    mr.mutation_type, success=True,
+                                    mr.mutation_type,
+                                    success=True,
                                 )
                     except (ValueError, TypeError, OSError, RuntimeError):
                         logger.warning("[%s] GradientMutation failed", session_id, exc_info=True)
@@ -608,6 +709,7 @@ async def _post_process_brain_result(
                     if improved_result.alpha_id and improved_result.status == BrainSimStatus.PASS:
                         try:
                             from openalpha_brain.services.brain_data_client import get_brain_data_client
+
                             _bdc = get_brain_data_client()
                             if _bdc is not None:
                                 _ls._algo_tick("yearly_data_fetch")
@@ -619,11 +721,22 @@ async def _post_process_brain_result(
                                     )
                                     logger.info(
                                         "[%s] Yearly performance data fetched for alpha %s: %d years",
-                                        session_id, improved_result.alpha_id, len(yearly_data),
+                                        session_id,
+                                        improved_result.alpha_id,
+                                        len(yearly_data),
                                     )
                         except (OSError, ValueError, RuntimeError):
-                            logger.warning("[%s] Failed to fetch yearly data for alpha %s", session_id, improved_result.alpha_id, exc_info=True)
-                if _ls._evolution_cycle_count % 5 == 0 and _ls._market_state_inferencer is not None and _ls._scheduler is not None:
+                            logger.warning(
+                                "[%s] Failed to fetch yearly data for alpha %s",
+                                session_id,
+                                improved_result.alpha_id,
+                                exc_info=True,
+                            )
+                if (
+                    _ls._evolution_cycle_count % 5 == 0
+                    and _ls._market_state_inferencer is not None
+                    and _ls._scheduler is not None
+                ):
                     try:
                         _ls._algo_tick("mab_bias_adjustment")
                         _ls._scheduler.adjust_mab_bias(_ls._market_state_inferencer)
@@ -631,28 +744,39 @@ async def _post_process_brain_result(
                         pass
                 try:
                     await run_post_brain_processing(
-                        alpha, improved_result, alpha.expression,
+                        alpha,
+                        improved_result,
+                        alpha.expression,
                         alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                        session_id, state, log_prefix="Pipeline ",
+                        session_id,
+                        state,
+                        log_prefix="Pipeline ",
                     )
                 except (OSError, ValueError, RuntimeError):
                     logger.warning("[%s] post_brain_processing (fail path) failed", session_id, exc_info=True)
-                _fb_buf = getattr(_ls, '_brain_feedback_buffer', None)
+                _fb_buf = getattr(_ls, "_brain_feedback_buffer", None)
                 if _fb_buf is None:
                     _ls._brain_feedback_buffer = []
-                _ls._brain_feedback_buffer.append({
-                    "role": "user",
-                    "content": f"[BRAIN RESULT] alpha {alpha_id}: FAIL — {_pipeline_original_failure_type} dir={alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION}. Avoid this pattern; rotate direction if consecutive failures.",
-                })
+                _ls._brain_feedback_buffer.append(
+                    {
+                        "role": "user",
+                        "content": f"[BRAIN RESULT] alpha {alpha_id}: FAIL — {_pipeline_original_failure_type} dir={alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION}. Avoid this pattern; rotate direction if consecutive failures.",  # noqa: E501
+                    }
+                )
                 _merge_session_hallucinations(session_id, state)
                 return
 
         if brain_result.status == BrainSimStatus.PASS:
-            _pipeline_all_card_ids = list(set(
-                (alpha.exp_card_rule_ids or []) + (alpha.exp_card_rule_ids2 or []),
-            ))
+            _pipeline_all_card_ids = list(
+                set(
+                    (alpha.exp_card_rule_ids or []) + (alpha.exp_card_rule_ids2 or []),
+                )
+            )
             pipeline_hierarchical_reward, pipeline_hierarchical_level_name = compute_hierarchical_reward_with_penalties(
-                brain_result, alpha.expression, session_id, log_prefix="Pipeline ",
+                brain_result,
+                alpha.expression,
+                session_id,
+                log_prefix="Pipeline ",
             )
             if pipeline_hierarchical_level_name:
                 alpha.hierarchical_reward = pipeline_hierarchical_reward
@@ -665,24 +789,30 @@ async def _post_process_brain_result(
                 _cc.adapt_thresholds()
                 logger.info(
                     "[%s] ComplexityController: recorded success depth=%d ops=%d nodes=%d (total=%d)",
-                    session_id, _cc_metrics.depth, _cc_metrics.operator_count,
-                    _cc_metrics.node_count, _cc.success_count,
+                    session_id,
+                    _cc_metrics.depth,
+                    _cc_metrics.operator_count,
+                    _cc_metrics.node_count,
+                    _cc.success_count,
                 )
             except (OSError, ValueError, RuntimeError) as _cc_exc:
-                logger.warning("[%s] ComplexityController record_success/adapt_thresholds failed: %s", session_id, _cc_exc)
+                logger.warning(
+                    "[%s] ComplexityController record_success/adapt_thresholds failed: %s", session_id, _cc_exc
+                )
 
             if _ls._decay_detector is not None and brain_result.alpha_id:
                 try:
                     await _ls._decay_detector.register_alpha(
                         alpha_id=brain_result.alpha_id,
                         expression=alpha.expression,
-                        fingerprint=alpha.fingerprint if hasattr(alpha, 'fingerprint') else None,
+                        fingerprint=alpha.fingerprint if hasattr(alpha, "fingerprint") else None,
                         direction=alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
                         initial_sharpe=brain_result.real_sharpe or 0.0,
                     )
                     logger.info(
                         "[%s] DecayDetector: registered alpha %s dir=%s sharpe=%.3f",
-                        session_id, brain_result.alpha_id,
+                        session_id,
+                        brain_result.alpha_id,
                         alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
                         brain_result.real_sharpe or 0.0,
                     )
@@ -692,9 +822,13 @@ async def _post_process_brain_result(
             check_margin_efficiency(brain_result, alpha, session_id, log_prefix="Pipeline ")
 
             await record_pass_feedback(
-                brain_result, alpha, alpha.expression,
+                brain_result,
+                alpha,
+                alpha.expression,
                 alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                None, session_id, pipeline_hierarchical_reward,
+                None,
+                session_id,
+                pipeline_hierarchical_reward,
                 exp_card_rule_ids=_pipeline_all_card_ids,
                 log_prefix="Pipeline ",
             )
@@ -702,9 +836,17 @@ async def _post_process_brain_result(
             alpha.pipeline_status = PipelineStatus.COMPLETED
 
             if _ls._feature_map is not None:
-                feat = _extract_strategy_features(alpha.expression, alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION)
+                feat = _extract_strategy_features(
+                    alpha.expression, alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION
+                )
                 _ls._algo_tick("feature_map_add")
-                _ls._feature_map.add_candidate(alpha.expression, feat, fitness_score=brain_result.real_fitness or 0.0, sharpe=brain_result.real_sharpe or 0.0, turnover=brain_result.real_turnover)
+                _ls._feature_map.add_candidate(
+                    alpha.expression,
+                    feat,
+                    fitness_score=brain_result.real_fitness or 0.0,
+                    sharpe=brain_result.real_sharpe or 0.0,
+                    turnover=brain_result.real_turnover,
+                )
 
             for i, a in enumerate(state.passed_alphas):
                 if a.alpha_id == alpha_id:
@@ -712,15 +854,22 @@ async def _post_process_brain_result(
                     break
 
             if pipeline_hierarchical_reward < 0.3:
-                logger.info("[%s] Pipeline hierarchical reward %.2f < 0.3 (below basic) — skipping review submission, marking as low quality", session_id, pipeline_hierarchical_reward)
+                logger.info(
+                    "[%s] Pipeline hierarchical reward %.2f < 0.3 (below basic) — skipping review submission, marking as low quality",  # noqa: E501
+                    session_id,
+                    pipeline_hierarchical_reward,
+                )
                 if _ls._scheduler is not None:
-                    try:
-                        _ls._scheduler.record_direction_result(alpha.exploration_direction or "", penalty=PENALTY_BRAIN_FAIL)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
-                _ls._log(state, "LOW_REWARD_SKIP",
-                     f"Alpha {alpha.alpha_id} pipeline_hierarchical_reward={pipeline_hierarchical_reward:.2f} < 0.3 — skipping review submission",
-                     {"hierarchical_reward": pipeline_hierarchical_reward})
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
+                        _ls._scheduler.record_direction_result(
+                            alpha.exploration_direction or "", penalty=PENALTY_BRAIN_FAIL
+                        )
+                _ls._log(
+                    state,
+                    "LOW_REWARD_SKIP",
+                    f"Alpha {alpha.alpha_id} pipeline_hierarchical_reward={pipeline_hierarchical_reward:.2f} < 0.3 — skipping review submission",  # noqa: E501
+                    {"hierarchical_reward": pipeline_hierarchical_reward},
+                )
                 if _ls._failure_lib and settings.FAILURE_FIX_LIBRARY_ENABLED:
                     try:
                         _ls._algo_tick("failure_fix_add")
@@ -734,37 +883,51 @@ async def _post_process_brain_result(
                         )
                     except (OSError, ValueError, RuntimeError):
                         pass
-                state.failure_catalog.append({
-                    "fingerprint": alpha.fingerprint.model_dump() if alpha.fingerprint else {},
-                    "failure_type": "low_hierarchical_reward",
-                    "metric_value": pipeline_hierarchical_reward,
-                    "mutation_tried": "skipped_review",
-                })
+                state.failure_catalog.append(
+                    {
+                        "fingerprint": alpha.fingerprint.model_dump() if alpha.fingerprint else {},
+                        "failure_type": "low_hierarchical_reward",
+                        "metric_value": pipeline_hierarchical_reward,
+                        "mutation_tried": "skipped_review",
+                    }
+                )
             else:
                 await submit_for_review(brain_result, alpha, session_id, state)
 
             state.status = SessionStatus.PASS
             s = f"{brain_result.real_sharpe:.3f}" if brain_result.real_sharpe is not None else "N/A"
             f = f"{brain_result.real_fitness:.3f}" if brain_result.real_fitness is not None else "N/A"
-            _ls._log(state, "PASS",
-                 f"Alpha {alpha.alpha_id} PASSED all BRAIN checks! "
-                 f"Sharpe={s} Fitness={f}",
-                 {"brain_id": brain_result.alpha_id})
+            _ls._log(
+                state,
+                "PASS",
+                f"Alpha {alpha.alpha_id} PASSED all BRAIN checks! Sharpe={s} Fitness={f}",
+                {"brain_id": brain_result.alpha_id},
+            )
 
             pipeline_hierarchical_reward, pnl_curve, yearly_data = await run_stability_analysis(
-                brain_result, alpha, session_id, state, pipeline_hierarchical_reward,
+                brain_result,
+                alpha,
+                session_id,
+                state,
+                pipeline_hierarchical_reward,
                 log_prefix="Pipeline ",
             )
 
             pipeline_hierarchical_reward = await fetch_correlation_analysis(
-                brain_result, alpha, session_id, pipeline_hierarchical_reward,
+                brain_result,
+                alpha,
+                session_id,
+                pipeline_hierarchical_reward,
                 log_prefix="Pipeline ",
             )
 
             pipeline_hierarchical_reward = await record_evo_and_success(
-                brain_result, alpha, alpha.expression,
+                brain_result,
+                alpha,
+                alpha.expression,
                 alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                session_id, pipeline_hierarchical_reward,
+                session_id,
+                pipeline_hierarchical_reward,
                 log_prefix="Pipeline ",
             )
 
@@ -773,16 +936,26 @@ async def _post_process_brain_result(
                     _ls._algo_tick("evo_lineage")
                     _lineage = _ls._evo_db.get_lineage(brain_result.alpha_id, depth=3)
                     if _lineage and len(_lineage) > 1:
-                        _lineage_dirs = [r.direction for r in _lineage if hasattr(r, 'direction')]
-                        logger.info("[%s] Alpha %s lineage (pipeline): %d ancestors, directions=%s", session_id, brain_result.alpha_id, len(_lineage), _lineage_dirs)
+                        _lineage_dirs = [r.direction for r in _lineage if hasattr(r, "direction")]
+                        logger.info(
+                            "[%s] Alpha %s lineage (pipeline): %d ancestors, directions=%s",
+                            session_id,
+                            brain_result.alpha_id,
+                            len(_lineage),
+                            _lineage_dirs,
+                        )
                 except (OSError, ValueError, RuntimeError):
                     pass
 
             _ls._successful_brain_expressions.append(alpha.expression)
             if len(_ls._successful_brain_expressions) >= 2 and settings.CROSSOVER_ENABLED:
                 try:
-                    _engine_local = getattr(_ls, '_crossover_engine', None)
-                    _crossover = _engine_local._crossover if _engine_local is not None else SemanticCrossover(originality_checker=val.get_originality_checker())
+                    _engine_local = getattr(_ls, "_crossover_engine", None)
+                    _crossover = (
+                        _engine_local._crossover
+                        if _engine_local is not None
+                        else SemanticCrossover(originality_checker=val.get_originality_checker())
+                    )
 
                     _expr_a = _ls._successful_brain_expressions[-2]
                     _expr_b = _ls._successful_brain_expressions[-1]
@@ -794,8 +967,10 @@ async def _post_process_brain_result(
                         _parent_b = _ls._feature_map.sample_distant_parent(
                             _ls._feature_map._cell_key(
                                 alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                                "medium", "signal",
-                            ), n=1,
+                                "medium",
+                                "signal",
+                            ),
+                            n=1,
                         )
                         if _parent_a is not None and _parent_a.best_expr:
                             _expr_a = _parent_a.best_expr
@@ -817,7 +992,9 @@ async def _post_process_brain_result(
                             fingerprint=AlphaFingerprint(),
                             decision="SUBMIT",
                             simulation_payload={
-                                "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                                "settings": dict(alpha.simulation_payload.get("settings", {}))
+                                if alpha.simulation_payload
+                                else {},
                                 "regular": cr.child_expression,
                             },
                             cycle_num=alpha.cycle_num,
@@ -829,7 +1006,11 @@ async def _post_process_brain_result(
                         await pool.enqueue(vid, priority="normal")
                         logger.info(
                             "[%s] SemanticCrossover child enqueued: %s (orig=%.2f parents=%s,%s)",
-                            session_id, vid, cr.originality_score, _id_a or "recent", _id_b or "recent",
+                            session_id,
+                            vid,
+                            cr.originality_score,
+                            _id_a or "recent",
+                            _id_b or "recent",
                         )
 
                     if _ls._feature_map is not None and random.random() < 0.3:
@@ -847,8 +1028,11 @@ async def _post_process_brain_result(
                             }
                             _ls._algo_tick("llm_semantic_crossover")
                             _llm_results = await _crossover.semantic_crossover_via_llm(
-                                llm_client.generate, _expr_a, _expr_b,
-                                context1=_ctx_a, context2=_ctx_b,
+                                llm_client.generate,
+                                _expr_a,
+                                _expr_b,
+                                context1=_ctx_a,
+                                context2=_ctx_b,
                             )
                             for cr in _llm_results:
                                 vid = f"llm_xo_{expression_hash(cr.child_expression)[:8]}"
@@ -861,7 +1045,9 @@ async def _post_process_brain_result(
                                     fingerprint=AlphaFingerprint(),
                                     decision="SUBMIT",
                                     simulation_payload={
-                                        "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                                        "settings": dict(alpha.simulation_payload.get("settings", {}))
+                                        if alpha.simulation_payload
+                                        else {},
                                         "regular": cr.child_expression,
                                     },
                                     cycle_num=alpha.cycle_num,
@@ -873,7 +1059,9 @@ async def _post_process_brain_result(
                                 await pool.enqueue(vid, priority="high")
                                 logger.info(
                                     "[%s] LLM-SemanticCrossover child enqueued: %s (orig=%.2f)",
-                                    session_id, vid, cr.originality_score,
+                                    session_id,
+                                    vid,
+                                    cr.originality_score,
                                 )
                 except (ValueError, TypeError, OSError, RuntimeError):
                     logger.warning("[%s] SemanticCrossover failed", session_id, exc_info=True)
@@ -887,9 +1075,13 @@ async def _post_process_brain_result(
         async def _safe_post_brain():
             try:
                 await run_post_brain_processing(
-                    alpha, brain_result, alpha.expression,
+                    alpha,
+                    brain_result,
+                    alpha.expression,
                     alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
-                    session_id, state, log_prefix="Pipeline ",
+                    session_id,
+                    state,
+                    log_prefix="Pipeline ",
                 )
             except (OSError, ValueError, RuntimeError):
                 logger.warning("[%s] post_brain_processing failed", session_id, exc_info=True)
@@ -908,6 +1100,7 @@ async def _post_process_brain_result(
         async def _safe_yearly_data():
             if brain_result.alpha_id and brain_result.status == BrainSimStatus.PASS:
                 from openalpha_brain.services.brain_data_client import get_brain_data_client
+
                 _bdc = get_brain_data_client()
                 if _bdc is not None:
                     _ls._algo_tick("yearly_data_fetch")
@@ -919,11 +1112,17 @@ async def _post_process_brain_result(
                         )
                         logger.info(
                             "[%s] Yearly performance data fetched for alpha %s: %d years",
-                            session_id, brain_result.alpha_id, len(yearly_data),
+                            session_id,
+                            brain_result.alpha_id,
+                            len(yearly_data),
                         )
 
         async def _safe_mab_bias():
-            if _ls._evolution_cycle_count % 5 == 0 and _ls._market_state_inferencer is not None and _ls._scheduler is not None:
+            if (
+                _ls._evolution_cycle_count % 5 == 0
+                and _ls._market_state_inferencer is not None
+                and _ls._scheduler is not None
+            ):
                 _ls._algo_tick("mab_bias_adjustment")
                 _ls._scheduler.adjust_mab_bias(_ls._market_state_inferencer)
 
@@ -937,17 +1136,18 @@ async def _post_process_brain_result(
             return_exceptions=True,
         )
         logger.info("[%s] post_process worker-%d parallel post-PASS ops completed", session_id, worker_id)
-        _fb_buf2 = getattr(_ls, '_brain_feedback_buffer', None)
+        _fb_buf2 = getattr(_ls, "_brain_feedback_buffer", None)
         if _fb_buf2 is None:
             _ls._brain_feedback_buffer = []
         _s_val = f"{brain_result.real_sharpe:.3f}" if brain_result.real_sharpe is not None else "N/A"
         _f_val = f"{brain_result.real_fitness:.3f}" if brain_result.real_fitness is not None else "N/A"
-        _ls._brain_feedback_buffer.append({
-            "role": "user",
-            "content": f"[BRAIN RESULT] alpha {brain_result.alpha_id or alpha_id}: PASS — Sharpe={_s_val} Fitness={_f_val} dir={alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION}. This pattern works — exploit similar directions next cycle.",
-        })
+        _ls._brain_feedback_buffer.append(
+            {
+                "role": "user",
+                "content": f"[BRAIN RESULT] alpha {brain_result.alpha_id or alpha_id}: PASS — Sharpe={_s_val} Fitness={_f_val} dir={alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION}. This pattern works — exploit similar directions next cycle.",  # noqa: E501
+            }
+        )
         _merge_session_hallucinations(session_id, state)
 
     except (OSError, ValueError, RuntimeError):
         logger.exception("[%s] post_process worker-%d failed", session_id, worker_id)
-

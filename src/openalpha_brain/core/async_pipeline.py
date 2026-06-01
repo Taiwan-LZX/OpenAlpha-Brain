@@ -15,6 +15,7 @@ OpenAlpha-Brain — Async Pipeline System
                                     ↓
                               Re-enqueue improved alphas
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 class SlotState(Enum):
     """提交槽位的狀態機狀態。"""
+
     IDLE = auto()
     SUBMITTING = auto()
     POLLING = auto()
@@ -48,6 +50,7 @@ class SlotState(Enum):
 @dataclass
 class SubmissionSlot:
     """單個 BRAIN 提交槽位，追蹤完整生命週期。"""
+
     id: int
     state: SlotState = SlotState.IDLE
     alpha_id: str = ""
@@ -60,6 +63,7 @@ class SubmissionSlot:
 @dataclass
 class _PendingSubmission:
     """等待中的提交請求，按優先級排序。"""
+
     priority: float
     counter: int
     expression: str
@@ -87,9 +91,7 @@ class SubmissionSlotManager:
         self.max_concurrent = max_concurrent
         self._submit_fn = submit_fn
         self._poll_fn = poll_fn
-        self._slots: list[SubmissionSlot] = [
-            SubmissionSlot(id=i) for i in range(max_concurrent)
-        ]
+        self._slots: list[SubmissionSlot] = [SubmissionSlot(id=i) for i in range(max_concurrent)]
         self._wait_queue: list[_PendingSubmission] = []
         self._counter = 0
         self._lock = asyncio.Lock()
@@ -189,8 +191,12 @@ class SubmissionSlotManager:
                     except TimeoutError:
                         if time.monotonic() - poll_start >= poll_timeout:
                             raise TimeoutError(f"Poll 超時 ({poll_timeout}s)")
-                        logger.debug("[SlotManager] 槽位 %d poll yield (%.0fs/%.0fs)",
-                                    slot.id, time.monotonic() - poll_start, poll_timeout)
+                        logger.debug(
+                            "[SlotManager] 槽位 %d poll yield (%.0fs/%.0fs)",
+                            slot.id,
+                            time.monotonic() - poll_start,
+                            poll_timeout,
+                        )
                         await asyncio.sleep(0.1)
                         continue
 
@@ -204,7 +210,12 @@ class SubmissionSlotManager:
             if self._on_complete_callback is not None and slot.result:
                 await self._on_complete_callback(slot, slot.result)
 
-            logger.info("[SlotManager] 槽位 %d 完成: %s sharpe=%s", slot.id, submission_id, slot.result.get("sharpe", "N/A") if slot.result else "N/A")
+            logger.info(
+                "[SlotManager] 槽位 %d 完成: %s sharpe=%s",
+                slot.id,
+                submission_id,
+                slot.result.get("sharpe", "N/A") if slot.result else "N/A",
+            )
 
         except TimeoutError:
             self._stats["total_timed_out"] += 1
@@ -279,6 +290,7 @@ class SubmissionSlotManager:
 @dataclass(order=True)
 class AlphaQueueEntry:
     """Alpha 佇列條目，使用 heap 排序。"""
+
     priority: float
     counter: int
     expression: str = field(compare=False)
@@ -347,8 +359,13 @@ class AlphaQueue:
             self._entries_by_id[entry.queue_id] = entry
             self._stats["enqueued"] += 1
 
-            logger.debug("[AlphaQueue] 入隊: %s src=%s sharpe_est=%.2f priority=%.2f",
-                        entry.queue_id, entry.source, entry.sharpe_estimate, entry.priority)
+            logger.debug(
+                "[AlphaQueue] 入隊: %s src=%s sharpe_est=%.2f priority=%.2f",
+                entry.queue_id,
+                entry.source,
+                entry.sharpe_estimate,
+                entry.priority,
+            )
             if self._orchestrator is not None:
                 self._orchestrator._queue_event.set()
             return entry.queue_id
@@ -393,6 +410,7 @@ class AlphaQueue:
             是否成功重新入隊
         """
         import heapq
+
         old_entry = self._entries_by_id.get(queue_id)
         if old_entry:
             try:
@@ -440,6 +458,7 @@ class QueueFullError(Exception):
 
 class ImprovementPriority(Enum):
     """改進任務的優先級分類。"""
+
     CRITICAL = 0
     HIGH = 1
     MEDIUM = 2
@@ -449,6 +468,7 @@ class ImprovementPriority(Enum):
 @dataclass
 class ImprovementJob:
     """單個自學習改進任務。"""
+
     expression: str
     current_sharpe: float
     failure_type: str | None = None
@@ -464,6 +484,7 @@ class ImprovementJob:
 @dataclass
 class ImprovementResult:
     """改進任務的執行結果。"""
+
     success: bool
     expression: str
     new_sharpe_estimate: float
@@ -513,7 +534,8 @@ class ImprovementWorkerPool:
         self._on_improvement_callback: Callable[[ImprovementResult], Awaitable[None]] | None = None
 
     def set_improvement_callback(
-        self, callback: Callable[[ImprovementResult], Awaitable[None]],
+        self,
+        callback: Callable[[ImprovementResult], Awaitable[None]],
     ) -> None:
         """設置改進成功時的回調。"""
         self._on_improvement_callback = callback
@@ -543,8 +565,13 @@ class ImprovementWorkerPool:
             self._stats["jobs_submitted"] += 1
             self._job_available.notify(1)
 
-        logger.info("[ImprovementPool] 任務入隊: %s expr=%s sharpe=%.2f pri=%s",
-                   job.job_id, job.expression[:60], job.current_sharpe, job.priority.name)
+        logger.info(
+            "[ImprovementPool] 任務入隊: %s expr=%s sharpe=%.2f pri=%s",
+            job.job_id,
+            job.expression[:60],
+            job.current_sharpe,
+            job.priority.name,
+        )
         return job.job_id
 
     async def _get_next_job(self) -> ImprovementJob | None:
@@ -619,8 +646,13 @@ class ImprovementWorkerPool:
                     await self._job_available.wait()
                 continue
 
-            logger.info("[ImprovementPool] Worker %d 處理任務 %s (attempt %d/%d)",
-                       worker_id, job.job_id, job.attempts, job.max_attempts)
+            logger.info(
+                "[ImprovementPool] Worker %d 處理任務 %s (attempt %d/%d)",
+                worker_id,
+                job.job_id,
+                job.attempts,
+                job.max_attempts,
+            )
 
             result = await self._process_job(job)
             if result is None:
@@ -628,8 +660,12 @@ class ImprovementWorkerPool:
 
             if result.success and result.new_sharpe_estimate > job.current_sharpe:
                 self._stats["jobs_improved"] += 1
-                logger.info("[ImprovementPool] ✅ 任務 %s 改進成功: %.3f → %.3f",
-                           job.job_id, job.current_sharpe, result.new_sharpe_estimate)
+                logger.info(
+                    "[ImprovementPool] ✅ 任務 %s 改進成功: %.3f → %.3f",
+                    job.job_id,
+                    job.current_sharpe,
+                    result.new_sharpe_estimate,
+                )
                 if self._on_improvement_callback is not None:
                     await self._on_improvement_callback(result)
                 async with self._lock:
@@ -653,9 +689,7 @@ class ImprovementWorkerPool:
     async def start(self) -> None:
         """啟動所有 workers。"""
         self._running = True
-        self._workers = [
-            asyncio.create_task(self._worker_loop(i)) for i in range(self.max_workers)
-        ]
+        self._workers = [asyncio.create_task(self._worker_loop(i)) for i in range(self.max_workers)]
         logger.info("[ImprovementPool] 已啟動 %d 個 workers", self.max_workers)
 
     async def drain(self) -> None:
@@ -675,6 +709,7 @@ class ImprovementWorkerPool:
         }
 
 
+import contextlib
 import heapq
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -684,6 +719,7 @@ import heapq
 
 class ResourceType(Enum):
     """資源類型枚舉。"""
+
     LLM_GENERATE = "llm_generate"
     LLM_MUTATE = "llm_mutate"
     EMBED = "embed"
@@ -694,6 +730,7 @@ class ResourceType(Enum):
 @dataclass
 class ResourceRequest:
     """資源調度請求。"""
+
     resource_type: ResourceType
     priority: int = 5
     payload: dict = field(default_factory=dict)
@@ -704,6 +741,7 @@ class ResourceRequest:
 @dataclass
 class _ResourceStats:
     """單一資源類型的運行統計。"""
+
     total_requests: int = 0
     total_success: int = 0
     total_errors: int = 0
@@ -769,12 +807,12 @@ class ResourceDispatcher:
         start = time.monotonic()
 
         sem = self._semaphores[req.resource_type]
-        effective_limit = max(1, int(sem._value * self._adaptive_factors[req.resource_type]))
+        max(1, int(sem._value * self._adaptive_factors[req.resource_type]))
 
         try:
             if req.resource_type == ResourceType.LLM_MUTATE:
-                owner = getattr(self, '_owner', None)
-                if owner and hasattr(owner, 'acquire_mutation_slot'):
+                owner = getattr(self, "_owner", None)
+                if owner and hasattr(owner, "acquire_mutation_slot"):
                     acquired = await owner.acquire_mutation_slot(timeout=req.timeout * 0.5)
                     if not acquired:
                         raise TimeoutError("全域 mutation 預算已滿")
@@ -806,50 +844,60 @@ class ResourceDispatcher:
         finally:
             stats.concurrent_now = max(0, stats.concurrent_now - 1)
             if req.resource_type == ResourceType.LLM_MUTATE:
-                owner = getattr(self, '_owner', None)
-                if owner and hasattr(owner, 'release_mutation_slot'):
+                owner = getattr(self, "_owner", None)
+                if owner and hasattr(owner, "release_mutation_slot"):
                     owner.release_mutation_slot()
 
     async def dispatch_llm_generate(self, **kwargs) -> str:
         """便捷方法：dispatch LLM 生成請求。"""
-        return await self.acquire(ResourceRequest(
-            resource_type=ResourceType.LLM_GENERATE,
-            priority=5,
-            payload=kwargs,
-            timeout=kwargs.get("timeout", 60.0),
-        ))
+        return await self.acquire(
+            ResourceRequest(
+                resource_type=ResourceType.LLM_GENERATE,
+                priority=5,
+                payload=kwargs,
+                timeout=kwargs.get("timeout", 60.0),
+            )
+        )
 
     async def dispatch_llm_mutation(self, **kwargs) -> str:
         """便捷方法：dispatch LLM 突變請求（優先級高於 generate）。"""
-        return await self.acquire(ResourceRequest(
-            resource_type=ResourceType.LLM_MUTATE,
-            priority=2,
-            payload=kwargs,
-            timeout=kwargs.get("timeout", 90.0),
-        ))
+        return await self.acquire(
+            ResourceRequest(
+                resource_type=ResourceType.LLM_MUTATE,
+                priority=2,
+                payload=kwargs,
+                timeout=kwargs.get("timeout", 90.0),
+            )
+        )
 
     async def dispatch_embed(self, text: str, **kwargs) -> list[float]:
         """便捷方法：dispatch embedding 請求。"""
-        return await self.acquire(ResourceRequest(
-            resource_type=ResourceType.EMBED,
-            priority=7,
-            payload={"text": text, **kwargs},
-            timeout=kwargs.get("timeout", 15.0),
-        ))
+        return await self.acquire(
+            ResourceRequest(
+                resource_type=ResourceType.EMBED,
+                priority=7,
+                payload={"text": text, **kwargs},
+                timeout=kwargs.get("timeout", 15.0),
+            )
+        )
 
     async def dispatch_rag_retrieve(self, query: str, **kwargs) -> dict:
         """便捷方法：dispatch RAG 檢索請求。"""
-        return await self.acquire(ResourceRequest(
-            resource_type=ResourceType.RAG_RETRIEVE,
-            priority=6,
-            payload={"query": query, **kwargs},
-            timeout=kwargs.get("timeout", 20.0),
-        ))
+        return await self.acquire(
+            ResourceRequest(
+                resource_type=ResourceType.RAG_RETRIEVE,
+                priority=6,
+                payload={"query": query, **kwargs},
+                timeout=kwargs.get("timeout", 20.0),
+            )
+        )
 
     def _adapt_down(self, resource_type: ResourceType) -> None:
         """當錯誤/超時發生時降低並發度。"""
         self._adaptive_factors[resource_type] = max(0.3, self._adaptive_factors[resource_type] * 0.85)
-        logger.debug("[ResourceDispatcher] %s 自適應降級: %.2f", resource_type.value, self._adaptive_factors[resource_type])
+        logger.debug(
+            "[ResourceDispatcher] %s 自適應降級: %.2f", resource_type.value, self._adaptive_factors[resource_type]
+        )
 
     def _adapt_up(self, resource_type: ResourceType) -> None:
         """當連續成功時恢復並發度。"""
@@ -953,11 +1001,11 @@ class PipelineOrchestrator:
         }
 
     async def acquire_mutation_slot(self, timeout: float = 30.0) -> bool:
-        '''嘗試獲取一個全域 mutation 槽位。
+        """嘗試獲取一個全域 mutation 槽位。
 
         Returns:
             True 表示成功獲取，False 表示超時未獲得
-        '''
+        """
         self._mutation_stats["waiting"] += 1
         try:
             await asyncio.wait_for(self._mutation_budget.acquire(), timeout=timeout)
@@ -971,12 +1019,12 @@ class PipelineOrchestrator:
             self._mutation_stats["waiting"] = max(0, self._mutation_stats["waiting"] - 1)
 
     def release_mutation_slot(self) -> None:
-        '''釋放 mutation 槽位。'''
+        """釋放 mutation 槽位。"""
         self._mutation_budget.release()
         self._mutation_stats["active"] = max(0, self._mutation_stats["active"] - 1)
 
     def get_mutation_stats(self) -> dict:
-        '''返回 mutation budget 統計資訊。'''
+        """返回 mutation budget 統計資訊。"""
         return dict(self._mutation_stats)
 
     async def start(self) -> None:
@@ -985,8 +1033,11 @@ class PipelineOrchestrator:
         self._pipeline_stats["start_time"] = time.monotonic()
         await self.worker_pool.start()
         self._orchestrate_task = asyncio.create_task(self._orchestration_loop())
-        logger.info("[PipelineOrchestrator] 流水線已啟動 (slots=%d, workers=%d)",
-                   self.slot_manager.max_concurrent, self.worker_pool.max_workers)
+        logger.info(
+            "[PipelineOrchestrator] 流水線已啟動 (slots=%d, workers=%d)",
+            self.slot_manager.max_concurrent,
+            self.worker_pool.max_workers,
+        )
 
     async def _orchestration_loop(self) -> None:
         """主編排迴圈：持續檢查 queue 和 slot 的狀態，自動調度。"""
@@ -1004,16 +1055,17 @@ class PipelineOrchestrator:
                             metadata=entry.metadata,
                         )
                         self._pipeline_stats["alphas_submitted"] += 1
-                        logger.info("[PipelineOrchestrator] 分發到槽位: %s sharpe_est=%.2f",
-                                   entry.queue_id, entry.sharpe_estimate)
+                        logger.info(
+                            "[PipelineOrchestrator] 分發到槽位: %s sharpe_est=%.2f",
+                            entry.queue_id,
+                            entry.sharpe_estimate,
+                        )
                     except (OSError, ValueError, RuntimeError) as exc:
                         logger.error("[PipelineOrchestrator] 分發失敗: %s", exc)
 
                 self._queue_event.clear()
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._queue_event.wait(), timeout=1.0)
-                except TimeoutError:
-                    pass
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -1056,8 +1108,7 @@ class PipelineOrchestrator:
             entry.metadata["simulation_payload"] = simulation_payload
 
         queue_id = await self.queue.enqueue(entry)
-        logger.info("[PipelineOrchestrator] Alpha 入隊: %s src=%s sharpe_est=%.2f",
-                   queue_id, source, sharpe_estimate)
+        logger.info("[PipelineOrchestrator] Alpha 入隊: %s src=%s sharpe_est=%.2f", queue_id, source, sharpe_estimate)
         return queue_id
 
     async def _on_slot_completed(self, slot: SubmissionSlot, result: dict) -> None:
@@ -1106,10 +1157,8 @@ class PipelineOrchestrator:
 
         if self._orchestrate_task and not self._orchestrate_task.done():
             self._orchestrate_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._orchestrate_task
-            except asyncio.CancelledError:
-                pass
 
         await self.slot_manager.shutdown()
         await self.worker_pool.drain()

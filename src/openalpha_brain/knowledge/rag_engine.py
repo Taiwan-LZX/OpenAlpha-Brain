@@ -14,6 +14,7 @@ Experience Replay System (Success-Based Case Retrieval for Code Repair):
 - FactorContext: factor-aware context for targeted RAG retrieval
 - ExperienceReplayManager: multi-dimensional weighted similarity matching + LLM judgment
 """
+
 from __future__ import annotations
 
 import copy
@@ -27,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import numpy as np
 
 from openalpha_brain.knowledge.vector_index import VectorStore
@@ -154,11 +156,17 @@ class RAGEngine:
 
         if _budget_tracker is not None and not _budget_tracker.can_search():
             logger.info("RAG budget exceeded for direction: %s, returning cached/empty", exploration_direction)
-            logger.warning("[DEFENSIVE] rag_engine: budget_exhausted direction=%s — request silently dropped, returning empty result", exploration_direction)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: budget_exhausted direction=%s — request silently dropped, returning empty result",  # noqa: E501
+                exploration_direction,
+            )
             if cache_key in self._cache:
                 _, cached = self._cache[cache_key]
                 return cached
-            logger.warning("[DEFENSIVE] rag_engine: no_cache_fallback direction=%s — returning completely empty result (0 ops, 0 fields, 0 finlogic)", exploration_direction)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: no_cache_fallback direction=%s — returning completely empty result (0 ops, 0 fields, 0 finlogic)",  # noqa: E501
+                exploration_direction,
+            )
             return {
                 "direction": exploration_direction,
                 "operators": [],
@@ -171,7 +179,7 @@ class RAGEngine:
 
         try:
             query_vec = await self._embed(exploration_direction)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.error("RAG retrieve: embedding failed for direction '%s': %s", exploration_direction, exc)
             if cache_key in self._cache:
                 _, cached = self._cache[cache_key]
@@ -187,35 +195,37 @@ class RAGEngine:
         if self._ops_store and self._ops_store.count > 0:
             try:
                 raw = self._ops_store.query(query_vec, top_k=k_ops)
-                ops_results = [
-                    {"id": did, "score": score, "meta": meta}
-                    for did, score, meta in raw
-                ]
+                ops_results = [{"id": did, "score": score, "meta": meta} for did, score, meta in raw]
             except (ValueError, TypeError, OSError) as exc:
-                logger.error("RAG retrieve: operator store query failed for direction '%s': %s", exploration_direction, exc)
+                logger.error(
+                    "RAG retrieve: operator store query failed for direction '%s': %s", exploration_direction, exc
+                )
 
         fields_results = []
         if self._fields_store and self._fields_store.count > 0:
             try:
-                raw = self._fields_store.query(query_vec, top_k=k_fields * FIELD_RETRIEVAL_OVERFETCH_FACTOR, exclude_ids=self._eliminated_fields)
+                raw = self._fields_store.query(
+                    query_vec, top_k=k_fields * FIELD_RETRIEVAL_OVERFETCH_FACTOR, exclude_ids=self._eliminated_fields
+                )
                 fields_results = [
                     {"id": did, "score": score, "meta": meta}
                     for did, score, meta in raw
                     if did not in self._eliminated_fields
                 ][:k_fields]
             except (ValueError, TypeError, OSError) as exc:
-                logger.error("RAG retrieve: fields store query failed for direction '%s': %s", exploration_direction, exc)
+                logger.error(
+                    "RAG retrieve: fields store query failed for direction '%s': %s", exploration_direction, exc
+                )
 
         finlogic_results = []
         if self._finlogic_store and self._finlogic_store.count > 0:
             try:
                 raw = self._finlogic_store.query(query_vec, top_k=self._top_k_finlogic)
-                finlogic_results = [
-                    {"id": did, "score": score, "meta": meta}
-                    for did, score, meta in raw
-                ]
+                finlogic_results = [{"id": did, "score": score, "meta": meta} for did, score, meta in raw]
             except (ValueError, TypeError, OSError) as exc:
-                logger.error("RAG retrieve: finlogic store query failed for direction '%s': %s", exploration_direction, exc)
+                logger.error(
+                    "RAG retrieve: finlogic store query failed for direction '%s': %s", exploration_direction, exc
+                )
 
         result = {
             "direction": exploration_direction,
@@ -225,7 +235,12 @@ class RAGEngine:
         }
 
         experience_replay_results = None
-        if factor_context and factor_context.failure_type and hasattr(self, '_experience_replay') and self._experience_replay is not None:
+        if (
+            factor_context
+            and factor_context.failure_type
+            and hasattr(self, "_experience_replay")
+            and self._experience_replay is not None
+        ):
             try:
                 experience_replay_results = await self._experience_replay.get_repair_suggestion(
                     failure_type=factor_context.failure_type,
@@ -246,10 +261,15 @@ class RAGEngine:
                     }
                     logger.info(
                         "[RAG] targeted_retrieval enabled failure_type=%s expReplayConfidence=%.3f",
-                        factor_context.failure_type, experience_replay_results.confidence,
+                        factor_context.failure_type,
+                        experience_replay_results.confidence,
                     )
             except (ValueError, TypeError, OSError, RuntimeError) as exc:
-                logger.warning("[DEFENSIVE_LOG] rag_engine: targeted_retrieval_failed failure_type=%s error=%s — using generic results only", factor_context.failure_type, exc)
+                logger.warning(
+                    "[DEFENSIVE_LOG] rag_engine: targeted_retrieval_failed failure_type=%s error=%s — using generic results only",  # noqa: E501
+                    factor_context.failure_type,
+                    exc,
+                )
 
         try:
             self._cache[cache_key] = (now, copy.deepcopy(result))
@@ -260,18 +280,34 @@ class RAGEngine:
             result = self._rerank_with_feedback(result, exploration_direction)
         except (ValueError, TypeError, OSError) as exc:
             logger.error("RAG retrieve: rerank failed for direction '%s': %s", exploration_direction, exc)
-            logger.warning("[DEFENSIVE] rag_engine: rerank_fallback direction=%s error=%s — using original ranking without feedback boost", exploration_direction, exc)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: rerank_fallback direction=%s error=%s — using original ranking without feedback boost",  # noqa: E501
+                exploration_direction,
+                exc,
+            )
         logger.info(
             "RAG retrieve '%s': %d ops, %d fields, %d finlogic%s",
-            exploration_direction, len(ops_results), len(fields_results), len(finlogic_results),
+            exploration_direction,
+            len(ops_results),
+            len(fields_results),
+            len(finlogic_results),
             f", {len(experience_replay_results.similar_cases)} exp_replay cases" if experience_replay_results else "",
         )
         if len(ops_results) == 0 and len(fields_results) == 0:
-            logger.warning("[DEFENSIVE] rag_engine: empty_retrieval direction=%s — no operators or fields retrieved (vector stores may be unloaded or query mismatch)", exploration_direction)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: empty_retrieval direction=%s — no operators or fields retrieved (vector stores may be unloaded or query mismatch)",  # noqa: E501
+                exploration_direction,
+            )
         elif len(ops_results) == 0:
-            logger.warning("[DEFENSIVE] rag_engine: empty_ops direction=%s — operator store returned 0 results (store may be empty or embedding mismatch)", exploration_direction)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: empty_ops direction=%s — operator store returned 0 results (store may be empty or embedding mismatch)",  # noqa: E501
+                exploration_direction,
+            )
         elif len(fields_results) == 0:
-            logger.warning("[DEFENSIVE] rag_engine: empty_fields direction=%s — field store returned 0 results (store may be empty or all fields eliminated)", exploration_direction)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: empty_fields direction=%s — field store returned 0 results (store may be empty or all fields eliminated)",  # noqa: E501
+                exploration_direction,
+            )
         return result
 
     def set_experience_replay(self, exp_replay_manager: ExperienceReplayManager) -> None:
@@ -288,7 +324,7 @@ class RAGEngine:
         fields = retrieval.get("fields", [])
         finlogic = retrieval.get("financial_logic", [])
 
-        top_ops_detailed = ops[:self._top_k_ops]
+        top_ops_detailed = ops[: self._top_k_ops]
         all_op_names = [o["id"] for o in ops]
         detailed_op_names = {o["id"] for o in top_ops_detailed}
         remaining_op_names = [n for n in all_op_names if n not in detailed_op_names]
@@ -327,11 +363,17 @@ class RAGEngine:
             elif "TURNOVER" in name.upper() and "LOW" in name.upper():
                 weights["volatility_ops_boost"] = weights.get("volatility_ops_boost", 1.0) * FEEDBACK_BOOST_STANDARD
             elif "CORRELATION" in name.upper():
-                weights["alternative_ops_boost"] = weights.get("alternative_ops_boost", 1.0) * FEEDBACK_BOOST_ALTERNATIVE
+                weights["alternative_ops_boost"] = (
+                    weights.get("alternative_ops_boost", 1.0) * FEEDBACK_BOOST_ALTERNATIVE
+                )
             elif "FITNESS" in name.upper():
-                weights["normalization_ops_boost"] = weights.get("normalization_ops_boost", 1.0) * FEEDBACK_BOOST_STANDARD
+                weights["normalization_ops_boost"] = (
+                    weights.get("normalization_ops_boost", 1.0) * FEEDBACK_BOOST_STANDARD
+                )
             elif "CONCENTRATED" in name.upper():
-                weights["diversification_ops_boost"] = weights.get("diversification_ops_boost", 1.0) * FEEDBACK_BOOST_STANDARD
+                weights["diversification_ops_boost"] = (
+                    weights.get("diversification_ops_boost", 1.0) * FEEDBACK_BOOST_STANDARD
+                )
 
     def _rerank_with_feedback(self, retrieval_result: dict, direction: str) -> dict:
         weights = self._feedback_weights.get(direction, {})
@@ -371,21 +413,31 @@ class RAGEngine:
     def save_feedback_weights(self, path: str) -> None:
         try:
             import json
+
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(self._feedback_weights, f, indent=2)
         except OSError as exc:
-            logger.warning("[DEFENSIVE] rag_engine: save_feedback_weights_failed path=%s error=%s — weights not persisted, will be lost on restart", path, exc)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: save_feedback_weights_failed path=%s error=%s — weights not persisted, will be lost on restart",  # noqa: E501
+                path,
+                exc,
+            )
 
     def load_feedback_weights(self, path: str) -> None:
         try:
             import json
             from pathlib import Path
+
             p = Path(path)
             if p.exists():
                 with open(p, encoding="utf-8") as f:
                     self._feedback_weights = json.load(f)
         except (OSError, FileNotFoundError, json.JSONDecodeError) as exc:
-            logger.warning("[DEFENSIVE] rag_engine: load_feedback_weights_failed path=%s error=%s — using default empty weights", path, exc)
+            logger.warning(
+                "[DEFENSIVE] rag_engine: load_feedback_weights_failed path=%s error=%s — using default empty weights",
+                path,
+                exc,
+            )
 
     def health_check(self) -> dict[str, Any]:
         return {
@@ -422,6 +474,7 @@ class ExperienceCard:
         usage_count: 被检索使用次数
         success_rate: 基于后续使用的成功率
     """
+
     card_id: str = ""
     timestamp: str = ""
     failure_type: str = ""
@@ -450,6 +503,7 @@ class FactorContext:
         recent_history: 最近 N 次提交历史
         metrics_snapshot: 当前指标快照
     """
+
     current_expression: str = ""
     failure_type: str | None = None
     field_family_in_use: str = ""
@@ -471,6 +525,7 @@ class RepairSuggestion:
         historical_success_rate: 历史成功率
         similar_cases: 相似案例列表
     """
+
     card_id: str = ""
     confidence: float = 0.0
     suggested_action: str = ""
@@ -529,25 +584,28 @@ class SuccessCaseLibrary:
                 vectors=[vec],
                 metas=[{k: v for k, v in case.items() if k != "id"}],
             )
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
             logger.warning("SuccessCaseLibrary: embedding failed for case %s", case_id)
         self._cases.append(case)
         self._persist()
 
     async def search_similar(self, query: str, top_k: int = 3) -> list[dict]:
         if self._store.count == 0:
-            logger.warning("[DEFENSIVE] success_case_library: empty_store query=%s — no cases available for search", query)
+            logger.warning(
+                "[DEFENSIVE] success_case_library: empty_store query=%s — no cases available for search", query
+            )
             return []
         try:
             vec = await self._embed(query)
             raw = self._store.query(vec, top_k=top_k)
-            return [
-                {"id": did, "score": score, **meta}
-                for did, score, meta in raw
-            ]
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            return [{"id": did, "score": score, **meta} for did, score, meta in raw]
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("SuccessCaseLibrary: search_similar failed")
-            logger.warning("[DEFENSIVE] success_case_library: search_similar_failed query=%s error=%s — returning empty results", query, exc)
+            logger.warning(
+                "[DEFENSIVE] success_case_library: search_similar_failed query=%s error=%s — returning empty results",
+                query,
+                exc,
+            )
             return []
 
     def get_recent(self, n: int = 5) -> list[dict]:
@@ -559,9 +617,7 @@ class SuccessCaseLibrary:
                 "cases": self._cases,
                 "store_path": str(self._PERSIST_PATH.with_suffix(".vec.json")),
             }
-            self._PERSIST_PATH.write_text(
-                json.dumps(data, ensure_ascii=False, default=str), encoding="utf-8"
-            )
+            self._PERSIST_PATH.write_text(json.dumps(data, ensure_ascii=False, default=str), encoding="utf-8")
             if self._store.count > 0:
                 self._store.save_index(self._PERSIST_PATH.with_suffix(".vec.json"))
         except OSError:
@@ -582,6 +638,7 @@ class SuccessCaseLibrary:
 
 class FailureFixLibrary:
     from openalpha_brain.data import get_data_path
+
     _PERSIST_PATH = get_data_path("failure_fixes.json")
 
     def __init__(self, embed_fn: Callable[..., Awaitable] | None = None) -> None:
@@ -627,14 +684,17 @@ class FailureFixLibrary:
                 vectors=[vec],
                 metas=[{k: v for k, v in failure.items() if k != "id"}],
             )
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
             logger.warning("FailureFixLibrary: embedding failed for failure %s", failure_id)
         self._failures.append(failure)
         self._persist()
 
     async def search_fix(self, failure_type: str, top_k: int = 3) -> list[dict]:
         if self._store.count == 0:
-            logger.warning("[DEFENSIVE] failure_fix_library: empty_store failure_type=%s — no failures available for fix search", failure_type)
+            logger.warning(
+                "[DEFENSIVE] failure_fix_library: empty_store failure_type=%s — no failures available for fix search",
+                failure_type,
+            )
             return []
         try:
             vec = await self._embed(failure_type)
@@ -646,30 +706,35 @@ class FailureFixLibrary:
                 if len(results) >= top_k:
                     break
             if not results:
-                results = [
-                    {"id": did, "score": score, **meta}
-                    for did, score, meta in raw[:top_k]
-                ]
+                results = [{"id": did, "score": score, **meta} for did, score, meta in raw[:top_k]]
             return results
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("FailureFixLibrary: search_fix failed")
-            logger.warning("[DEFENSIVE] failure_fix_library: search_fix_failed failure_type=%s error=%s — returning empty results", failure_type, exc)
+            logger.warning(
+                "[DEFENSIVE] failure_fix_library: search_fix_failed failure_type=%s error=%s — returning empty results",
+                failure_type,
+                exc,
+            )
             return []
 
     async def search_by_expr_similarity(self, query_expr: str, top_k: int = 3) -> list[dict]:
         if self._store.count == 0:
-            logger.warning("[DEFENSIVE] failure_fix_library: empty_store query_expr=%s — no failures available for similarity search", query_expr[:50])
+            logger.warning(
+                "[DEFENSIVE] failure_fix_library: empty_store query_expr=%s — no failures available for similarity search",  # noqa: E501
+                query_expr[:50],
+            )
             return []
         try:
             vec = await self._embed(query_expr)
             raw = self._store.query(vec, top_k=top_k)
-            return [
-                {"id": did, "score": score, **meta}
-                for did, score, meta in raw
-            ]
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
+            return [{"id": did, "score": score, **meta} for did, score, meta in raw]
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("FailureFixLibrary: search_by_expr_similarity failed")
-            logger.warning("[DEFENSIVE] failure_fix_library: search_by_expr_similarity_failed query=%s error=%s — returning empty results", query_expr[:50], exc)
+            logger.warning(
+                "[DEFENSIVE] failure_fix_library: search_by_expr_similarity_failed query=%s error=%s — returning empty results",  # noqa: E501
+                query_expr[:50],
+                exc,
+            )
             return []
 
     def _persist(self) -> None:
@@ -678,9 +743,7 @@ class FailureFixLibrary:
                 "failures": self._failures,
                 "store_path": str(self._PERSIST_PATH.with_suffix(".vec.json")),
             }
-            self._PERSIST_PATH.write_text(
-                json.dumps(data, ensure_ascii=False, default=str), encoding="utf-8"
-            )
+            self._PERSIST_PATH.write_text(json.dumps(data, ensure_ascii=False, default=str), encoding="utf-8")
             if self._store.count > 0:
                 self._store.save_index(self._PERSIST_PATH.with_suffix(".vec.json"))
         except OSError:
@@ -742,15 +805,20 @@ class ExperienceReplayManager:
         self._llm = llm_client
 
     @algo_log()
-    def record(self, failure_type: str, before_expr: str,
-               repair_action: str, after_expr: str,
-               repair_target: str = "",
-               outcome: str = "UNKNOWN",
-               expression_structure: str = "",
-               field_family: str = "",
-               metrics_before: dict | None = None,
-               metrics_after: dict | None = None,
-               source_loop_id: int = 0) -> ExperienceCard:
+    def record(
+        self,
+        failure_type: str,
+        before_expr: str,
+        repair_action: str,
+        after_expr: str,
+        repair_target: str = "",
+        outcome: str = "UNKNOWN",
+        expression_structure: str = "",
+        field_family: str = "",
+        metrics_before: dict | None = None,
+        metrics_after: dict | None = None,
+        source_loop_id: int = 0,
+    ) -> ExperienceCard:
         """记录一次修复经验
 
         Args:
@@ -792,7 +860,10 @@ class ExperienceReplayManager:
 
             logger.info(
                 "[EXP_REPLAY] recorded card_id=%s failure_type=%s action=%s outcome=%s",
-                card.card_id[:8], failure_type, repair_action, outcome,
+                card.card_id[:8],
+                failure_type,
+                repair_action,
+                outcome,
             )
 
             if len(self._cards) % 10 == 0:
@@ -801,9 +872,9 @@ class ExperienceReplayManager:
             return card
 
     @algo_log()
-    async def query_similar(self, failure_type: str, expr: str,
-                           metrics_snapshot: dict | None = None,
-                           top_k: int = 3) -> list[ExperienceCard]:
+    async def query_similar(
+        self, failure_type: str, expr: str, metrics_snapshot: dict | None = None, top_k: int = 3
+    ) -> list[ExperienceCard]:
         """核心方法：给定当前失败，检索历史上相似的修复经验
 
         匹配维度（加权融合）：
@@ -823,7 +894,11 @@ class ExperienceReplayManager:
         """
         with Timer("exp_replay_query_similar"):
             if not self._cards:
-                logger.warning("[DEFENSIVE_LOG] exp_replay: empty_library failure_type=%s expr=%s — no experience cards available", failure_type, expr[:50])
+                logger.warning(
+                    "[DEFENSIVE_LOG] exp_replay: empty_library failure_type=%s expr=%s — no experience cards available",
+                    failure_type,
+                    expr[:50],
+                )
                 return []
 
             current_structure = self._extract_structure_fingerprint(expr)
@@ -843,7 +918,11 @@ class ExperienceReplayManager:
                     )
                     scored_cards.append((card, score))
                 except (ValueError, TypeError, OSError, RuntimeError) as exc:
-                    logger.debug("[DEFENSIVE_LOG] exp_replay: score_computation_failed card_id=%s error=%s", card.card_id[:8], exc)
+                    logger.debug(
+                        "[DEFENSIVE_LOG] exp_replay: score_computation_failed card_id=%s error=%s",
+                        card.card_id[:8],
+                        exc,
+                    )
                     continue
 
             scored_cards.sort(key=lambda x: x[1], reverse=True)
@@ -853,15 +932,18 @@ class ExperienceReplayManager:
                 card.usage_count += 1
                 logger.info(
                     "[EXP_REPLAY] similar_found card_id=%s score=%.3f action=%s success_rate=%.2f",
-                    card.card_id[:8], score, card.repair_action, card.success_rate,
+                    card.card_id[:8],
+                    score,
+                    card.repair_action,
+                    card.success_rate,
                 )
 
             return [card for card, _ in top_results]
 
     @algo_log()
-    async def get_repair_suggestion(self, failure_type: str, expr: str,
-                                   metrics_snapshot: dict | None = None,
-                                   min_confidence: float = 0.6) -> RepairSuggestion | None:
+    async def get_repair_suggestion(
+        self, failure_type: str, expr: str, metrics_snapshot: dict | None = None, min_confidence: float = 0.6
+    ) -> RepairSuggestion | None:
         """综合查询结果 + LLM 判断，给出修复建议
 
         流程：
@@ -903,12 +985,17 @@ class ExperienceReplayManager:
                     suggested_expr=self._apply_repair_to_expression(expr, best_card),
                     reasoning=f"基于 {len(similar_cards)} 个相似历史案例，最佳匹配 card_id={best_card.card_id[:8]}",
                     historical_success_rate=best_card.success_rate,
-                    similar_cases=[{"card_id": c.card_id[:8], "action": c.repair_action, "success_rate": c.success_rate} for c in similar_cards],
+                    similar_cases=[
+                        {"card_id": c.card_id[:8], "action": c.repair_action, "success_rate": c.success_rate}
+                        for c in similar_cards
+                    ],
                 )
 
                 logger.info(
                     "[EXP_REPLAY] suggestion_generated card_id=%s confidence=%.3f action=%s",
-                    suggestion.card_id[:8], suggestion.confidence, suggestion.suggested_action,
+                    suggestion.card_id[:8],
+                    suggestion.confidence,
+                    suggestion.suggested_action,
                 )
                 return suggestion
 
@@ -923,11 +1010,14 @@ class ExperienceReplayManager:
                     if llm_suggestion and llm_suggestion.confidence >= min_confidence:
                         logger.info(
                             "[EXP_REPLAY] llm_suggestion_accepted confidence=%.3f action=%s",
-                            llm_suggestion.confidence, llm_suggestion.suggested_action,
+                            llm_suggestion.confidence,
+                            llm_suggestion.suggested_action,
                         )
                         return llm_suggestion
-                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError) as exc:
-                    logger.warning("[DEFENSIVE_LOG] exp_replay: llm_judgment_failed error=%s — falling back to best match", exc)
+                except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
+                    logger.warning(
+                        "[DEFENSIVE_LOG] exp_replay: llm_judgment_failed error=%s — falling back to best match", exc
+                    )
 
             if base_confidence > 0.4:
                 return RepairSuggestion(
@@ -938,15 +1028,22 @@ class ExperienceReplayManager:
                     suggested_expr=self._apply_repair_to_expression(expr, best_card),
                     reasoning=f"低置信度回退：基于最佳匹配案例 (confidence={base_confidence:.2f})",
                     historical_success_rate=best_card.success_rate,
-                    similar_cases=[{"card_id": c.card_id[:8], "action": c.repair_action, "success_rate": c.success_rate} for c in similar_cards],
+                    similar_cases=[
+                        {"card_id": c.card_id[:8], "action": c.repair_action, "success_rate": c.success_rate}
+                        for c in similar_cards
+                    ],
                 )
 
-            logger.info("[EXP_REPLAY] no_suitable_suggestion failure_type=%s best_confidence=%.3f < threshold=%.2f", failure_type, base_confidence, min_confidence)
+            logger.info(
+                "[EXP_REPLAY] no_suitable_suggestion failure_type=%s best_confidence=%.3f < threshold=%.2f",
+                failure_type,
+                base_confidence,
+                min_confidence,
+            )
             return None
 
     @algo_log()
-    def update_card_outcome(self, card_id: str, outcome: str,
-                           metrics: dict | None = None) -> bool:
+    def update_card_outcome(self, card_id: str, outcome: str, metrics: dict | None = None) -> bool:
         """根据后续 WQ 反馈更新卡片成功率
 
         Args:
@@ -977,7 +1074,10 @@ class ExperienceReplayManager:
 
                     logger.info(
                         "[EXP_REPLAY] card_updated card_id=%s oldOutcome=%s newOutcome=%s newSuccessRate=%.3f",
-                        card_id[:8], old_outcome, outcome, card.success_rate,
+                        card_id[:8],
+                        old_outcome,
+                        outcome,
+                        card.success_rate,
                     )
                     return True
 
@@ -1022,10 +1122,15 @@ class ExperienceReplayManager:
 
                 logger.info(
                     "[EXP_REPLAY] persisted path=%s totalCards=%d",
-                    self._storage_path, len(self._cards),
+                    self._storage_path,
+                    len(self._cards),
                 )
             except OSError as exc:
-                logger.warning("[DEFENSIVE_LOG] exp_replay: persist_failed path=%s error=%s — data not saved", self._storage_path, exc)
+                logger.warning(
+                    "[DEFENSIVE_LOG] exp_replay: persist_failed path=%s error=%s — data not saved",
+                    self._storage_path,
+                    exc,
+                )
 
     @algo_log()
     def load(self) -> None:
@@ -1033,7 +1138,9 @@ class ExperienceReplayManager:
         with Timer("exp_replay_load"):
             try:
                 if not self._storage_path.exists():
-                    logger.info("[EXP_REPLAY] no_existing_file path=%s — starting with empty library", self._storage_path)
+                    logger.info(
+                        "[EXP_REPLAY] no_existing_file path=%s — starting with empty library", self._storage_path
+                    )
                     return
 
                 data = json.loads(self._storage_path.read_text(encoding="utf-8"))
@@ -1062,10 +1169,16 @@ class ExperienceReplayManager:
 
                 logger.info(
                     "[EXP_REPLAY] loaded path=%s totalCards=%d version=%s",
-                    self._storage_path, len(self._cards), data.get("version", "unknown"),
+                    self._storage_path,
+                    len(self._cards),
+                    data.get("version", "unknown"),
                 )
             except (OSError, FileNotFoundError, json.JSONDecodeError) as exc:
-                logger.warning("[DEFENSIVE_LOG] exp_replay: load_failed path=%s error=%s — starting with empty library", self._storage_path, exc)
+                logger.warning(
+                    "[DEFENSIVE_LOG] exp_replay: load_failed path=%s error=%s — starting with empty library",
+                    self._storage_path,
+                    exc,
+                )
                 self._cards = []
 
     def get_stats(self) -> dict:
@@ -1074,6 +1187,7 @@ class ExperienceReplayManager:
             return {"total_cards": 0, "avg_success_rate": 0.0, "failure_types": {}, "top_actions": []}
 
         from collections import Counter
+
         failure_types = Counter(c.failure_type for c in self._cards)
         actions = Counter(c.repair_action for c in self._cards)
         avg_success_rate = sum(c.success_rate for c in self._cards) / max(len(self._cards), 1)
@@ -1085,11 +1199,14 @@ class ExperienceReplayManager:
             "top_actions": actions.most_common(5),
         }
 
-    def _compute_similarity_score(self, card: ExperienceCard,
-                                  target_failure_type: str,
-                                  target_structure: str,
-                                  target_field_family: str,
-                                  target_metrics: dict) -> float:
+    def _compute_similarity_score(
+        self,
+        card: ExperienceCard,
+        target_failure_type: str,
+        target_structure: str,
+        target_field_family: str,
+        target_metrics: dict,
+    ) -> float:
         """计算多维加权融合相似度分数"""
         epsilon = 1e-6
 
@@ -1097,16 +1214,18 @@ class ExperienceReplayManager:
 
         structure_score = self._compute_structure_similarity(card.expression_structure, target_structure)
 
-        field_score = 1.0 if card.field_family == target_field_family or not card.field_family or not target_field_family else 0.3
+        field_score = (
+            1.0 if card.field_family == target_field_family or not card.field_family or not target_field_family else 0.3
+        )
 
         metrics_score = self._compute_metrics_similarity(card.metrics_snapshot, target_metrics)
 
         weights = self._matching_weights
         total_score = (
-            type_score * weights["failure_type"] +
-            structure_score * weights["expression_structure"] +
-            metrics_score * weights["metrics_snapshot"] +
-            field_score * weights["field_family"]
+            type_score * weights["failure_type"]
+            + structure_score * weights["expression_structure"]
+            + metrics_score * weights["metrics_snapshot"]
+            + field_score * weights["field_family"]
         )
 
         success_boost = card.success_rate * 0.1
@@ -1156,8 +1275,7 @@ class ExperienceReplayManager:
 
         return score / max(count, 1)
 
-    def _compute_confidence_from_cards(self, cards: list[ExperienceCard],
-                                       current_metrics: dict) -> float:
+    def _compute_confidence_from_cards(self, cards: list[ExperienceCard], current_metrics: dict) -> float:
         """从多个相似卡片计算综合置信度"""
         if not cards:
             return 0.0
@@ -1175,23 +1293,25 @@ class ExperienceReplayManager:
 
         return max(1e-6, adjusted)
 
-    async def _call_llm_for_judgment(self, failure_type: str, expr: str,
-                                     metrics: dict,
-                                     similar_cards: list[ExperienceCard]) -> RepairSuggestion | None:
+    async def _call_llm_for_judgment(
+        self, failure_type: str, expr: str, metrics: dict, similar_cards: list[ExperienceCard]
+    ) -> RepairSuggestion | None:
         """调用 LLM 进行综合判断"""
         if self._llm is None:
             return None
 
-        cards_summary = "\n".join([
-            f"- Card {i+1}: action={c.repair_action}, target={c.repair_target}, "
-            f"success_rate={c.success_rate:.2f}, outcome={c.outcome}"
-            for i, c in enumerate(similar_cards[:3])
-        ])
+        cards_summary = "\n".join(
+            [
+                f"- Card {i + 1}: action={c.repair_action}, target={c.repair_target}, "
+                f"success_rate={c.success_rate:.2f}, outcome={c.outcome}"
+                for i, c in enumerate(similar_cards[:3])
+            ]
+        )
 
         prompt = f"""你是一个量化因子修复专家。当前因子遇到 {failure_type} 类型失败。
 
 当前表达式: {expr}
-当前指标: sharpe={metrics.get('sharpe', 'N/A')}, turnover={metrics.get('turnover', 'N/A')}%
+当前指标: sharpe={metrics.get("sharpe", "N/A")}, turnover={metrics.get("turnover", "N/A")}%
 
 历史上相似的修复案例:
 {cards_summary}
@@ -1211,7 +1331,8 @@ class ExperienceReplayManager:
             response = await self._llm.generate(prompt, [], "", session_id="exp_replay_judgment", cycle=0)
 
             import re
-            json_match = re.search(r'\{[^{}]+\}', response, re.DOTALL)
+
+            json_match = re.search(r"\{[^{}]+\}", response, re.DOTALL)
             if json_match:
                 parsed = json.loads(json_match.group())
                 if parsed.get("should_apply") and parsed.get("confidence", 0) >= 0.5:
@@ -1234,17 +1355,23 @@ class ExperienceReplayManager:
     def _extract_structure_fingerprint(self, expr: str) -> str:
         """从表达式中提取结构指纹"""
         import re
+
         if not expr:
             return ""
 
-        operators = sorted(set(re.findall(r'\b([a-zA-Z_]\w*)\s*\(', expr)))
-        structure_parts = [op for op in operators if op in ("rank", "ts_decay_linear", "group_neutralize", "ts_mean", "ts_delta", "zscore")]
+        operators = sorted(set(re.findall(r"\b([a-zA-Z_]\w*)\s*\(", expr)))
+        structure_parts = [
+            op
+            for op in operators
+            if op in ("rank", "ts_decay_linear", "group_neutralize", "ts_mean", "ts_delta", "zscore")
+        ]
 
         return "-".join(structure_parts) if structure_parts else "unknown"
 
     def _extract_field_family(self, expr: str) -> str:
         """从表达式中提取字段族"""
         import re
+
         if not expr:
             return ""
 
@@ -1252,9 +1379,12 @@ class ExperienceReplayManager:
         volume_fields = {"volume", "adv"}
         fundamental_fields = {"cap", "earnings", "sales", "assets", "revenue", "sharesout"}
 
-        found_price = bool(price_fields & set(re.findall(r'\b(close|open|high|low|vwap)\b', expr, re.IGNORECASE)))
-        found_volume = bool(volume_fields & set(re.findall(r'\b(volume|adv\d+)\b', expr, re.IGNORECASE)))
-        found_fundamental = bool(fundamental_fields & set(re.findall(r'\b(cap|earnings|sales|assets|revenue|sharesout)\b', expr, re.IGNORECASE)))
+        found_price = bool(price_fields & set(re.findall(r"\b(close|open|high|low|vwap)\b", expr, re.IGNORECASE)))
+        found_volume = bool(volume_fields & set(re.findall(r"\b(volume|adv\d+)\b", expr, re.IGNORECASE)))
+        found_fundamental = bool(
+            fundamental_fields
+            & set(re.findall(r"\b(cap|earnings|sales|assets|revenue|sharesout)\b", expr, re.IGNORECASE))
+        )
 
         families = []
         if found_price:
@@ -1266,8 +1396,7 @@ class ExperienceReplayManager:
 
         return "_".join(families) if families else "unknown"
 
-    def _compute_improvement_delta(self, metrics_before: dict | None,
-                                   metrics_after: dict | None) -> dict:
+    def _compute_improvement_delta(self, metrics_before: dict | None, metrics_after: dict | None) -> dict:
         """计算改善量"""
         if not metrics_before or not metrics_after:
             return {}
@@ -1284,18 +1413,18 @@ class ExperienceReplayManager:
 
         return delta
 
-    def _apply_repair_to_expression(self, current_expr: str,
-                                    card: ExperienceCard) -> str:
+    def _apply_repair_to_expression(self, current_expr: str, card: ExperienceCard) -> str:
         """将历史修复方案应用到当前表达式"""
         import re
+
         if not current_expr or not card.before_expr or not card.after_expr:
             return current_expr
 
         if card.repair_target == "block_c" and "ts_decay_linear" in current_expr:
-            window_match = re.search(r'(\d+)', card.after_expr)
+            window_match = re.search(r"(\d+)", card.after_expr)
             if window_match:
                 new_window = window_match.group(1)
-                return re.sub(r'(\d+)', new_window, current_expr, count=1)
+                return re.sub(r"(\d+)", new_window, current_expr, count=1)
 
         if card.repair_action.startswith("window") and "→" in card.repair_action:
             parts = card.repair_action.split("→")
@@ -1347,7 +1476,7 @@ async def auto_debug_loop(
             current_expr = await generate_fn(fix_prompt)
             if not current_expr or not isinstance(current_expr, str):
                 current_expr = best_expr
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
             logger.warning("auto_debug_loop: generate_fn failed on round %d", round_num + 1)
             break
 

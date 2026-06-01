@@ -12,7 +12,7 @@ def extract_json_from_llm(raw: str) -> dict | list | None:
 
     text = raw.strip()
 
-    md_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
+    md_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if md_match:
         candidate = md_match.group(1).strip()
         try:
@@ -20,10 +20,10 @@ def extract_json_from_llm(raw: str) -> dict | list | None:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    start = text.find('{')
+    start = text.find("{")
     if start == -1:
-        start = text.find('[')
-    if start != -1 and text[start] == '{':
+        start = text.find("[")
+    if start != -1 and text[start] == "{":
         depth = 0
         in_string = False
         escape_next = False
@@ -32,7 +32,7 @@ def extract_json_from_llm(raw: str) -> dict | list | None:
             if escape_next:
                 escape_next = False
                 continue
-            if ch == '\\' and in_string:
+            if ch == "\\" and in_string:
                 escape_next = True
                 continue
             if ch == '"' and not escape_next:
@@ -40,18 +40,18 @@ def extract_json_from_llm(raw: str) -> dict | list | None:
                 continue
             if in_string:
                 continue
-            if ch == '{':
+            if ch == "{":
                 depth += 1
-            elif ch == '}':
+            elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    candidate = text[start:i + 1]
+                    candidate = text[start : i + 1]
                     try:
                         return json.loads(candidate)
                     except (json.JSONDecodeError, ValueError):
                         break
 
-    if start != -1 and text[start] == '[':
+    if start != -1 and text[start] == "[":
         depth = 0
         in_string = False
         escape_next = False
@@ -60,7 +60,7 @@ def extract_json_from_llm(raw: str) -> dict | list | None:
             if escape_next:
                 escape_next = False
                 continue
-            if ch == '\\' and in_string:
+            if ch == "\\" and in_string:
                 escape_next = True
                 continue
             if ch == '"' and not escape_next:
@@ -68,30 +68,30 @@ def extract_json_from_llm(raw: str) -> dict | list | None:
                 continue
             if in_string:
                 continue
-            if ch == '[':
+            if ch == "[":
                 depth += 1
-            elif ch == ']':
+            elif ch == "]":
                 depth -= 1
                 if depth == 0:
-                    candidate = text[start:i + 1]
+                    candidate = text[start : i + 1]
                     try:
                         return json.loads(candidate)
                     except (json.JSONDecodeError, ValueError):
                         break
 
-    start = text.find('{')
-    end = text.rfind('}')
+    start = text.find("{")
+    end = text.rfind("}")
     if start != -1 and end > start:
-        candidate = text[start:end + 1]
+        candidate = text[start : end + 1]
         try:
             return json.loads(candidate)
         except (json.JSONDecodeError, ValueError):
             pass
 
-    start = text.find('[')
-    end = text.rfind(']')
+    start = text.find("[")
+    end = text.rfind("]")
     if start != -1 and end > start:
-        candidate = text[start:end + 1]
+        candidate = text[start : end + 1]
         try:
             return json.loads(candidate)
         except (json.JSONDecodeError, ValueError):

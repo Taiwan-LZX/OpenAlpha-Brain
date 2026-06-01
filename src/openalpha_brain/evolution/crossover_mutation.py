@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, cast
 
+import aiohttp
+
 from openalpha_brain.evolution.evolution_types import AlphaTrajectory
 from openalpha_brain.evolution.trajectory_mutation import TrajectoryMutationResult, TrajectoryMutationV2
 from openalpha_brain.generation.ast_originality import ASTNode, FASTEXPRParser, OriginalityChecker
@@ -29,12 +31,21 @@ _FUNDAMENTAL_FIELDS = ["sales", "assets", "liabilities", "revenue", "equity", "d
 _ALL_FIELDS = _PRICE_FIELDS + _VOLUME_FIELDS + _FUNDAMENTAL_FIELDS
 
 _RANK_OPS = {"rank", "ts_rank", "group_rank"}
-_TS_SINGLE_OPS = {"ts_delta", "ts_sum", "ts_mean", "ts_std_dev", "ts_zscore",
-                   "ts_delay", "ts_decay_linear", "ts_rank", "ts_arg_max", "ts_arg_min"}
+_TS_SINGLE_OPS = {
+    "ts_delta",
+    "ts_sum",
+    "ts_mean",
+    "ts_std_dev",
+    "ts_zscore",
+    "ts_delay",
+    "ts_decay_linear",
+    "ts_rank",
+    "ts_arg_max",
+    "ts_arg_min",
+}
 _TS_DUAL_OPS = {"ts_corr", "ts_regression"}
 _NEUTRALIZE_OPS = {"group_neutralize", "group_zscore"}
-_SCALAR_OPS = {"abs", "log", "signed_power", "scale", "zscore", "normalize",
-               "winsorize", "hump", "max", "min"}
+_SCALAR_OPS = {"abs", "log", "signed_power", "scale", "zscore", "normalize", "winsorize", "hump", "max", "min"}
 
 _OPERATOR_SWAP_MAP: dict[str, list[str]] = {
     "rank": ["ts_rank", "group_rank", "zscore", "normalize"],
@@ -118,11 +129,13 @@ class TrajectoryCrossoverResult:
 
 
 class TrajectoryCrossover:
-
     MAX_CHILDREN: int = 3
 
-    def __init__(self, llm_generate_fn: Callable[..., Awaitable[str]] | None = None,
-                 originality_checker: OriginalityChecker | None = None):
+    def __init__(
+        self,
+        llm_generate_fn: Callable[..., Awaitable[str]] | None = None,
+        originality_checker: OriginalityChecker | None = None,
+    ):
         self._llm = llm_generate_fn
         self._originality_checker = originality_checker
 
@@ -134,8 +147,7 @@ class TrajectoryCrossover:
             "final_status": traj.final_status,
             "final_sharpe": traj.final_sharpe,
             "expression_evolution": [
-                {"version": i + 1, "expression": expr}
-                for i, expr in enumerate(traj.expression_versions)
+                {"version": i + 1, "expression": expr} for i, expr in enumerate(traj.expression_versions)
             ],
             "decision_points": traj.decision_points,
             "key_feedback": list(traj.brain_feedbacks) if traj.brain_feedbacks else [],
@@ -184,12 +196,13 @@ Analyze the trajectories and output a JSON with this structure:
 
 Output only the JSON, no other text."""
 
-    async def crossover_trajectories(self,
-                                     traj_a: AlphaTrajectory,
-                                     traj_b: AlphaTrajectory,
-                                     id_a: str = "",
-                                     id_b: str = "",
-                                     ) -> list[TrajectoryCrossoverResult]:
+    async def crossover_trajectories(
+        self,
+        traj_a: AlphaTrajectory,
+        traj_b: AlphaTrajectory,
+        id_a: str = "",
+        id_b: str = "",
+    ) -> list[TrajectoryCrossoverResult]:
         results: list[TrajectoryCrossoverResult] = []
 
         if self._llm is not None:
@@ -205,7 +218,7 @@ Output only the JSON, no other text."""
                 strategies = analysis.get("crossover_strategies", [])
                 complementary = cast(list[str], analysis.get("complementary_segments", []))
 
-                for strategy in strategies[:self.MAX_CHILDREN]:
+                for strategy in strategies[: self.MAX_CHILDREN]:
                     child = AlphaTrajectory(
                         hypothesis_direction=str(strategy.get("merged_direction", traj_a.hypothesis_direction)),
                         hypothesis_mechanism=str(strategy.get("merged_mechanism", "")),
@@ -222,22 +235,31 @@ Output only the JSON, no other text."""
                     if traj_b.expression_versions:
                         child.add_expression_version(f"/* B: {traj_b.expression_versions[-1][:80]}... */")
 
-                    results.append(TrajectoryCrossoverResult(
-                        child_trajectory=child,
-                        parent1_id=id_a,
-                        parent2_id=id_b,
-                        crossover_strategy=str(strategy.get("strategy", "unknown")),
-                        complementary_segments=complementary,
-                        llm_analysis=str(analysis.get("complementarity_analysis", "")),
-                    ))
+                    results.append(
+                        TrajectoryCrossoverResult(
+                            child_trajectory=child,
+                            parent1_id=id_a,
+                            parent2_id=id_b,
+                            crossover_strategy=str(strategy.get("strategy", "unknown")),
+                            complementary_segments=complementary,
+                            llm_analysis=str(analysis.get("complementarity_analysis", "")),
+                        )
+                    )
 
-                    _monitor.record("STEP", "trajectory_crossover", "llm_crossover",
-                                    f"parents={id_a},{id_b} strategy={strategy.get('strategy')}")
+                    _monitor.record(
+                        "STEP",
+                        "trajectory_crossover",
+                        "llm_crossover",
+                        f"parents={id_a},{id_b} strategy={strategy.get('strategy')}",
+                    )
 
                 if results:
                     logger.info(
                         "TrajectoryCrossover: generated %d children from parents %s, %s — complementary=%s",
-                        len(results), id_a, id_b, complementary,
+                        len(results),
+                        id_a,
+                        id_b,
+                        complementary,
                     )
 
             except (OSError, ValueError, RuntimeError) as exc:
@@ -248,12 +270,13 @@ Output only the JSON, no other text."""
 
         return results
 
-    def _deterministic_crossover(self,
-                                  traj_a: AlphaTrajectory,
-                                  traj_b: AlphaTrajectory,
-                                  id_a: str = "",
-                                  id_b: str = "",
-                                  ) -> list[TrajectoryCrossoverResult]:
+    def _deterministic_crossover(
+        self,
+        traj_a: AlphaTrajectory,
+        traj_b: AlphaTrajectory,
+        id_a: str = "",
+        id_b: str = "",
+    ) -> list[TrajectoryCrossoverResult]:
         results: list[TrajectoryCrossoverResult] = []
 
         child1 = AlphaTrajectory(
@@ -265,13 +288,15 @@ Output only the JSON, no other text."""
             child1.add_expression_version(expr)
         for expr in traj_b.expression_versions[-1:]:
             child1.add_expression_version(expr)
-        results.append(TrajectoryCrossoverResult(
-            child_trajectory=child1,
-            parent1_id=id_a,
-            parent2_id=id_b,
-            crossover_strategy="hypothesis_from_A_mechanism_from_B",
-            complementary_segments=["hypothesis", "factor_mechanism"],
-        ))
+        results.append(
+            TrajectoryCrossoverResult(
+                child_trajectory=child1,
+                parent1_id=id_a,
+                parent2_id=id_b,
+                crossover_strategy="hypothesis_from_A_mechanism_from_B",
+                complementary_segments=["hypothesis", "factor_mechanism"],
+            )
+        )
 
         child2 = AlphaTrajectory(
             hypothesis_direction=traj_b.hypothesis_direction,
@@ -282,13 +307,15 @@ Output only the JSON, no other text."""
             child2.add_expression_version(expr)
         for expr in traj_a.expression_versions[-1:]:
             child2.add_expression_version(expr)
-        results.append(TrajectoryCrossoverResult(
-            child_trajectory=child2,
-            parent1_id=id_b,
-            parent2_id=id_a,
-            crossover_strategy="hypothesis_from_B_mechanism_from_A",
-            complementary_segments=["hypothesis", "factor_mechanism"],
-        ))
+        results.append(
+            TrajectoryCrossoverResult(
+                child_trajectory=child2,
+                parent1_id=id_b,
+                parent2_id=id_a,
+                crossover_strategy="hypothesis_from_B_mechanism_from_A",
+                complementary_segments=["hypothesis", "factor_mechanism"],
+            )
+        )
 
         if traj_a.decision_points and traj_b.decision_points:
             child3 = AlphaTrajectory(
@@ -297,18 +324,21 @@ Output only the JSON, no other text."""
                 decision_points=traj_a.decision_points[:1] + traj_b.decision_points[-1:],
                 final_status="PENDING",
             )
-            results.append(TrajectoryCrossoverResult(
-                child_trajectory=child3,
-                parent1_id=id_a,
-                parent2_id=id_b,
-                crossover_strategy="combined_decision_patterns",
-                complementary_segments=["decision_patterns"],
-            ))
+            results.append(
+                TrajectoryCrossoverResult(
+                    child_trajectory=child3,
+                    parent1_id=id_a,
+                    parent2_id=id_b,
+                    crossover_strategy="combined_decision_patterns",
+                    complementary_segments=["decision_patterns"],
+                )
+            )
 
-        _monitor.record("STEP", "trajectory_crossover", "deterministic_crossover",
-                        f"parents={id_a},{id_b} children={len(results)}")
+        _monitor.record(
+            "STEP", "trajectory_crossover", "deterministic_crossover", f"parents={id_a},{id_b} children={len(results)}"
+        )
 
-        return results[:self.MAX_CHILDREN]
+        return results[: self.MAX_CHILDREN]
 
 
 def _ast_to_string(node: ASTNode) -> str:
@@ -326,9 +356,9 @@ def _ast_to_string(node: ASTNode) -> str:
     return f"{node.op}({', '.join(child_strs)})"
 
 
-def _collect_subtree_paths(node: ASTNode, path: tuple[int, ...] = (),
-                           result: list[tuple[ASTNode, tuple[int, ...]]] | None = None
-                           ) -> list[tuple[ASTNode, tuple[int, ...]]]:
+def _collect_subtree_paths(
+    node: ASTNode, path: tuple[int, ...] = (), result: list[tuple[ASTNode, tuple[int, ...]]] | None = None
+) -> list[tuple[ASTNode, tuple[int, ...]]]:
     if result is None:
         result = []
     result.append((node, path))
@@ -375,9 +405,7 @@ def _subtrees_compatible(sub1: ASTNode, sub2: ASTNode) -> bool:
     if sub1.is_leaf and sub2.is_leaf:
         if sub1.is_field and sub2.is_field:
             return True
-        if sub1.is_number and sub2.is_number:
-            return True
-        return False
+        return bool(sub1.is_number and sub2.is_number)
     if sub1.is_leaf or sub2.is_leaf:
         return False
     cat1 = _operator_category(sub1.op)
@@ -386,9 +414,7 @@ def _subtrees_compatible(sub1: ASTNode, sub2: ASTNode) -> bool:
         return True
     if cat1 == "scalar" and cat2 == "rank":
         return True
-    if cat1 == "rank" and cat2 == "scalar":
-        return True
-    return False
+    return bool(cat1 == "rank" and cat2 == "scalar")
 
 
 def _compute_originality(expr: str, checker: OriginalityChecker | None) -> float:
@@ -401,12 +427,14 @@ def _compute_originality(expr: str, checker: OriginalityChecker | None) -> float
 
 
 class SemanticCrossover:
-
     MAX_CHILDREN: int = 3
     EPSILON: float = 1e-6
 
-    def __init__(self, originality_checker: OriginalityChecker | None = None,
-                 llm_generate_fn: Callable[..., Awaitable[str]] | None = None):
+    def __init__(
+        self,
+        originality_checker: OriginalityChecker | None = None,
+        llm_generate_fn: Callable[..., Awaitable[str]] | None = None,
+    ):
         self._originality_checker = originality_checker
         self._parser = FASTEXPRParser()
         self._llm = llm_generate_fn
@@ -414,12 +442,18 @@ class SemanticCrossover:
         self._skip_stats: dict[str, int] = {"duplicate_parent": 0, "duplicate_seen": 0, "llm_fallback": 0}
 
     @algo_log()
-    async def crossover(self, expr1: str, expr2: str,
-                  id1: str = "", id2: str = "", context: dict | None = None) -> list[CrossoverResult]:
+    async def crossover(
+        self, expr1: str, expr2: str, id1: str = "", id2: str = "", context: dict | None = None
+    ) -> list[CrossoverResult]:
         self._success_stats["total_calls"] += 1.0
         logger.info(
             "[SEMANTIC_XOVER] 开始语义交叉 | parents=[%s:%s, %s:%s] | expr1长度=%d expr2长度=%d",
-            id1, expr1[:60], id2, expr2[:60], len(expr1), len(expr2)
+            id1,
+            expr1[:60],
+            id2,
+            expr2[:60],
+            len(expr1),
+            len(expr2),
         )
 
         _monitor.record("STEP", "crossover", "semantic_crossover", f"parents={id1},{id2}")
@@ -431,8 +465,7 @@ class SemanticCrossover:
 
             if not blocks_a.get("structure_valid") or not blocks_b.get("structure_valid"):
                 logger.warning(
-                    "[DEFENSIVE_LOG] 段解析失败 | parent1_valid=%s parent2_valid=%s | "
-                    "使用确定性回退",
+                    "[DEFENSIVE_LOG] 段解析失败 | parent1_valid=%s parent2_valid=%s | 使用确定性回退",
                     blocks_a.get("structure_valid", False),
                     blocks_b.get("structure_valid", False),
                 )
@@ -457,7 +490,7 @@ class SemanticCrossover:
                         parent_b_full=expr2,
                     )
 
-                for child_signal in llm_results[:self.MAX_CHILDREN]:
+                for child_signal in llm_results[: self.MAX_CHILDREN]:
                     child_expr = self._reassemble_blocks(
                         new_block_a=child_signal,
                         block_b=blocks_a["block_b"],
@@ -490,19 +523,19 @@ class SemanticCrossover:
                     seen_exprs.add(child_expr)
                     orig_score = _compute_originality(child_expr, self._originality_checker)
 
-                    results.append(CrossoverResult(
-                        child_expression=child_expr,
-                        parent1_id=id1,
-                        parent2_id=id2,
-                        crossover_point=f"LLM semantic: {child_signal[:50]}...",
-                        originality_score=orig_score,
-                    ))
+                    results.append(
+                        CrossoverResult(
+                            child_expression=child_expr,
+                            parent1_id=id1,
+                            parent2_id=id2,
+                            crossover_point=f"LLM semantic: {child_signal[:50]}...",
+                            originality_score=orig_score,
+                        )
+                    )
 
                 if not results:
                     self._skip_stats["llm_fallback"] += 1
-                    logger.warning(
-                        "[SEMANTIC_XOVER] LLM 未产生有效子代，使用适应度回退"
-                    )
+                    logger.warning("[SEMANTIC_XOVER] LLM 未产生有效子代，使用适应度回退")
                     return self._fitness_fallback(expr1, expr2, id1, id2, context)
             else:
                 self._skip_stats["llm_fallback"] += 1
@@ -526,8 +559,12 @@ class SemanticCrossover:
                 (self._success_stats["successful_calls"] / max(1.0, self._success_stats["total_calls"])) * 100,
             )
 
-            _monitor.record("PASS" if results else "FAIL", "crossover", "semantic_crossover",
-                           f"children={len(results)} method=llm_semantic")
+            _monitor.record(
+                "PASS" if results else "FAIL",
+                "crossover",
+                "semantic_crossover",
+                f"children={len(results)} method=llm_semantic",
+            )
 
             return results
 
@@ -536,11 +573,10 @@ class SemanticCrossover:
             return []
 
     @algo_log()
-    async def _llm_semantic_analysis(self, signal_a: str, signal_b: str,
-                                     context: dict, parent_a_full: str = "",
-                                     parent_b_full: str = "") -> list[str]:
-        prompt = self._build_semantic_prompt(signal_a, signal_b, context,
-                                            parent_a_full, parent_b_full)
+    async def _llm_semantic_analysis(
+        self, signal_a: str, signal_b: str, context: dict, parent_a_full: str = "", parent_b_full: str = ""
+    ) -> list[str]:
+        prompt = self._build_semantic_prompt(signal_a, signal_b, context, parent_a_full, parent_b_full)
 
         try:
             response = await self._llm(prompt)
@@ -580,14 +616,14 @@ class SemanticCrossover:
             logger.warning("[SEMANTIC_XOVER] LLM 调用异常 | error=%s", exc)
             return []
 
-    def _build_semantic_prompt(self, signal_a: str, signal_b: str,
-                               context: dict, parent_a_full: str = "",
-                               parent_b_full: str = "") -> str:
+    def _build_semantic_prompt(
+        self, signal_a: str, signal_b: str, context: dict, parent_a_full: str = "", parent_b_full: str = ""
+    ) -> str:
         direction = context.get("direction", "unknown")
         sharpe_a = context.get("sharpe_a", "N/A")
         sharpe_b = context.get("sharpe_b", "N/A")
 
-        return f"""You are a quantitative finance researcher specializing in alpha factor design for the WorldQuant platform.
+        return f"""You are a quantitative finance researcher specializing in alpha factor design for the WorldQuant platform.  # noqa: E501
 
 ## Task: Semantic Crossover of Signal Blocks (Block A Only)
 
@@ -625,7 +661,7 @@ Hypothesis Direction: {direction}
    - Fundamental fields: sales, assets, revenue, equity, debt
    - Alternative data: analyst estimates, supply chain, news sentiment
 
-3. **Generate Hybrid Child Signals**: Create 1-3 NEW signal block expressions that combine the best semantic properties of both parents.
+3. **Generate Hybrid Child Signals**: Create 1-3 NEW signal block expressions that combine the best semantic properties of both parents.  # noqa: E501
 
 ### STRICT CONSTRAINTS (MUST FOLLOW)
 1. **ONLY modify Block A (Signal Block)** — NEVER touch Block B (neutralize) or Block C (decay)
@@ -675,7 +711,7 @@ Output ONLY valid JSON. No explanations outside JSON."""
 
         if has_decay and has_neutralize:
             decay_match = re.match(
-                r'ts_decay_linear\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)',
+                r"ts_decay_linear\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)",
                 expr,
                 re.DOTALL,
             )
@@ -685,7 +721,7 @@ Output ONLY valid JSON. No explanations outside JSON."""
                 result["block_c"] = f"ts_decay_linear(..., {decay_window})"
 
                 neutralize_match = re.match(
-                    r'group_neutralize\s*\(\s*(.+?)\s*,\s*(\w+)\s*\)',
+                    r"group_neutralize\s*\(\s*(.+?)\s*,\s*(\w+)\s*\)",
                     inner_expr,
                     re.DOTALL,
                 )
@@ -701,7 +737,7 @@ Output ONLY valid JSON. No explanations outside JSON."""
                     result["structure_valid"] = True
         elif has_neutralize:
             neutralize_match = re.match(
-                r'group_neutralize\s*\(\s*(.+?)\s*,\s*(\w+)\s*\)',
+                r"group_neutralize\s*\(\s*(.+?)\s*,\s*(\w+)\s*\)",
                 expr,
                 re.DOTALL,
             )
@@ -716,8 +752,7 @@ Output ONLY valid JSON. No explanations outside JSON."""
         return result
 
     @algo_log()
-    def _reassemble_blocks(self, new_block_a: str, block_b: str,
-                          block_c: str, original_expr: str) -> str:
+    def _reassemble_blocks(self, new_block_a: str, block_b: str, block_c: str, original_expr: str) -> str:
         if block_c and block_b:
             return f"ts_decay_linear(group_neutralize({new_block_a}, industry), 20)"
         elif block_b:
@@ -728,9 +763,8 @@ Output ONLY valid JSON. No explanations outside JSON."""
             return new_block_a
 
     @algo_log()
-    def _validate_crossover_result(self, child: str, parent_a: str,
-                                   parent_b: str, seen: set[str]) -> dict:
-        if child == parent_a or child == parent_b:
+    def _validate_crossover_result(self, child: str, parent_a: str, parent_b: str, seen: set[str]) -> dict:
+        if child in (parent_a, parent_b):
             return {"valid": False, "reason": "duplicate_parent"}
 
         if child in seen:
@@ -744,8 +778,7 @@ Output ONLY valid JSON. No explanations outside JSON."""
         return {"valid": True, "reason": "ok"}
 
     @algo_log()
-    def _deterministic_fallback(self, expr1: str, expr2: str,
-                                id1: str = "", id2: str = "") -> list[CrossoverResult]:
+    def _deterministic_fallback(self, expr1: str, expr2: str, id1: str = "", id2: str = "") -> list[CrossoverResult]:
         logger.info("[SEMANTIC_XOVER] 使用确定性回退策略")
 
         blocks1 = self._extract_signal_block(expr1)
@@ -756,45 +789,52 @@ Output ONLY valid JSON. No explanations outside JSON."""
 
         if blocks1.get("structure_valid") and blocks2.get("structure_valid"):
             hybrid_signal_1 = f"ts_rank({blocks1['block_a']}, 5) + ts_delta({blocks2['block_a']}, 5)"
-            child1 = self._reassemble_blocks(hybrid_signal_1, blocks1["block_b"],
-                                            blocks1["block_c"], expr1)
+            child1 = self._reassemble_blocks(hybrid_signal_1, blocks1["block_b"], blocks1["block_c"], expr1)
 
             validation1 = self._validate_crossover_result(child1, expr1, expr2, seen)
             if validation1["valid"]:
                 seen.add(child1)
                 orig1 = _compute_originality(child1, self._originality_checker)
-                results.append(CrossoverResult(
-                    child_expression=child1,
-                    parent1_id=id1,
-                    parent2_id=id2,
-                    crossover_point="deterministic: rank(A) + delta(B)",
-                    originality_score=orig1,
-                ))
+                results.append(
+                    CrossoverResult(
+                        child_expression=child1,
+                        parent1_id=id1,
+                        parent2_id=id2,
+                        crossover_point="deterministic: rank(A) + delta(B)",
+                        originality_score=orig1,
+                    )
+                )
 
             hybrid_signal_2 = f"ts_corr({blocks1['block_a']}, {blocks2['block_a']}, 10)"
-            child2 = self._reassemble_blocks(hybrid_signal_2, blocks2["block_b"],
-                                            blocks2["block_c"], expr2)
+            child2 = self._reassemble_blocks(hybrid_signal_2, blocks2["block_b"], blocks2["block_c"], expr2)
 
             validation2 = self._validate_crossover_result(child2, expr1, expr2, seen)
             if validation2["valid"]:
                 seen.add(child2)
                 orig2 = _compute_originality(child2, self._originality_checker)
-                results.append(CrossoverResult(
-                    child_expression=child2,
-                    parent1_id=id1,
-                    parent2_id=id2,
-                    crossover_point="deterministic: corr(A, B)",
-                    originality_score=orig2,
-                ))
+                results.append(
+                    CrossoverResult(
+                        child_expression=child2,
+                        parent1_id=id1,
+                        parent2_id=id2,
+                        crossover_point="deterministic: corr(A, B)",
+                        originality_score=orig2,
+                    )
+                )
 
-        _monitor.record("PASS" if results else "WARN", "crossover", "semantic_crossover",
-                       f"children={len(results)} method=deterministic_fallback")
+        _monitor.record(
+            "PASS" if results else "WARN",
+            "crossover",
+            "semantic_crossover",
+            f"children={len(results)} method=deterministic_fallback",
+        )
 
-        return results[:self.MAX_CHILDREN]
+        return results[: self.MAX_CHILDREN]
 
     @algo_log()
-    def _fitness_fallback(self, expr1: str, expr2: str, id1: str = "", id2: str = "",
-                         context: dict | None = None) -> list[CrossoverResult]:
+    def _fitness_fallback(
+        self, expr1: str, expr2: str, id1: str = "", id2: str = "", context: dict | None = None
+    ) -> list[CrossoverResult]:
         logger.info("[SEMANTIC_XOVER] 使用适应度优先回退")
 
         sharpe_a = (context or {}).get("sharpe_a", 0.0) or 0.0
@@ -805,23 +845,28 @@ Output ONLY valid JSON. No explanations outside JSON."""
 
         logger.info(
             "[SEMANTIC_XOVER] 选择更高适应度父代 | selected=%s | sharpe_a=%.2f sharpe_b=%.2f",
-            better_id, sharpe_a, sharpe_b,
+            better_id,
+            sharpe_a,
+            sharpe_b,
         )
 
         orig_score = _compute_originality(better_expr, self._originality_checker)
 
-        return [CrossoverResult(
-            child_expression=better_expr,
-            parent1_id=id1,
-            parent2_id=id2,
-            crossover_point=f"fitness_fallback: better_parent ({better_id})",
-            originality_score=orig_score,
-        )]
+        return [
+            CrossoverResult(
+                child_expression=better_expr,
+                parent1_id=id1,
+                parent2_id=id2,
+                crossover_point=f"fitness_fallback: better_parent ({better_id})",
+                originality_score=orig_score,
+            )
+        ]
 
     async def semantic_crossover_via_llm(
         self,
         llm_generate: Callable,
-        expr1: str, expr2: str,
+        expr1: str,
+        expr2: str,
         context1: dict | None = None,
         context2: dict | None = None,
     ) -> list[CrossoverResult]:
@@ -844,12 +889,11 @@ Output ONLY valid JSON. No explanations outside JSON."""
                 id2=context2.get("id", ""),
                 context=merged_context,
             )
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, json.JSONDecodeError):
+        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
             return []
 
 
 class GradientMutation:
-
     UCB_C: float = 1.41
     DIVERSITY_WINDOW: int = 10
     DIVERSITY_LOW_THRESHOLD: float = 0.15
@@ -913,16 +957,15 @@ class GradientMutation:
     def _compute_diversity_score(self) -> float:
         if len(self._fitness_window) < self.FITNESS_WINDOW_MIN_SAMPLES:
             return 1.0
-        window = self._fitness_window[-self.DIVERSITY_WINDOW:]
+        window = self._fitness_window[-self.DIVERSITY_WINDOW :]
         mean_val = sum(window) / len(window)
         if mean_val == 0:
             logger.warning(
-                "GradientMutation._compute_diversity_score: fitness mean=0, "
-                "diversity=0, using default strategy branch"
+                "GradientMutation._compute_diversity_score: fitness mean=0, diversity=0, using default strategy branch"
             )
             return 0.0
         variance = sum((x - mean_val) ** 2 for x in window) / len(window)
-        cv = (variance ** 0.5) / (abs(mean_val) + 1e-8)
+        cv = (variance**0.5) / (abs(mean_val) + 1e-8)
         diversity = min(1.0, cv)
         safe_diversity = max(diversity, self.DIVERSITY_EPSILON)
         if diversity == 0.0:
@@ -959,8 +1002,7 @@ class GradientMutation:
             self._operator_stats[op_type]["reward"] += 1.0
 
     @algo_log(log_args_to_skip=("self", "brain_feedback"))
-    def mutate(self, expr: str, brain_feedback: dict | None = None,
-               original_id: str = "") -> list[MutationResult]:
+    def mutate(self, expr: str, brain_feedback: dict | None = None, original_id: str = "") -> list[MutationResult]:
         results: list[MutationResult] = []
         seen: set[str] = set()
 
@@ -975,8 +1017,7 @@ class GradientMutation:
 
         log_call(
             "GradientMutation.mutate",
-            input={"expr_len": len(expr), "diversity": round(diversity_score, 4),
-                   "is_low_diversity": is_low_diversity},
+            input={"expr_len": len(expr), "diversity": round(diversity_score, 4), "is_low_diversity": is_low_diversity},
             extra={"strategy_order": [n for n, _ in ranked_operators]},
         )
 
@@ -998,7 +1039,7 @@ class GradientMutation:
             "structure_change": self._structure_change,
         }
 
-        for op_name, ucb_score in ranked_operators:
+        for op_name, _ucb_score in ranked_operators:
             method = op_methods.get(op_name)
             if method is None:
                 continue
@@ -1019,7 +1060,8 @@ class GradientMutation:
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.warning(
                     "GradientMutation.mutate: operator %s failed with error, skipping — %s",
-                    op_name, exc,
+                    op_name,
+                    exc,
                 )
                 log_call(
                     f"GradientMutation.{op_name}",
@@ -1035,14 +1077,15 @@ class GradientMutation:
         )
 
         _monitor.record(
-            "PASS" if results else "FAIL", "mutation", "gradient_mutation",
-            f"variants={len(results)} diversity={diversity_score:.3f}"
+            "PASS" if results else "FAIL",
+            "mutation",
+            "gradient_mutation",
+            f"variants={len(results)} diversity={diversity_score:.3f}",
         )
 
         return results
 
-    def _operator_swap(self, expr: str, brain_feedback: dict | None,
-                       original_id: str) -> list[MutationResult]:
+    def _operator_swap(self, expr: str, brain_feedback: dict | None, original_id: str) -> list[MutationResult]:
         try:
             ast = self._parser.parse(expr)
         except ValueError as exc:
@@ -1081,27 +1124,29 @@ class GradientMutation:
                 new_ast = _set_node_at_path(ast, path, new_sub)
                 new_expr = _ast_to_string(new_ast)
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.warning("GradientMutation._operator_swap: AST rebuild failed for %s → %s — %s",
-                               sub.op, swap_to, exc)
+                logger.warning(
+                    "GradientMutation._operator_swap: AST rebuild failed for %s → %s — %s", sub.op, swap_to, exc
+                )
                 continue
 
             orig_score = _compute_originality(new_expr, self._originality_checker)
 
-            results.append(MutationResult(
-                mutated_expression=new_expr,
-                original_id=original_id,
-                mutation_type="operator_swap",
-                mutation_description=f"{sub.op} → {swap_to}",
-                originality_score=orig_score,
-            ))
+            results.append(
+                MutationResult(
+                    mutated_expression=new_expr,
+                    original_id=original_id,
+                    mutation_type="operator_swap",
+                    mutation_description=f"{sub.op} → {swap_to}",
+                    originality_score=orig_score,
+                )
+            )
 
             if len(results) >= self.MAX_OPERATOR_SWAP_VARIANTS:
                 break
 
         return results
 
-    def _field_swap(self, expr: str, brain_feedback: dict | None,
-                    original_id: str) -> list[MutationResult]:
+    def _field_swap(self, expr: str, brain_feedback: dict | None, original_id: str) -> list[MutationResult]:
         try:
             ast = self._parser.parse(expr)
         except ValueError as exc:
@@ -1126,27 +1171,29 @@ class GradientMutation:
                 new_ast = _set_node_at_path(ast, path, new_sub)
                 new_expr = _ast_to_string(new_ast)
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.warning("GradientMutation._field_swap: AST rebuild failed for %s → %s — %s",
-                               field_name, swap_to, exc)
+                logger.warning(
+                    "GradientMutation._field_swap: AST rebuild failed for %s → %s — %s", field_name, swap_to, exc
+                )
                 continue
 
             orig_score = _compute_originality(new_expr, self._originality_checker)
 
-            results.append(MutationResult(
-                mutated_expression=new_expr,
-                original_id=original_id,
-                mutation_type="field_swap",
-                mutation_description=f"{field_name} → {swap_to}",
-                originality_score=orig_score,
-            ))
+            results.append(
+                MutationResult(
+                    mutated_expression=new_expr,
+                    original_id=original_id,
+                    mutation_type="field_swap",
+                    mutation_description=f"{field_name} → {swap_to}",
+                    originality_score=orig_score,
+                )
+            )
 
             if len(results) >= self.MAX_FIELD_SWAP_VARIANTS:
                 break
 
         return results
 
-    def _parameter_tune(self, expr: str, brain_feedback: dict | None,
-                        original_id: str) -> list[MutationResult]:
+    def _parameter_tune(self, expr: str, brain_feedback: dict | None, original_id: str) -> list[MutationResult]:
         try:
             ast = self._parser.parse(expr)
         except ValueError as exc:
@@ -1188,21 +1235,22 @@ class GradientMutation:
 
             orig_score = _compute_originality(new_expr, self._originality_checker)
 
-            results.append(MutationResult(
-                mutated_expression=new_expr,
-                original_id=original_id,
-                mutation_type="parameter_tune",
-                mutation_description=f"lookback {current_int} → {new_val}",
-                originality_score=orig_score,
-            ))
+            results.append(
+                MutationResult(
+                    mutated_expression=new_expr,
+                    original_id=original_id,
+                    mutation_type="parameter_tune",
+                    mutation_description=f"lookback {current_int} → {new_val}",
+                    originality_score=orig_score,
+                )
+            )
 
             if len(results) >= self.MAX_PARAMETER_TUNE_VARIANTS:
                 break
 
         return results
 
-    def _structure_change(self, expr: str, brain_feedback: dict | None,
-                          original_id: str) -> list[MutationResult]:
+    def _structure_change(self, expr: str, brain_feedback: dict | None, original_id: str) -> list[MutationResult]:
         try:
             ast = self._parser.parse(expr)
         except ValueError as exc:
@@ -1216,13 +1264,15 @@ class GradientMutation:
             wrapped = ASTNode(op="rank", children=[copy.deepcopy(ast)])
             wrapped_expr = _ast_to_string(wrapped)
             orig_score = _compute_originality(wrapped_expr, self._originality_checker)
-            results.append(MutationResult(
-                mutated_expression=wrapped_expr,
-                original_id=original_id,
-                mutation_type="structure_change",
-                mutation_description="added rank() wrapper",
-                originality_score=orig_score,
-            ))
+            results.append(
+                MutationResult(
+                    mutated_expression=wrapped_expr,
+                    original_id=original_id,
+                    mutation_type="structure_change",
+                    mutation_description="added rank() wrapper",
+                    originality_score=orig_score,
+                )
+            )
         except (OSError, ValueError, RuntimeError) as exc:
             logger.warning("GradientMutation._structure_change: rank wrapper failed — %s", exc)
 
@@ -1232,13 +1282,15 @@ class GradientMutation:
                 unwrapped_expr = _ast_to_string(inner)
                 if unwrapped_expr != expr:
                     orig_score2 = _compute_originality(unwrapped_expr, self._originality_checker)
-                    results.append(MutationResult(
-                        mutated_expression=unwrapped_expr,
-                        original_id=original_id,
-                        mutation_type="structure_change",
-                        mutation_description="removed group_neutralize() wrapper",
-                        originality_score=orig_score2,
-                    ))
+                    results.append(
+                        MutationResult(
+                            mutated_expression=unwrapped_expr,
+                            original_id=original_id,
+                            mutation_type="structure_change",
+                            mutation_description="removed group_neutralize() wrapper",
+                            originality_score=orig_score2,
+                        )
+                    )
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.warning("GradientMutation._structure_change: unwrap neutralize failed — %s", exc)
 
@@ -1250,13 +1302,15 @@ class GradientMutation:
                 )
                 neutralized_expr = _ast_to_string(neutralized)
                 orig_score3 = _compute_originality(neutralized_expr, self._originality_checker)
-                results.append(MutationResult(
-                    mutated_expression=neutralized_expr,
-                    original_id=original_id,
-                    mutation_type="structure_change",
-                    mutation_description="added group_neutralize(..., industry)",
-                    originality_score=orig_score3,
-                ))
+                results.append(
+                    MutationResult(
+                        mutated_expression=neutralized_expr,
+                        original_id=original_id,
+                        mutation_type="structure_change",
+                        mutation_description="added group_neutralize(..., industry)",
+                        originality_score=orig_score3,
+                    )
+                )
             except (ValueError, SyntaxError, TypeError):
                 pass
 
@@ -1266,13 +1320,15 @@ class GradientMutation:
                 unwrapped_expr = _ast_to_string(inner)
                 if unwrapped_expr != expr:
                     orig_score4 = _compute_originality(unwrapped_expr, self._originality_checker)
-                    results.append(MutationResult(
-                        mutated_expression=unwrapped_expr,
-                        original_id=original_id,
-                        mutation_type="structure_change",
-                        mutation_description="removed rank() wrapper",
-                        originality_score=orig_score4,
-                    ))
+                    results.append(
+                        MutationResult(
+                            mutated_expression=unwrapped_expr,
+                            original_id=original_id,
+                            mutation_type="structure_change",
+                            mutation_description="removed rank() wrapper",
+                            originality_score=orig_score4,
+                        )
+                    )
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.warning("GradientMutation._structure_change: unwrap rank failed — %s", exc)
 
@@ -1280,7 +1336,6 @@ class GradientMutation:
 
 
 class CrossoverMutationEngine:
-
     TOURNAMENT_SIZE: int = 3
     ELITE_COUNT: int = 2
 
@@ -1298,8 +1353,11 @@ class CrossoverMutationEngine:
     ADAPT_BATCH_SIZE: int = 20
     PARETO_TIE_THRESHOLD: float = 0.10
 
-    def __init__(self, originality_checker: OriginalityChecker | None = None,
-                 llm_generate_fn: Callable[..., Awaitable[str]] | None = None):
+    def __init__(
+        self,
+        originality_checker: OriginalityChecker | None = None,
+        llm_generate_fn: Callable[..., Awaitable[str]] | None = None,
+    ):
         self._crossover = SemanticCrossover(originality_checker, llm_generate_fn=llm_generate_fn)
         self._mutation = GradientMutation(originality_checker)
         self._trajectory_crossover = TrajectoryCrossover(
@@ -1308,12 +1366,8 @@ class CrossoverMutationEngine:
         )
         self._trajectory_mutation_v2 = TrajectoryMutationV2(llm_generate_fn=llm_generate_fn)
         self._trajectory_pool: list[tuple[AlphaTrajectory, dict[str, Any]]] = []
-        self._direction_weights: dict[str, dict[str, float]] = {
-            k: dict(v) for k, v in self.DIRECTION_WEIGHTS.items()
-        }
-        self._direction_rejections: dict[str, list[str]] = {
-            d: [] for d in _DIRECTION_KEYS
-        }
+        self._direction_weights: dict[str, dict[str, float]] = {k: dict(v) for k, v in self.DIRECTION_WEIGHTS.items()}
+        self._direction_rejections: dict[str, list[str]] = {d: [] for d in _DIRECTION_KEYS}
         self._direction_alpha_count: dict[str, int] = dict.fromkeys(_DIRECTION_KEYS, 0)
 
     def _tournament_select(self, population: list[dict], k: int | None = None) -> dict:
@@ -1321,11 +1375,8 @@ class CrossoverMutationEngine:
         candidates = random.sample(population, min(k, len(population)))
         return max(candidates, key=lambda c: c.get("fitness", c.get("sharpe", 0.0)))
 
-    def compute_fitness(self, sharpe: float, turnover: float | None,
-                        complexity: int, direction: str) -> float:
-        weights = self._direction_weights.get(
-            direction, self._direction_weights["momentum"]
-        )
+    def compute_fitness(self, sharpe: float, turnover: float | None, complexity: int, direction: str) -> float:
+        weights = self._direction_weights.get(direction, self._direction_weights["momentum"])
         w_sharpe = weights["sharpe"]
         w_turnover = weights["turnover"]
         w_complexity = weights["complexity"]
@@ -1335,9 +1386,15 @@ class CrossoverMutationEngine:
 
         return w_sharpe * max(0.0, sharpe) + w_turnover * turnover_score + w_complexity * complexity_penalty
 
-    def record_alpha_outcome(self, direction: str, sharpe: float, turnover: float | None,
-                             complexity: int, accepted: bool,
-                             reject_reason: str | None = None) -> None:
+    def record_alpha_outcome(
+        self,
+        direction: str,
+        sharpe: float,
+        turnover: float | None,
+        complexity: int,
+        accepted: bool,
+        reject_reason: str | None = None,
+    ) -> None:
         if direction not in self._direction_alpha_count:
             return
 
@@ -1349,7 +1406,7 @@ class CrossoverMutationEngine:
             self._adapt_weights(direction)
 
     def _adapt_weights(self, direction: str) -> None:
-        recent = self._direction_rejections[direction][-self.ADAPT_BATCH_SIZE:]
+        recent = self._direction_rejections[direction][-self.ADAPT_BATCH_SIZE :]
         weights = self._direction_weights[direction]
 
         consecutive_turnover = 0
@@ -1384,21 +1441,34 @@ class CrossoverMutationEngine:
             weights["turnover"] = min(self.WEIGHT_MAX, weights["turnover"] + self.ADAPT_STEP)
             weights["sharpe"] = max(self.WEIGHT_MIN, weights["sharpe"] - self.ADAPT_STEP)
             changed = True
-            logger.info("engine: dir=%s turnover penalty boosted to turnover=%.2f sharpe=%.2f",
-                        direction, weights["turnover"], weights["sharpe"])
+            logger.info(
+                "engine: dir=%s turnover penalty boosted to turnover=%.2f sharpe=%.2f",
+                direction,
+                weights["turnover"],
+                weights["sharpe"],
+            )
         elif consecutive_complexity >= 3:
             weights["complexity"] = min(self.WEIGHT_MAX, weights["complexity"] + self.ADAPT_STEP)
             weights["sharpe"] = max(self.WEIGHT_MIN, weights["sharpe"] - self.ADAPT_STEP)
             changed = True
-            logger.info("engine: dir=%s complexity penalty boosted to complexity=%.2f sharpe=%.2f",
-                        direction, weights["complexity"], weights["sharpe"])
+            logger.info(
+                "engine: dir=%s complexity penalty boosted to complexity=%.2f sharpe=%.2f",
+                direction,
+                weights["complexity"],
+                weights["sharpe"],
+            )
         elif consecutive_sharpe >= 3:
             weights["sharpe"] = min(self.WEIGHT_MAX, weights["sharpe"] + self.ADAPT_STEP)
             weights["turnover"] = max(self.WEIGHT_MIN, weights["turnover"] - self.ADAPT_STEP / 2)
             weights["complexity"] = max(self.WEIGHT_MIN, weights["complexity"] - self.ADAPT_STEP / 2)
             changed = True
-            logger.info("engine: dir=%s sharpe focus boosted to sharpe=%.2f turnover=%.2f complexity=%.2f",
-                        direction, weights["sharpe"], weights["turnover"], weights["complexity"])
+            logger.info(
+                "engine: dir=%s sharpe focus boosted to sharpe=%.2f turnover=%.2f complexity=%.2f",
+                direction,
+                weights["sharpe"],
+                weights["turnover"],
+                weights["complexity"],
+            )
 
         if changed:
             total_sum = weights["sharpe"] + weights["turnover"] + weights["complexity"]
@@ -1415,21 +1485,15 @@ class CrossoverMutationEngine:
         a_complexity = a.get("complexity", len(a.get("expression", "")))
         b_complexity = b.get("complexity", len(b.get("expression", "")))
 
-        if a_turnover is not None and b_turnover is not None:
-            turnover_worse = a_turnover > b_turnover
-        else:
-            turnover_worse = False
+        turnover_worse = a_turnover > b_turnover if a_turnover is not None and b_turnover is not None else False
 
         a_better_or_equal = (
-            a_sharpe >= b_sharpe
-            and a_complexity <= b_complexity
-            and (not turnover_worse or a_turnover is None)
+            a_sharpe >= b_sharpe and a_complexity <= b_complexity and (not turnover_worse or a_turnover is None)
         )
         a_strictly_better = (
             a_sharpe > b_sharpe
             or a_complexity < b_complexity
-            or (b_turnover is not None and a_turnover is not None
-                and a_turnover < b_turnover)
+            or (b_turnover is not None and a_turnover is not None and a_turnover < b_turnover)
         )
 
         return a_better_or_equal and a_strictly_better
@@ -1461,11 +1525,13 @@ class CrossoverMutationEngine:
 
         return result
 
-    def generate_variants(self,
-                          successful_alphas: list[dict],
-                          brain_feedback: dict | None = None,
-                          max_variants: int = 5,
-                          direction: str = "") -> list[dict]:
+    def generate_variants(
+        self,
+        successful_alphas: list[dict],
+        brain_feedback: dict | None = None,
+        max_variants: int = 5,
+        direction: str = "",
+    ) -> list[dict]:
         variants: list[dict] = []
 
         _monitor.record("STEP", "crossover_mutation_engine", "generate_variants", f"alphas={len(successful_alphas)}")
@@ -1476,18 +1542,22 @@ class CrossoverMutationEngine:
             reverse=True,
         )
 
-        elites = sorted_alphas[:self.ELITE_COUNT]
+        elites = sorted_alphas[: self.ELITE_COUNT]
         for elite in elites:
-            variants.append({
-                "expression": elite["expression"],
-                "source": "elite",
-                "parent": elite.get("id", ""),
-                "originality_score": elite.get("originality_score", 0.8),
-                "fitness": elite.get("fitness", elite.get("sharpe", 0.0)),
-            })
+            variants.append(
+                {
+                    "expression": elite["expression"],
+                    "source": "elite",
+                    "parent": elite.get("id", ""),
+                    "originality_score": elite.get("originality_score", 0.8),
+                    "fitness": elite.get("fitness", elite.get("sharpe", 0.0)),
+                }
+            )
             if len(variants) >= max_variants:
                 seen: set[str] = {v["expression"] for v in variants}
-                _monitor.record("PASS", "crossover_mutation_engine", "generate_variants", f"elites_only={len(variants)}")
+                _monitor.record(
+                    "PASS", "crossover_mutation_engine", "generate_variants", f"elites_only={len(variants)}"
+                )
                 return variants
 
         if len(successful_alphas) >= 2:
@@ -1510,20 +1580,22 @@ class CrossoverMutationEngine:
                 for r in results:
                     if r.originality_score >= 0.3:
                         child_dir = direction or parent1.get("direction", "")
-                        variants.append({
-                            "expression": r.child_expression,
-                            "source": "crossover",
-                            "parents": [r.parent1_id, r.parent2_id],
-                            "originality_score": r.originality_score,
-                            "parent1_fitness": parent1.get("fitness", parent1.get("sharpe", 0.0)),
-                            "parent2_fitness": parent2.get("fitness", parent2.get("sharpe", 0.0)),
-                            "direction": child_dir,
-                        })
+                        variants.append(
+                            {
+                                "expression": r.child_expression,
+                                "source": "crossover",
+                                "parents": [r.parent1_id, r.parent2_id],
+                                "originality_score": r.originality_score,
+                                "parent1_fitness": parent1.get("fitness", parent1.get("sharpe", 0.0)),
+                                "parent2_fitness": parent2.get("fitness", parent2.get("sharpe", 0.0)),
+                                "direction": child_dir,
+                            }
+                        )
                         if len(variants) >= max_variants:
                             break
 
         mutation_count = min(3, len(sorted_alphas))
-        for i in range(mutation_count):
+        for _i in range(mutation_count):
             if len(variants) >= max_variants:
                 break
             alpha = self._tournament_select(sorted_alphas)
@@ -1535,15 +1607,17 @@ class CrossoverMutationEngine:
             for r in mutation_results:
                 if r.originality_score >= 0.3:
                     child_dir = direction or alpha.get("direction", "")
-                    variants.append({
-                        "expression": r.mutated_expression,
-                        "source": "mutation",
-                        "type": r.mutation_type,
-                        "parent": r.original_id,
-                        "originality_score": r.originality_score,
-                        "parent_fitness": alpha.get("fitness", alpha.get("sharpe", 0.0)),
-                        "direction": child_dir,
-                    })
+                    variants.append(
+                        {
+                            "expression": r.mutated_expression,
+                            "source": "mutation",
+                            "type": r.mutation_type,
+                            "parent": r.original_id,
+                            "originality_score": r.originality_score,
+                            "parent_fitness": alpha.get("fitness", alpha.get("sharpe", 0.0)),
+                            "direction": child_dir,
+                        }
+                    )
                     if len(variants) >= max_variants:
                         break
 
@@ -1556,7 +1630,9 @@ class CrossoverMutationEngine:
 
         unique = self._pareto_tie_break_sort(unique)
 
-        _monitor.record("PASS", "crossover_mutation_engine", "generate_variants", f"variants={len(unique[:max_variants])}")
+        _monitor.record(
+            "PASS", "crossover_mutation_engine", "generate_variants", f"variants={len(unique[:max_variants])}"
+        )
 
         return unique[:max_variants]
 
@@ -1565,12 +1641,16 @@ class CrossoverMutationEngine:
         if len(self._trajectory_pool) > 50:
             self._trajectory_pool = self._trajectory_pool[-50:]
 
-    async def crossover_trajectories(self,
-                                     id_a: str = "",
-                                     id_b: str = "",
-                                     ) -> list[TrajectoryCrossoverResult]:
-        eligible = [(t, m) for t, m in self._trajectory_pool
-                    if t.final_status != "FAILED" and t.expression_versions and t.hypothesis_direction]
+    async def crossover_trajectories(
+        self,
+        id_a: str = "",
+        id_b: str = "",
+    ) -> list[TrajectoryCrossoverResult]:
+        eligible = [
+            (t, m)
+            for t, m in self._trajectory_pool
+            if t.final_status != "FAILED" and t.expression_versions and t.hypothesis_direction
+        ]
 
         if len(eligible) < 2:
             logger.info("TrajectoryCrossover: not enough eligible trajectories (%d)", len(eligible))
@@ -1587,24 +1667,30 @@ class CrossoverMutationEngine:
                 traj_b, meta_b = eligible[1]
         else:
             import random as _random
+
             indices = _random.sample(range(len(eligible)), min(2, len(eligible)))
             traj_a, meta_a = eligible[indices[0]]
             traj_b, meta_b = eligible[indices[1]]
 
-        _monitor.record("STEP", "crossover_mutation_engine", "trajectory_crossover",
-                        f"pool_size={len(self._trajectory_pool)} parents={meta_a.get('id')},{meta_b.get('id')}")
+        _monitor.record(
+            "STEP",
+            "crossover_mutation_engine",
+            "trajectory_crossover",
+            f"pool_size={len(self._trajectory_pool)} parents={meta_a.get('id')},{meta_b.get('id')}",
+        )
 
         return await self._trajectory_crossover.crossover_trajectories(
-            traj_a, traj_b,
+            traj_a,
+            traj_b,
             id_a=meta_a.get("id", ""),
             id_b=meta_b.get("id", ""),
         )
 
-    async def mutate_trajectory(self,
-                                trajectory_id: str = "",
-                                ) -> list[TrajectoryMutationResult]:
-        eligible = [(t, m) for t, m in self._trajectory_pool
-                    if t.final_status != "FAILED"]
+    async def mutate_trajectory(
+        self,
+        trajectory_id: str = "",
+    ) -> list[TrajectoryMutationResult]:
+        eligible = [(t, m) for t, m in self._trajectory_pool if t.final_status != "FAILED"]
 
         if not eligible:
             logger.info("TrajectoryMutationV2: no eligible trajectories to mutate")
@@ -1618,12 +1704,17 @@ class CrossoverMutationEngine:
                 traj, meta = eligible[0]
         else:
             import random as _random
+
             traj, meta = _random.choice(eligible)
 
-        _monitor.record("STEP", "crossover_mutation_engine", "trajectory_mutation_v2",
-                        f"pool_size={len(self._trajectory_pool)} target={meta.get('id')}")
-
-        return await self._trajectory_mutation_v2.mutate_trajectory(
-            traj, original_id=meta.get("id", ""),
+        _monitor.record(
+            "STEP",
+            "crossover_mutation_engine",
+            "trajectory_mutation_v2",
+            f"pool_size={len(self._trajectory_pool)} target={meta.get('id')}",
         )
 
+        return await self._trajectory_mutation_v2.mutate_trajectory(
+            traj,
+            original_id=meta.get("id", ""),
+        )

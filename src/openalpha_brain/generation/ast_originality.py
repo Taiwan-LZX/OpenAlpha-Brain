@@ -12,6 +12,7 @@ Pipeline:
 
 Score < 0.3 indicates excessive structural similarity to existing factors.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # AST Node
 # ---------------------------------------------------------------------------
+
 
 def _is_number(s: str) -> bool:
     try:
@@ -71,6 +73,7 @@ class ASTNode:
 # ---------------------------------------------------------------------------
 # Tokenizer
 # ---------------------------------------------------------------------------
+
 
 class _TT(Enum):
     IDENT = auto()
@@ -149,6 +152,7 @@ def _tokenize(expr: str) -> list[_Token]:
 #   args    → ε | expr (',' expr)*
 # ---------------------------------------------------------------------------
 
+
 class _ExprParser:
     def __init__(self, tokens: list[_Token]) -> None:
         self._tokens = tokens
@@ -166,8 +170,7 @@ class _ExprParser:
         tok = self._cur()
         if tok.type != tt:
             raise ValueError(
-                f"Expected {tt.name}, got {tok.type.name} ({tok.value!r}) "
-                f"at position {tok.pos}",
+                f"Expected {tt.name}, got {tok.type.name} ({tok.value!r}) at position {tok.pos}",
             )
         return self._advance()
 
@@ -234,6 +237,7 @@ class _ExprParser:
 # FASTEXPR Parser (public API)
 # ---------------------------------------------------------------------------
 
+
 class FASTEXPRParser:
     """FASTEXPR expression parser — tokenizes then builds an AST via
     recursive descent."""
@@ -249,8 +253,7 @@ class FASTEXPRParser:
         node = parser._expr()
         if parser._cur().type != _TT.EOF:
             raise ValueError(
-                f"Unexpected token at position {parser._cur().pos}: "
-                f"{parser._cur().value!r}",
+                f"Unexpected token at position {parser._cur().pos}: {parser._cur().value!r}",
             )
         return node
 
@@ -268,7 +271,10 @@ class FASTEXPRParser:
         return self._normalize_rec(node, field_map, counter)
 
     def _normalize_rec(
-        self, node: ASTNode, field_map: dict[str, str], counter: list[int],
+        self,
+        node: ASTNode,
+        field_map: dict[str, str],
+        counter: list[int],
     ) -> ASTNode:
         if node.is_field:
             if node.value not in field_map:
@@ -277,9 +283,7 @@ class FASTEXPRParser:
             return ASTNode(value=field_map[node.value])
         if node.is_number:
             return ASTNode(value=node.value)
-        norm_children = [
-            self._normalize_rec(c, field_map, counter) for c in node.children
-        ]
+        norm_children = [self._normalize_rec(c, field_map, counter) for c in node.children]
         return ASTNode(op=node.op, children=norm_children)
 
     def extract_subtrees(self, node: ASTNode) -> list[ASTNode]:
@@ -315,6 +319,7 @@ class FASTEXPRParser:
 # ---------------------------------------------------------------------------
 # Originality Checker
 # ---------------------------------------------------------------------------
+
 
 class OriginalityChecker:
     """AST subtree isomorphism originality checker.
@@ -404,9 +409,7 @@ class OriginalityChecker:
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
             if isinstance(data, dict):
-                self._fingerprints = {
-                    k: v for k, v in data.items() if isinstance(v, list)
-                }
+                self._fingerprints = {k: v for k, v in data.items() if isinstance(v, list)}
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("_load: failed to read fingerprints — %s", exc)
             self._fingerprints = {}

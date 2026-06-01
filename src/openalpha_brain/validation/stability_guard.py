@@ -27,26 +27,63 @@ _DEFAULT_WINDOW_SIZE = 10
 _DEFAULT_INSTABILITY_THRESHOLD = 0.35
 
 # 用於提取運算子的 regex 模式
-_OPERATOR_PATTERN = re.compile(r'\b([a-z_]\w*)\s*\(', re.IGNORECASE)
-_FIELD_PATTERN = re.compile(r'\b([a-z_]\w{2,})\b', re.IGNORECASE)
-_NUMBER_PATTERN = re.compile(r'(?<!\w)(\d+)(?!\w)')
-_NESTING_OPEN = re.compile(r'[\(\[]')
-_NESTING_CLOSE = re.compile(r'[\)\]]')
+_OPERATOR_PATTERN = re.compile(r"\b([a-z_]\w*)\s*\(", re.IGNORECASE)
+_FIELD_PATTERN = re.compile(r"\b([a-z_]\w{2,})\b", re.IGNORECASE)
+_NUMBER_PATTERN = re.compile(r"(?<!\w)(\d+)(?!\w)")
+_NESTING_OPEN = re.compile(r"[\(\[]")
+_NESTING_CLOSE = re.compile(r"[\)\]]")
 
 # 已知視窗參數名稱（用於識別 window 參數）
 _WINDOW_PARAM_NAMES = {
-    'window', 'period', 'lag', 'delay', 'lookback',
-    'days', 'fast_period', 'slow_period', 'short', 'long',
+    "window",
+    "period",
+    "lag",
+    "delay",
+    "lookback",
+    "days",
+    "fast_period",
+    "slow_period",
+    "short",
+    "long",
 }
 
 # 常見 root 運算子（用於指紋歸一化）
 _KNOWN_ROOT_OPS = {
-    'rank', 'ts_rank', 'ts_delta', 'ts_decay_linear', 'ts_mean', 'ts_std_dev',
-    'ts_sum', 'ts_min', 'ts_max', 'ts_argmax', 'ts_argmin', 'ts_skewness',
-    'ts_kurtosis', 'ts_av_diff', 'ts_regression', 'ts_corr', 'ts_covariance',
-    'group_neutralize', 'group_zscore', 'zscale', 'sign', 'abs', 'log', 'pow',
-    'max', 'min', 'cond', 'if_else', 'ts_step', 'signed_power', 'truncate',
-    'winsorize', 'normalize', 'scale', 'neutralize',
+    "rank",
+    "ts_rank",
+    "ts_delta",
+    "ts_decay_linear",
+    "ts_mean",
+    "ts_std_dev",
+    "ts_sum",
+    "ts_min",
+    "ts_max",
+    "ts_argmax",
+    "ts_argmin",
+    "ts_skewness",
+    "ts_kurtosis",
+    "ts_av_diff",
+    "ts_regression",
+    "ts_corr",
+    "ts_covariance",
+    "group_neutralize",
+    "group_zscore",
+    "zscale",
+    "sign",
+    "abs",
+    "log",
+    "pow",
+    "max",
+    "min",
+    "cond",
+    "if_else",
+    "ts_step",
+    "signed_power",
+    "truncate",
+    "winsorize",
+    "normalize",
+    "scale",
+    "neutralize",
 }
 
 
@@ -126,20 +163,17 @@ class _FingerprintExtractor:
         root_op = _FingerprintExtractor._extract_root_operator(expr_stripped)
 
         # ── All operators ──
-        all_ops = sorted(set(op.lower() for op in _OPERATOR_PATTERN.findall(expr_stripped)))
-        op_sig = hashlib.md5('|'.join(all_ops).encode()).hexdigest()[:12]
+        all_ops = sorted({op.lower() for op in _OPERATOR_PATTERN.findall(expr_stripped)})
+        op_sig = hashlib.md5("|".join(all_ops).encode()).hexdigest()[:12]
 
         # ── Fields ──
         all_fields_raw = _FIELD_PATTERN.findall(expr_stripped)
-        all_fields = sorted(set(
-            f.lower() for f in all_fields_raw
-            if f.lower() not in _KNOWN_ROOT_OPS and len(f) >= 2
-        ))
-        field_sig = hashlib.md5('|'.join(all_fields).encode()).hexdigest()[:12]
+        all_fields = sorted({f.lower() for f in all_fields_raw if f.lower() not in _KNOWN_ROOT_OPS and len(f) >= 2})
+        field_sig = hashlib.md5("|".join(all_fields).encode()).hexdigest()[:12]
 
         # ── Windows (數字參數) ──
-        windows = sorted(set(int(n) for n in _NUMBER_PATTERN.findall(expr_stripped) if 1 <= int(n) <= 500))
-        window_sig = hashlib.md5('|'.join(str(w) for w in windows).encode()).hexdigest()[:12]
+        windows = sorted({int(n) for n in _NUMBER_PATTERN.findall(expr_stripped) if 1 <= int(n) <= 500})
+        window_sig = hashlib.md5("|".join(str(w) for w in windows).encode()).hexdigest()[:12]
 
         # ── Nesting depth ──
         depth = _FingerprintExtractor._compute_nesting_depth(expr_stripped)
@@ -149,6 +183,7 @@ class _FingerprintExtractor:
 
         # ── Approx complexity ──
         import math
+
         complexity = len(all_ops) * math.log(depth + 1) if depth > 0 else float(len(all_ops))
 
         return ExpressionFingerprint(
@@ -163,7 +198,7 @@ class _FingerprintExtractor:
 
     @staticmethod
     def _extract_root_operator(expr: str) -> str:
-        match = re.match(r'\s*(\w+)\s*\(', expr)
+        match = re.match(r"\s*(\w+)\s*\(", expr)
         if match:
             return match.group(1).lower()
         return "unknown"
@@ -173,16 +208,16 @@ class _FingerprintExtractor:
         max_depth = 0
         current = 0
         for ch in expr:
-            if ch in '(':
+            if ch in "(":
                 current += 1
                 max_depth = max(max_depth, current)
-            elif ch in ')':
+            elif ch in ")":
                 current = max(0, current - 1)
         return max_depth
 
     @staticmethod
     def _classify_composition(num_ops: int, depth: int, expr: str) -> str:
-        has_cond = bool(re.search(r'\b(if_|cond|where|case)\b', expr, re.IGNORECASE))
+        has_cond = bool(re.search(r"\b(if_|cond|where|case)\b", expr, re.IGNORECASE))
         if has_cond:
             return "conditional"
         if depth >= 4:
@@ -283,7 +318,8 @@ class StabilityTracker:
 
         # 分類不穩定類型
         instability_type, severity, diagnosis, action = self._classify_instability(
-            stability, recent_sims,
+            stability,
+            recent_sims,
         )
 
         is_unstable = stability < _DEFAULT_INSTABILITY_THRESHOLD
@@ -393,7 +429,7 @@ class StabilityTracker:
             return 1.0
 
         op_sigs = [fp.operator_signature for _, fp in self._history]
-        unique_sigs = set(op_sigs)
+        set(op_sigs)
         total = len(op_sigs)
 
         if total <= 1:
@@ -405,7 +441,9 @@ class StabilityTracker:
         return hhi
 
     def _classify_instability(
-        self, stability: float, recent_sims: list[float],
+        self,
+        stability: float,
+        recent_sims: list[float],
     ) -> tuple[str, float, str, str]:
         """將不穩定性分類為具體類型。
 

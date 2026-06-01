@@ -14,6 +14,7 @@ WQ BRAIN 表达式完整验证器 — 合并三个仓库的最佳实现
   - alpha_checks.py: AlphaCheckRegistry 检查项
   - redline_verifier.py: 六大技术红线规则
 """
+
 from __future__ import annotations
 
 import ast
@@ -22,9 +23,11 @@ from dataclasses import dataclass, field
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class CheckResult:
     """单个检查结果"""
+
     passed: bool
     name: str
     details: str
@@ -42,6 +45,7 @@ class CheckResult:
 @dataclass
 class ValidationResult:
     """完整验证结果"""
+
     passed: bool
     checks: dict[str, CheckResult] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
@@ -81,23 +85,76 @@ DEFAULT_MAX_EXPRESSION_LENGTH = 500
 MIN_OPERATOR_COUNT = 5
 
 # WQ 平台合法算子白名单（来自 ast_validator.py + brain_operators.json）
-OPERATOR_WHITELIST: frozenset[str] = frozenset({
-    "add", "sqrt", "log", "subtract", "signed_power", "sign",
-    "reverse", "power", "multiply", "min", "max", "inverse",
-    "densify", "abs", "divide", "and", "equal", "or",
-    "not_equal", "not", "greater", "greater_equal", "less_equal",
-    "is_nan", "if_else", "less",
-    "ts_sum", "ts_zscore", "ts_std_dev", "ts_mean", "ts_scale",
-    "ts_rank", "ts_quantile", "ts_arg_min", "ts_regression",
-    "kth_element", "ts_corr", "ts_count_nans", "ts_covariance",
-    "ts_decay_linear", "ts_product", "ts_delay", "ts_backfill",
-    "ts_av_diff", "hump", "ts_arg_max", "last_diff_value",
-    "ts_step", "ts_delta", "days_from_last_change",
-    "winsorize", "normalize", "quantile", "rank", "scale",
-    "zscore", "vec_sum", "vec_avg", "bucket", "trade_when",
-    "group_scale", "group_neutralize", "group_zscore",
-    "group_backfill", "group_mean", "group_rank",
-})
+OPERATOR_WHITELIST: frozenset[str] = frozenset(
+    {
+        "add",
+        "sqrt",
+        "log",
+        "subtract",
+        "signed_power",
+        "sign",
+        "reverse",
+        "power",
+        "multiply",
+        "min",
+        "max",
+        "inverse",
+        "densify",
+        "abs",
+        "divide",
+        "and",
+        "equal",
+        "or",
+        "not_equal",
+        "not",
+        "greater",
+        "greater_equal",
+        "less_equal",
+        "is_nan",
+        "if_else",
+        "less",
+        "ts_sum",
+        "ts_zscore",
+        "ts_std_dev",
+        "ts_mean",
+        "ts_scale",
+        "ts_rank",
+        "ts_quantile",
+        "ts_arg_min",
+        "ts_regression",
+        "kth_element",
+        "ts_corr",
+        "ts_count_nans",
+        "ts_covariance",
+        "ts_decay_linear",
+        "ts_product",
+        "ts_delay",
+        "ts_backfill",
+        "ts_av_diff",
+        "hump",
+        "ts_arg_max",
+        "last_diff_value",
+        "ts_step",
+        "ts_delta",
+        "days_from_last_change",
+        "winsorize",
+        "normalize",
+        "quantile",
+        "rank",
+        "scale",
+        "zscore",
+        "vec_sum",
+        "vec_avg",
+        "bucket",
+        "trade_when",
+        "group_scale",
+        "group_neutralize",
+        "group_zscore",
+        "group_backfill",
+        "group_mean",
+        "group_rank",
+    }
+)
 
 # 被禁用的函数/模式（来自 redline_verifier.py 红线规则）
 FORBIDDEN_PATTERNS: list[tuple[str, str]] = [
@@ -115,10 +172,7 @@ NEUTRALIZE_OPS = frozenset({"group_neutralize", "group_zscore"})
 DECAY_OPS = frozenset({"ts_decay_linear"})
 
 # 分组键字段（不作为数据字段检查）
-GROUP_KEYS = frozenset({
-    "market", "sector", "industry", "subindustry",
-    "country", "exchange", "market_cap"
-})
+GROUP_KEYS = frozenset({"market", "sector", "industry", "subindustry", "country", "exchange", "market_cap"})
 
 
 class WQExpressionValidator:
@@ -205,10 +259,10 @@ class WQExpressionValidator:
         depth = 0
         max_depth = 0
         for char in expr:
-            if char == '(':
+            if char == "(":
                 depth += 1
                 max_depth = max(max_depth, depth)
-            elif char == ')':
+            elif char == ")":
                 depth -= 1
                 if depth < 0:
                     issues.append("括号不匹配：右括号多于左括号")
@@ -217,14 +271,14 @@ class WQExpressionValidator:
             issues.append(f"括号不匹配：缺少 {depth} 个右括号")
 
         # 2. 非法字符检查（只允许字母数字_(),./-*+<>及空格，以及连字符用于字段名）
-        illegal_chars = re.findall(r'[^a-zA-Z0-9_\(\)\.\,\-\*\/\+\<\>\s]', expr)
+        illegal_chars = re.findall(r"[^a-zA-Z0-9_\(\)\.\,\-\*\/\+\<\>\s]", expr)
         if illegal_chars:
             unique_illegal = sorted(set(illegal_chars))
             issues.append(f"包含非法字符: {unique_illegal}")
 
         # 3. 字符串字面量检测
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
             string_literals = []
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -235,9 +289,9 @@ class WQExpressionValidator:
             pass  # 语法错误会在其他地方报告
 
         # 4. 尾随逗号检测（在最后一个参数位置）
-        stripped = expr.rstrip()
+        expr.rstrip()
         # 检查 ), 或 ,) 模式（WQ 不允许尾随逗号）
-        if re.search(r'\,\s*[\)]', expr):
+        if re.search(r"\,\s*[\)]", expr):
             issues.append("表达式包含尾随逗号")
 
         passed = len(issues) == 0
@@ -256,7 +310,7 @@ class WQExpressionValidator:
         issues = []
 
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
         except SyntaxError as e:
             return CheckResult(
                 passed=False,
@@ -283,8 +337,10 @@ class WQExpressionValidator:
                     issues.append(f"{op_name}() 参数不足（时间序列函数至少需要 1 个参数）")
 
                 # 检查 lookback 参数是否为正整数
-                if op_name in {"ts_delta", "ts_delay", "ts_mean", "ts_decay_linear",
-                               "ts_sum", "ts_std_dev", "ts_rank"} and len(node.args) >= 2:
+                if (
+                    op_name in {"ts_delta", "ts_delay", "ts_mean", "ts_decay_linear", "ts_sum", "ts_std_dev", "ts_rank"}
+                    and len(node.args) >= 2
+                ):
                     window_arg = node.args[1]
                     # 处理字面量和一元运算符（如 -5）
                     actual_value = None
@@ -318,7 +374,7 @@ class WQExpressionValidator:
         规则来源：expression_engine.py ExpressionEngine.validate()
         """
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
         except SyntaxError as e:
             return CheckResult(
                 passed=False,
@@ -337,7 +393,7 @@ class WQExpressionValidator:
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and node.id not in operators_in_expr:
                 # 排除 Python 关键字和内置函数
-                if node.id not in {'True', 'False', 'None', 'nan', 'inf', 'std'}:
+                if node.id not in {"True", "False", "None", "nan", "inf", "std"}:
                     all_identifiers.add(node.id)
 
         # 排除分组键
@@ -369,7 +425,7 @@ class WQExpressionValidator:
         issues = []
 
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
         except SyntaxError as e:
             return CheckResult(
                 passed=False,
@@ -489,7 +545,7 @@ class WQExpressionValidator:
         issues = []
 
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
         except SyntaxError:
             return CheckResult(
                 passed=True,
@@ -561,11 +617,9 @@ class WQExpressionValidator:
                     pass
 
         # 5. 缺少时间序列或横截面变换（来自 expression_engine.py _wq_semantic_issues）
-        operators_used = set(name for name, _ in calls_info)
+        operators_used = {name for name, _ in calls_info}
         has_time_series = any(op.startswith("ts_") for op in operators_used)
-        has_cross_sectional = operators_used & {
-            "rank", "zscore", "scale", "group_rank", "group_zscore"
-        }
+        has_cross_sectional = operators_used & {"rank", "zscore", "scale", "group_rank", "group_zscore"}
         if not has_time_series and not has_cross_sectional:
             issues.append("缺少明确的时间序列或横截面变换")
 
@@ -584,7 +638,7 @@ class WQExpressionValidator:
     def _compute_complexity(self, expr: str) -> float:
         """计算表达式复杂度分数（来自 expression_engine.py complexity_score）"""
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
         except SyntaxError:
             return 100.0  # 无法解析时返回最高复杂度
 
@@ -602,7 +656,7 @@ class WQExpressionValidator:
                     if isinstance(node.args[1].value, (int, float)):
                         windows.append(node.args[1].value)
             elif isinstance(node, ast.Name) and node.id not in operators:
-                if node.id not in GROUP_KEYS and node.id not in {'True', 'False', 'None', 'nan', 'inf', 'std'}:
+                if node.id not in GROUP_KEYS and node.id not in {"True", "False", "None", "nan", "inf", "std"}:
                     fields.add(node.id)
 
         # 嵌套深度
@@ -611,6 +665,7 @@ class WQExpressionValidator:
 
         class DepthVisitor(ast.NodeVisitor):
             nonlocal depth, max_depth
+
             def visit_Call(self, node: ast.Call) -> None:
                 nonlocal depth, max_depth
                 depth += 1
@@ -620,19 +675,13 @@ class WQExpressionValidator:
 
         DepthVisitor().visit(tree)
 
-        raw = (
-            node_count * 1.0
-            + max_depth * 4.0
-            + len(operators) * 2.0
-            + len(fields) * 1.5
-            + len(windows) * 0.75
-        )
+        raw = node_count * 1.0 + max_depth * 4.0 + len(operators) * 2.0 + len(fields) * 1.5 + len(windows) * 0.75
         return round(min(100.0, raw), 2)
 
     def _extract_semantic_tags(self, expr: str) -> list[str]:
         """提取语义标签（来自 expression_engine.py semantic_tags）"""
         try:
-            tree = ast.parse(expr, mode='eval')
+            tree = ast.parse(expr, mode="eval")
         except SyntaxError:
             return []
 

@@ -13,6 +13,7 @@ Three-phase check order:
 Adaptive thresholds: after >= 20 successful alphas are recorded, the P90
 of each metric distribution replaces the default threshold.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,13 +28,43 @@ _BARE_IDENT_RE = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
 _NUMERIC_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
 
 _KNOWN_OPERATORS: set[str] = {
-    "rank", "ts_rank", "ts_mean", "ts_std_dev", "ts_delta", "ts_zscore",
-    "ts_decay_linear", "group_neutralize", "abs", "log",
-    "signed_power", "max", "min", "scale", "ts_delay", "ts_sum", "ts_corr",
-    "ts_regression", "ts_arg_max", "ts_arg_min", "ts_backfill", "trade_when",
-    "zscore", "normalize", "winsorize", "hump", "group_rank", "group_zscore",
-    "ts_av_diff", "ts_quantile", "quantile", "vec_sum", "vec_avg",
-    "add", "divide", "multiply", "subtract",
+    "rank",
+    "ts_rank",
+    "ts_mean",
+    "ts_std_dev",
+    "ts_delta",
+    "ts_zscore",
+    "ts_decay_linear",
+    "group_neutralize",
+    "abs",
+    "log",
+    "signed_power",
+    "max",
+    "min",
+    "scale",
+    "ts_delay",
+    "ts_sum",
+    "ts_corr",
+    "ts_regression",
+    "ts_arg_max",
+    "ts_arg_min",
+    "ts_backfill",
+    "trade_when",
+    "zscore",
+    "normalize",
+    "winsorize",
+    "hump",
+    "group_rank",
+    "group_zscore",
+    "ts_av_diff",
+    "ts_quantile",
+    "quantile",
+    "vec_sum",
+    "vec_avg",
+    "add",
+    "divide",
+    "multiply",
+    "subtract",
 }
 
 _KEYWORDS: set[str] = {"True", "False", "None", "NaN", "Inf"}
@@ -178,12 +209,14 @@ class ComplexityController:
         self._thresholds.max_nodes = max(p90_nodes, 1)
 
         logger.info(
-            "Adapted thresholds (P90 over %d samples): "
-            "depth %d->%d, operators %d->%d, nodes %d->%d",
+            "Adapted thresholds (P90 over %d samples): depth %d->%d, operators %d->%d, nodes %d->%d",
             n,
-            old.max_depth, self._thresholds.max_depth,
-            old.max_operators, self._thresholds.max_operators,
-            old.max_nodes, self._thresholds.max_nodes,
+            old.max_depth,
+            self._thresholds.max_depth,
+            old.max_operators,
+            self._thresholds.max_operators,
+            old.max_nodes,
+            self._thresholds.max_nodes,
         )
         return True
 

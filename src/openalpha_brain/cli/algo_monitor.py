@@ -9,6 +9,7 @@ from typing import Any
 @dataclass
 class AlgoEvent:
     """[Brief description of class purpose.]"""
+
     timestamp: float
     level: str
     module: str
@@ -27,51 +28,70 @@ class AlgoMonitor:
     def __init__(self, max_events: int = 1000):
         """[Brief description of function purpose.]
 
-            Args:
-                max_events (int): [Description]
-            """
+        Args:
+            max_events (int): [Description]
+        """
         self._events: list[AlgoEvent] = []
         self._max_events = max_events
-        self._module_stats: dict[str, dict] = defaultdict(lambda: {
-            "total": 0, "pass": 0, "fail": 0, "skip": 0, "step": 0,
-            "last_timestamp": 0.0,
-        })
+        self._module_stats: dict[str, dict] = defaultdict(
+            lambda: {
+                "total": 0,
+                "pass": 0,
+                "fail": 0,
+                "skip": 0,
+                "step": 0,
+                "last_timestamp": 0.0,
+            }
+        )
 
     @classmethod
     def get_instance(cls) -> AlgoMonitor:
         """[Brief description of function purpose.]
 
-            Returns:
-                'AlgoMonitor': [Description]
-            """
+        Returns:
+            'AlgoMonitor': [Description]
+        """
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
-    def record(self, level: str, module: str, step: str, result: str,
-               session_id: str = "", alpha_id: str = "", duration_ms: float = 0.0) -> None:
+    def record(
+        self,
+        level: str,
+        module: str,
+        step: str,
+        result: str,
+        session_id: str = "",
+        alpha_id: str = "",
+        duration_ms: float = 0.0,
+    ) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                level (str): [Description]
-                module (str): [Description]
-                step (str): [Description]
-                result (str): [Description]
-                session_id (str): [Description]
-                alpha_id (str): [Description]
-                duration_ms (float): [Description]
+        Args:
+            level (str): [Description]
+            module (str): [Description]
+            step (str): [Description]
+            result (str): [Description]
+            session_id (str): [Description]
+            alpha_id (str): [Description]
+            duration_ms (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         event = AlgoEvent(
             timestamp=time.time(),
-            level=level, module=module, step=step, result=result,
-            session_id=session_id, alpha_id=alpha_id, duration_ms=duration_ms,
+            level=level,
+            module=module,
+            step=step,
+            result=result,
+            session_id=session_id,
+            alpha_id=alpha_id,
+            duration_ms=duration_ms,
         )
         self._events.append(event)
         if len(self._events) > self._max_events:
-            self._events = self._events[-self._max_events:]
+            self._events = self._events[-self._max_events :]
         stats = self._module_stats[module]
         stats["total"] += 1
         stats[level.lower()] = stats.get(level.lower(), 0) + 1
@@ -80,9 +100,9 @@ class AlgoMonitor:
     def get_status(self) -> dict:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         return {
             "modules": dict(self._module_stats),
             "recent_events": [
@@ -105,12 +125,12 @@ class AlgoMonitor:
     def aggregate_health_checks(modules: dict[str, Any]) -> dict[str, dict]:
         """[Brief description of function purpose.]
 
-            Args:
-                modules (dict[str, Any]): [Description]
+        Args:
+            modules (dict[str, Any]): [Description]
 
-            Returns:
-                dict[str, dict]: [Description]
-            """
+        Returns:
+            dict[str, dict]: [Description]
+        """
         results: dict[str, dict] = {}
         for name, instance in modules.items():
             if hasattr(instance, "health_check") and callable(instance.health_check):
@@ -126,12 +146,12 @@ class AlgoMonitor:
     def detect_ghost_algorithms(modules: dict[str, Any]) -> list[str]:
         """[Brief description of function purpose.]
 
-            Args:
-                modules (dict[str, Any]): [Description]
+        Args:
+            modules (dict[str, Any]): [Description]
 
-            Returns:
-                list[str]: [Description]
-            """
+        Returns:
+            list[str]: [Description]
+        """
         ghosts: list[str] = []
         for name, instance in modules.items():
             if not hasattr(instance, "health_check") or not callable(instance.health_check):

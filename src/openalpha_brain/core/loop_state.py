@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import sys
@@ -46,35 +47,72 @@ _FIELDS_RE = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()")
 
 logger = logging.getLogger(__name__)
 
-_CTX_ATTR_NAMES = frozenset({
-    '_brain_cookies', '_pool', '_brain_cookies_lock', '_rag_engine',
-    '_budget_tracker', '_mab', '_scheduler', '_association', '_whitelist_mgr',
-    '_heartbeat', '_global_knowledge', '_last_merged_idx', '_summarizer',
-    '_param_optimizer', '_monitor', '_successful_brain_expressions', '_logic_library',
-    '_success_lib', '_failure_lib', '_strategy_classifier', '_feature_map',
-    '_evo_db', '_semantic_mutator', '_hypothesis_aligner', '_reflection_engine',
-    '_tool_factory', '_experience_distiller', '_evolution_cycle_count',
-    '_last_diversity_stats', '_last_unexplored_directions', '_diversity_last_cycle',
-    '_previous_expressions', '_market_state_inferencer', '_pnl_analyzer',
-    '_decay_detector', '_decay_state', '_signal_arbiter', '_alpha_channel',
-    '_alpha_channel_integrator', '_fastexpr_grammar', '_success_rate_tracker',
-    '_algo_call_counts', '_console_pause_event', '_console_stop_event',
-    '_brain_feedback_buffer', '_generation_gates', '_crossover_engine',
-    '_trajectory_crossover_insights', '_crossover_exploration_proposals',
-    '_weak_segment_alerts',
-})
+_CTX_ATTR_NAMES = frozenset(
+    {
+        "_brain_cookies",
+        "_pool",
+        "_brain_cookies_lock",
+        "_rag_engine",
+        "_budget_tracker",
+        "_mab",
+        "_scheduler",
+        "_association",
+        "_whitelist_mgr",
+        "_heartbeat",
+        "_global_knowledge",
+        "_last_merged_idx",
+        "_summarizer",
+        "_param_optimizer",
+        "_monitor",
+        "_successful_brain_expressions",
+        "_logic_library",
+        "_success_lib",
+        "_failure_lib",
+        "_strategy_classifier",
+        "_feature_map",
+        "_evo_db",
+        "_semantic_mutator",
+        "_hypothesis_aligner",
+        "_reflection_engine",
+        "_tool_factory",
+        "_experience_distiller",
+        "_evolution_cycle_count",
+        "_last_diversity_stats",
+        "_last_unexplored_directions",
+        "_diversity_last_cycle",
+        "_previous_expressions",
+        "_market_state_inferencer",
+        "_pnl_analyzer",
+        "_decay_detector",
+        "_decay_state",
+        "_signal_arbiter",
+        "_alpha_channel",
+        "_alpha_channel_integrator",
+        "_fastexpr_grammar",
+        "_success_rate_tracker",
+        "_algo_call_counts",
+        "_console_pause_event",
+        "_console_stop_event",
+        "_brain_feedback_buffer",
+        "_generation_gates",
+        "_crossover_engine",
+        "_trajectory_crossover_insights",
+        "_crossover_exploration_proposals",
+        "_weak_segment_alerts",
+    }
+)
 
 
 class _LoopStateModule(types.ModuleType):
     def __getattr__(self, name):
-        _c = self.__dict__.get('_ctx')
+        _c = self.__dict__.get("_ctx")
         if _c is not None and name in _CTX_ATTR_NAMES:
             return getattr(_c, name)
         raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
 
     def __setattr__(self, name, value):
         if name in _CTX_ATTR_NAMES:
-            _c = self.__dict__.get('_ctx')
+            _c = self.__dict__.get("_ctx")
             if _c is not None:
                 object.__setattr__(_c, name, value)
         super().__setattr__(name, value)
@@ -150,7 +188,8 @@ class LoopContext:
             cutoff = time.time() - 90 * 86400
             with self._evo_db._lock:
                 candidates = [
-                    rec for rec in self._evo_db._records.values()
+                    rec
+                    for rec in self._evo_db._records.values()
                     if rec.status == "PASS" and rec.timestamp >= cutoff and rec.sharpe is not None
                 ]
             candidates.sort(key=lambda r: r.sharpe or 0, reverse=True)
@@ -165,7 +204,10 @@ class LoopContext:
                 if len(result) >= 200:
                     break
             self._successful_brain_expressions = result
-            logger.info("Rebuilt _successful_brain_expressions: %d expressions from evolution_db (last 90 days, top 200)", len(result))
+            logger.info(
+                "Rebuilt _successful_brain_expressions: %d expressions from evolution_db (last 90 days, top 200)",
+                len(result),
+            )
         except (OSError, ValueError, RuntimeError):
             logger.warning("Failed to rebuild _successful_brain_expressions from evolution_db", exc_info=True)
         return self._successful_brain_expressions
@@ -191,7 +233,9 @@ class LoopContext:
         self._summarizer = ConversationSummarizer(threshold=20, keep_recent=5)
 
         if settings.STRATEGY_CLASSIFIER_ENABLED:
-            self._strategy_classifier = StrategyClassifier(path=settings.STRATEGY_CLASSIFIER_PATH, embed_fn=llm_client.embed)
+            self._strategy_classifier = StrategyClassifier(
+                path=settings.STRATEGY_CLASSIFIER_PATH, embed_fn=llm_client.embed
+            )
         else:
             self._strategy_classifier = None
 
@@ -240,7 +284,9 @@ class LoopContext:
             self._tool_factory = None
 
         if settings.EXPERIENCE_DISTILLER_ENABLED:
-            self._experience_distiller = ExperienceDistiller(embed_fn=llm_client.embed, path=settings.EXPERIENCE_DISTILLER_PATH)
+            self._experience_distiller = ExperienceDistiller(
+                embed_fn=llm_client.embed, path=settings.EXPERIENCE_DISTILLER_PATH
+            )
             logger.info("ExperienceDistiller initialized")
         else:
             self._experience_distiller = None
@@ -273,11 +319,11 @@ class LoopContext:
         else:
             self._failure_lib = None
 
-        if getattr(settings, 'ALPHA_CHANNEL_ENABLED', True):
+        if getattr(settings, "ALPHA_CHANNEL_ENABLED", True):
             self._alpha_channel = AlphaChannel(
-                stream_threshold=getattr(settings, 'ALPHA_CHANNEL_STREAM_THRESHOLD', 1.0),
-                batch_size=getattr(settings, 'ALPHA_CHANNEL_BATCH_SIZE', 5),
-                batch_timeout=getattr(settings, 'ALPHA_CHANNEL_BATCH_TIMEOUT', 30.0),
+                stream_threshold=getattr(settings, "ALPHA_CHANNEL_STREAM_THRESHOLD", 1.0),
+                batch_size=getattr(settings, "ALPHA_CHANNEL_BATCH_SIZE", 5),
+                batch_timeout=getattr(settings, "ALPHA_CHANNEL_BATCH_TIMEOUT", 30.0),
             )
             logger.info("AlphaChannel initialized")
 
@@ -286,25 +332,29 @@ class LoopContext:
             async def _integrator_mab_update(direction: str, expression: str, reward: float) -> None:
                 logger.info(
                     "[integrator] MAB update skipped (handled by main loop): direction=%s reward=%.4f expr=%s",
-                    direction, reward, expression[:60],
+                    direction,
+                    reward,
+                    expression[:60],
                 )
 
             async def _integrator_whitelist_update(expression: str, reward: float) -> None:
                 if self._whitelist_mgr and expression:
-                    _FIELDS_RE_LOCAL = re.compile(r'\b([a-z_]\w{2,})\b')
+                    _FIELDS_RE_LOCAL = re.compile(r"\b([a-z_]\w{2,})\b")
                     for _f in _FIELDS_RE_LOCAL.findall(expression):
                         self._whitelist_mgr.update_field_reward(_f.lower(), reward=reward)
 
             async def _integrator_success_lib_add(expression: str, direction: str, sharpe: float) -> None:
                 if self._success_lib and expression:
-                    try:
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
                         await self._success_lib.add_case(
-                            expr=expression, hypothesis=direction,
-                            sharpe=sharpe, fitness=0.0, turnover=0.0,
-                            direction=direction, session_id="alpha_channel",
+                            expr=expression,
+                            hypothesis=direction,
+                            sharpe=sharpe,
+                            fitness=0.0,
+                            turnover=0.0,
+                            direction=direction,
+                            session_id="alpha_channel",
                         )
-                    except (OSError, ValueError, RuntimeError):
-                        pass
 
             self._alpha_channel_integrator = AlphaChannelIntegrator(
                 channel=self._alpha_channel,
@@ -317,6 +367,7 @@ class LoopContext:
         _fpm = None
         try:
             from openalpha_brain.knowledge.field_proxy_map import get_field_proxy_map
+
             _fpm = get_field_proxy_map()
         except (ImportError, AttributeError, RuntimeError):
             _fpm = None
@@ -324,6 +375,7 @@ class LoopContext:
         if not settings.RAG_ENABLED and not settings.MAB_ENABLED:
             if self._scheduler is None:
                 from openalpha_brain.learning.mab import TemplateFamilyBandit
+
                 self._scheduler = ExplorationScheduler(
                     template_bandit=TemplateFamilyBandit(),
                     feature_map=self._feature_map,
@@ -355,9 +407,13 @@ class LoopContext:
                 self._scheduler.feature_map = self._feature_map
                 self._scheduler.field_proxy_map = _fpm
             elif _tf_bandit is not None:
-                self._scheduler = ExplorationScheduler(template_bandit=_tf_bandit, feature_map=self._feature_map, field_proxy_map=_fpm)
+                self._scheduler = ExplorationScheduler(
+                    template_bandit=_tf_bandit, feature_map=self._feature_map, field_proxy_map=_fpm
+                )
             else:
-                logger.warning("MAB state loaded but scheduler_data/tf_bandit missing — creating default Scheduler (data migration)")
+                logger.warning(
+                    "MAB state loaded but scheduler_data/tf_bandit missing — creating default Scheduler (data migration)"  # noqa: E501
+                )
                 self._scheduler = ExplorationScheduler(
                     template_bandit=_tf_bandit or TemplateFamilyBandit(),
                     feature_map=self._feature_map,
@@ -381,19 +437,22 @@ class LoopContext:
         self._rag_engine.set_embed_fn(llm_client.embed)
         self._rag_engine.set_whitelist_manager(self._whitelist_mgr)
         self._rag_engine.set_eliminated_fields(set(self._whitelist_mgr.eliminated_fields.keys()))
-        if self._rag_engine and hasattr(self._rag_engine, 'load_feedback_weights'):
+        if self._rag_engine and hasattr(self._rag_engine, "load_feedback_weights"):
             self._rag_engine.load_feedback_weights("rag_feedback_weights.json")
 
         self._budget_tracker = RAGBudgetTracker(budget=settings.RAG_BUDGET_PER_CYCLE)
         from openalpha_brain.knowledge import rag_engine as _rag_engine_mod
         from openalpha_brain.knowledge import rag_tools as _rag_tools_mod
+
         _rag_engine_mod.set_budget_tracker(self._budget_tracker)
         _rag_tools_mod.set_budget_tracker(self._budget_tracker)
 
         if settings.SIGNAL_ARBITER_ENABLED and (self._rag_engine is not None or self._mab is not None):
             self._success_rate_tracker = deque(maxlen=20)
             if _arbiter_data:
-                self._signal_arbiter = SignalArbiter.from_dict(_arbiter_data, success_rate_tracker=self._success_rate_tracker)
+                self._signal_arbiter = SignalArbiter.from_dict(
+                    _arbiter_data, success_rate_tracker=self._success_rate_tracker
+                )
             else:
                 self._signal_arbiter = SignalArbiter(success_rate_tracker=self._success_rate_tracker)
             logger.info("SignalArbiter initialized")
@@ -422,14 +481,22 @@ class LoopContext:
 
         if settings.AUTOBRAIN_SIM_ENABLED and settings.BRAIN_EMAIL and settings.BRAIN_PASSWORD:
             from openalpha_brain.services.brain_data_client import init_brain_data_client
+
             init_brain_data_client(settings.BRAIN_EMAIL, settings.BRAIN_PASSWORD)
 
         try:
             from openalpha_brain.services import brain_submitter as _bs_mod
-            if getattr(_bs_mod, '_DYNAMIC_SKILL_ENABLED', False) and getattr(_bs_mod, '_dynamic_skill_lib', None) is None:
+
+            if (
+                getattr(_bs_mod, "_DYNAMIC_SKILL_ENABLED", False)
+                and getattr(_bs_mod, "_dynamic_skill_lib", None) is None
+            ):
                 from openalpha_brain.knowledge.dynamic_skill_library import DynamicSkillLibrary as _DSL
+
                 _bs_mod._dynamic_skill_lib = _DSL()
-                logger.info("DynamicSkillLibrary initialized (instance created, await initialize_from_brain for async init)")
+                logger.info(
+                    "DynamicSkillLibrary initialized (instance created, await initialize_from_brain for async init)"
+                )
         except ImportError:
             logger.info("DynamicSkillLibrary not available (import failed)")
         except (AttributeError, RuntimeError):
@@ -445,7 +512,9 @@ class LoopContext:
             whitelist_data = self._whitelist_mgr.to_dict() if self._whitelist_mgr else {}
             arbiter_data = self._signal_arbiter.to_dict() if self._signal_arbiter else None
             save_mab_state(
-                self._mab, self._association, whitelist_data,
+                self._mab,
+                self._association,
+                whitelist_data,
                 arbiter_data=arbiter_data,
                 template_family_bandit=self._scheduler.bandit if self._scheduler else None,
             )
@@ -453,13 +522,14 @@ class LoopContext:
                 import json as _json
 
                 from openalpha_brain.learning.mab import _MAB_STATE_PATH
+
                 _saved = _json.loads(_MAB_STATE_PATH.read_text(encoding="utf-8"))
                 _saved["scheduler"] = self._scheduler.to_dict()
                 _MAB_STATE_PATH.write_text(_json.dumps(_saved, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("Intelligent search state persisted to mab_state.json")
         except (OSError, RuntimeError):
             logger.warning("Failed to save intelligent search state", exc_info=True)
-        if self._rag_engine and hasattr(self._rag_engine, 'save_feedback_weights'):
+        if self._rag_engine and hasattr(self._rag_engine, "save_feedback_weights"):
             try:
                 self._rag_engine.save_feedback_weights("rag_feedback_weights.json")
             except (OSError, RuntimeError):
@@ -503,98 +573,97 @@ _ctx = LoopContext()
 
 
 def get_brain_cookies():
-    """[Brief description of function purpose.]
-        """
+    """[Brief description of function purpose.]"""
     return _ctx._brain_cookies
 
 
 def set_brain_cookies(cookies):
     """[Brief description of function purpose.]
 
-        Args:
-            cookies: [Description]
-        """
+    Args:
+        cookies: [Description]
+    """
     _ctx._brain_cookies = cookies
 
 
 def _rebuild_successful_expressions() -> list[str]:
     """[Brief description of function purpose.]
 
-        Returns:
-            list[str]: [Description]
-        """
+    Returns:
+        list[str]: [Description]
+    """
     return _ctx._rebuild_successful_expressions()
 
 
 def _algo_tick(name: str) -> None:
     """[Brief description of function purpose.]
 
-        Args:
-            name (str): [Description]
+    Args:
+        name (str): [Description]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     _ctx.algo_tick(name)
 
 
 def get_algo_call_stats() -> dict[str, int]:
     """[Brief description of function purpose.]
 
-        Returns:
-            dict[str, int]: [Description]
-        """
+    Returns:
+        dict[str, int]: [Description]
+    """
     return _ctx.get_algo_call_stats()
 
 
 def get_dashboard_state() -> dict:
     """[Brief description of function purpose.]
 
-        Returns:
-            dict: [Description]
-        """
+    Returns:
+        dict: [Description]
+    """
     return _ctx.get_dashboard_state()
 
 
 def init_intelligent_search() -> None:
     """[Brief description of function purpose.]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     _ctx.init()
 
 
 def _save_intelligent_search_state() -> None:
     """[Brief description of function purpose.]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     _ctx.save_state()
 
 
 def _log(state, log_type: str, message: str, detail: dict | None = None) -> None:
     """[Brief description of function purpose.]
 
-        Args:
-            state: [Description]
-            log_type (str): [Description]
-            message (str): [Description]
-            detail (dict | None): [Description]
+    Args:
+        state: [Description]
+        log_type (str): [Description]
+        message (str): [Description]
+        detail (dict | None): [Description]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     _ctx.log(state, log_type, message, detail)
 
 
 def _build_global_blacklist_prompt() -> str:
     """[Brief description of function purpose.]
 
-        Returns:
-            str: [Description]
-        """
+    Returns:
+        str: [Description]
+    """
     return _ctx.build_blacklist_prompt()
 
 

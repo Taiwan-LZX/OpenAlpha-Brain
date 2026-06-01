@@ -3,6 +3,7 @@ OpenAlpha-Brain — Thompson Sampling Multi-Armed Bandit
 Implements hierarchical MAB with Beta distribution for exploration-exploitation
 balance in alpha factor mining.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,24 +23,25 @@ logger = logging.getLogger(__name__)
 
 _MAB_STATE_PATH = Path(__file__).resolve().parent / "mab_state.json"
 
-BETA_DECAY_FACTOR = getattr(settings, 'BETA_DECAY_FACTOR', 0.99)
-BETA_DECAY_INTERVAL = getattr(settings, 'BETA_DECAY_INTERVAL', 100)
+BETA_DECAY_FACTOR = getattr(settings, "BETA_DECAY_FACTOR", 0.99)
+BETA_DECAY_INTERVAL = getattr(settings, "BETA_DECAY_INTERVAL", 100)
 
 
 class BetaArm:
     """[Brief description of class purpose.]"""
+
     __slots__ = ("alpha", "beta", "_total_updates")
 
     def __init__(self, alpha: float = 1.0, beta: float = 1.0) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                alpha (float): [Description]
-                beta (float): [Description]
+        Args:
+            alpha (float): [Description]
+            beta (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         self.alpha = alpha
         self.beta = beta
         self._total_updates = 0
@@ -48,9 +50,9 @@ class BetaArm:
     def expectation(self) -> float:
         """[Brief description of function purpose.]
 
-            Returns:
-                float: [Description]
-            """
+        Returns:
+            float: [Description]
+        """
         total = self.alpha + self.beta
         if total == 0:
             return 0.5
@@ -59,20 +61,20 @@ class BetaArm:
     def sample(self) -> float:
         """[Brief description of function purpose.]
 
-            Returns:
-                float: [Description]
-            """
+        Returns:
+            float: [Description]
+        """
         return np.random.beta(max(self.alpha, 1e-6), max(self.beta, 1e-6))
 
     def reward(self, value: float) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                value (float): [Description]
+        Args:
+            value (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         value = max(0.0, value)
         self.alpha += value
         self._total_updates += 1
@@ -83,12 +85,12 @@ class BetaArm:
     def penalize(self, value: float) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                value (float): [Description]
+        Args:
+            value (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         value = max(0.0, value)
         self.beta += value
         self._total_updates += 1
@@ -99,21 +101,21 @@ class BetaArm:
     def to_dict(self) -> dict[str, float]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, float]: [Description]
-            """
+        Returns:
+            dict[str, float]: [Description]
+        """
         return {"alpha": self.alpha, "beta": self.beta, "total_updates": self._total_updates}
 
     @classmethod
     def from_dict(cls, d: dict[str, float]) -> BetaArm:
         """[Brief description of function purpose.]
 
-            Args:
-                d (dict[str, float]): [Description]
+        Args:
+            d (dict[str, float]): [Description]
 
-            Returns:
-                'BetaArm': [Description]
-            """
+        Returns:
+            'BetaArm': [Description]
+        """
         arm = cls(alpha=d.get("alpha", 1.0), beta=d.get("beta", 1.0))
         _tu: int = int(d.get("total_updates", 0))
         arm._total_updates = _tu
@@ -122,23 +124,24 @@ class BetaArm:
 
 class ThompsonBandit:
     """[Brief description of class purpose.]"""
+
     def __init__(self) -> None:
         """[Brief description of function purpose.]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         self._arms: dict[str, BetaArm] = {}
 
     def ensure_arm(self, arm_id: str) -> BetaArm:
         """[Brief description of function purpose.]
 
-            Args:
-                arm_id (str): [Description]
+        Args:
+            arm_id (str): [Description]
 
-            Returns:
-                BetaArm: [Description]
-            """
+        Returns:
+            BetaArm: [Description]
+        """
         if arm_id not in self._arms:
             self._arms[arm_id] = BetaArm()
         return self._arms[arm_id]
@@ -146,9 +149,9 @@ class ThompsonBandit:
     def select_arm(self) -> str:
         """[Brief description of function purpose.]
 
-            Returns:
-                str: [Description]
-            """
+        Returns:
+            str: [Description]
+        """
         if not self._arms:
             raise ValueError("No arms available")
         samples = {aid: arm.sample() for aid, arm in self._arms.items()}
@@ -157,12 +160,12 @@ class ThompsonBandit:
     def select_top_k(self, k: int) -> list[str]:
         """[Brief description of function purpose.]
 
-            Args:
-                k (int): [Description]
+        Args:
+            k (int): [Description]
 
-            Returns:
-                list[str]: [Description]
-            """
+        Returns:
+            list[str]: [Description]
+        """
         if not self._arms:
             return []
         samples = {aid: arm.sample() for aid, arm in self._arms.items()}
@@ -172,14 +175,14 @@ class ThompsonBandit:
     def update(self, arm_id: str, reward: float = 0.0, penalty: float = 0.0) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                arm_id (str): [Description]
-                reward (float): [Description]
-                penalty (float): [Description]
+        Args:
+            arm_id (str): [Description]
+            reward (float): [Description]
+            penalty (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         arm = self.ensure_arm(arm_id)
         if reward > 0:
             arm.reward(reward)
@@ -189,49 +192,52 @@ class ThompsonBandit:
     def get_stats(self) -> dict[str, dict[str, float]]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, dict[str, float]]: [Description]
-            """
-        return {aid: {"alpha": arm.alpha, "beta": arm.beta, "expectation": arm.expectation} for aid, arm in self._arms.items()}
+        Returns:
+            dict[str, dict[str, float]]: [Description]
+        """
+        return {
+            aid: {"alpha": arm.alpha, "beta": arm.beta, "expectation": arm.expectation}
+            for aid, arm in self._arms.items()
+        }
 
     def get_arm(self, arm_id: str) -> BetaArm | None:
         """[Brief description of function purpose.]
 
-            Args:
-                arm_id (str): [Description]
+        Args:
+            arm_id (str): [Description]
 
-            Returns:
-                BetaArm | None: [Description]
-            """
+        Returns:
+            BetaArm | None: [Description]
+        """
         return self._arms.get(arm_id)
 
     @property
     def arm_count(self) -> int:
         """[Brief description of function purpose.]
 
-            Returns:
-                int: [Description]
-            """
+        Returns:
+            int: [Description]
+        """
         return len(self._arms)
 
     def to_dict(self) -> dict[str, dict[str, float]]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, dict[str, float]]: [Description]
-            """
+        Returns:
+            dict[str, dict[str, float]]: [Description]
+        """
         return {aid: arm.to_dict() for aid, arm in self._arms.items()}
 
     @classmethod
     def from_dict(cls, d: dict[str, dict[str, float]]) -> ThompsonBandit:
         """[Brief description of function purpose.]
 
-            Args:
-                d (dict[str, dict[str, float]]): [Description]
+        Args:
+            d (dict[str, dict[str, float]]): [Description]
 
-            Returns:
-                'ThompsonBandit': [Description]
-            """
+        Returns:
+            'ThompsonBandit': [Description]
+        """
         bandit = cls()
         for aid, params in d.items():
             bandit._arms[aid] = BetaArm.from_dict(params)
@@ -300,7 +306,7 @@ class SlidingWindowUCB:
                 weights.append(weight)
                 values.append(rew)
             total_weight = sum(weights) + 1e-6
-            result = sum(w * v for w, v in zip(weights, values)) / total_weight
+            result = sum(w * v for w, v in zip(weights, values, strict=False)) / total_weight
         return result
 
     @property
@@ -309,9 +315,7 @@ class SlidingWindowUCB:
         if n == 0:
             return self._prior_weight
         mean = self.weighted_mean
-        bonus = self._exploration_const * math.sqrt(
-            math.log(self._total_pulls + 1) / (n + 1e-6)
-        )
+        bonus = self._exploration_const * math.sqrt(math.log(self._total_pulls + 1) / (n + 1e-6))
         return mean + bonus
 
     def set_prior(self, prior_score: float) -> None:
@@ -340,10 +344,7 @@ class SlidingWindowUCB:
             "exploration_const": self._exploration_const,
             "prior_weight": self._prior_weight,
             "total_pulls": self._total_pulls,
-            "rewards": [
-                {"reward": r, "timestamp": t.isoformat()}
-                for r, t in self._rewards
-            ],
+            "rewards": [{"reward": r, "timestamp": t.isoformat()} for r, t in self._rewards],
         }
 
     @classmethod
@@ -418,7 +419,12 @@ class MABPriorInitializer:
         logger.debug(
             "[DEFENSIVE_LOG] MABPriorInitializer::compute_prior "
             "template=%s family=%s classic=%.3f quality=%.3f compat=%.3f prior=%.3f",
-            template_id, family_id, template_score, family_score, compat_score, result,
+            template_id,
+            family_id,
+            template_score,
+            family_score,
+            compat_score,
+            result,
         )
         return result
 
@@ -445,19 +451,17 @@ class MABPriorInitializer:
     def _get_compatibility(self, template_id: str, family_id: str) -> float:
         try:
             from openalpha_brain.knowledge.field_proxy_map import FIELD_FAMILIES
+
             fam = FIELD_FAMILIES.get(family_id)
             if fam is None:
                 return 0.20
             if template_id in fam.applicable_templates:
                 return 0.90
             l1_match = 0
-            for fid, f in FIELD_FAMILIES.items():
+            for _fid, f in FIELD_FAMILIES.items():
                 if template_id in f.applicable_templates and f.l1_category == fam.l1_category:
                     l1_match += 1
-            total_in_l1 = sum(
-                1 for f in FIELD_FAMILIES.values()
-                if f.l1_category == fam.l1_category
-            )
+            total_in_l1 = sum(1 for f in FIELD_FAMILIES.values() if f.l1_category == fam.l1_category)
             if total_in_l1 > 0:
                 return 0.40 + 0.30 * (l1_match / total_in_l1)
             return 0.20
@@ -560,6 +564,7 @@ class HierarchicalMAB:
     v4 upgrade: added ComputeAllocator for GENERATE vs IMPROVE allocation,
     and support for MABPriorInitializer cold-start priors.
     """
+
     def __init__(self) -> None:
         self._outer = ThompsonBandit()
         self._inner_ops: dict[str, ThompsonBandit] = {}
@@ -580,13 +585,11 @@ class HierarchicalMAB:
     ) -> None:
         tf_bandit.initialize_priors(prior_initializer)
         logger.info(
-            "[DEFENSIVE_LOG] HierarchicalMAB::initialize_template_family_bandit "
-            "完成先验设置，arm_count=%d",
+            "[DEFENSIVE_LOG] HierarchicalMAB::initialize_template_family_bandit 完成先验设置，arm_count=%d",
             tf_bandit.arm_count,
         )
 
-    def select(self, top_k_ops: int = 15, top_k_fields: int = 40,
-                focus_area: str = "") -> dict[str, Any]:
+    def select(self, top_k_ops: int = 15, top_k_fields: int = 40, focus_area: str = "") -> dict[str, Any]:
         """[Brief description of function purpose.
 
         Args:
@@ -630,16 +633,16 @@ class HierarchicalMAB:
     ) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                direction (str): [Description]
-                operators (list[str]): [Description]
-                fields (list[str]): [Description]
-                reward (float): [Description]
-                penalty (float): [Description]
+        Args:
+            direction (str): [Description]
+            operators (list[str]): [Description]
+            fields (list[str]): [Description]
+            reward (float): [Description]
+            penalty (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         self._update_count += 1
         self._outer.ensure_arm(direction)
         if reward > 0:
@@ -672,13 +675,13 @@ class HierarchicalMAB:
     def set_initial_bias(self, direction: str, weight: float) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                direction (str): [Description]
-                weight (float): [Description]
+        Args:
+            direction (str): [Description]
+            weight (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         arm = self._outer._arms.get(direction)
         if arm is not None:
             arm.alpha = max(arm.alpha, 1.0 + weight * 2.0)
@@ -686,11 +689,11 @@ class HierarchicalMAB:
     def get_field_expectations(self) -> dict[str, float]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, float]: [Description]
-            """
+        Returns:
+            dict[str, float]: [Description]
+        """
         result = {}
-        for direction, bandit in self._inner_fields.items():
+        for _direction, bandit in self._inner_fields.items():
             for arm_id, arm in bandit._arms.items():
                 result[arm_id] = arm.expectation
         return result
@@ -698,11 +701,11 @@ class HierarchicalMAB:
     def get_operator_expectations(self) -> dict[str, float]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, float]: [Description]
-            """
+        Returns:
+            dict[str, float]: [Description]
+        """
         result = {}
-        for direction, bandit in self._inner_ops.items():
+        for _direction, bandit in self._inner_ops.items():
             for arm_id, arm in bandit._arms.items():
                 result[arm_id] = arm.expectation
         return result
@@ -710,9 +713,9 @@ class HierarchicalMAB:
     def get_direction_stats(self) -> dict[str, dict[str, float]]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, dict[str, float]]: [Description]
-            """
+        Returns:
+            dict[str, dict[str, float]]: [Description]
+        """
         return self._outer.get_stats()
 
     def health_check(self) -> dict[str, Any]:
@@ -731,9 +734,9 @@ class HierarchicalMAB:
     def to_dict(self) -> dict[str, Any]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, Any]: [Description]
-            """
+        Returns:
+            dict[str, Any]: [Description]
+        """
         return {
             "outer": self._outer.to_dict(),
             "inner_ops": {d: b.to_dict() for d, b in self._inner_ops.items()},
@@ -745,44 +748,47 @@ class HierarchicalMAB:
     def from_dict(cls, d: dict[str, Any]) -> HierarchicalMAB:
         """[Brief description of function purpose.]
 
-            Args:
-                d (dict[str, Any]): [Description]
+        Args:
+            d (dict[str, Any]): [Description]
 
-            Returns:
-                'HierarchicalMAB': [Description]
-            """
+        Returns:
+            'HierarchicalMAB': [Description]
+        """
         mab = cls()
         if "outer" in d:
             mab._outer = ThompsonBandit.from_dict(d["outer"])
         if "inner_ops" in d:
             mab._inner_ops = {direction: ThompsonBandit.from_dict(data) for direction, data in d["inner_ops"].items()}
         if "inner_fields" in d:
-            mab._inner_fields = {direction: ThompsonBandit.from_dict(data) for direction, data in d["inner_fields"].items()}
+            mab._inner_fields = {
+                direction: ThompsonBandit.from_dict(data) for direction, data in d["inner_fields"].items()
+            }
         mab._update_count = d.get("update_count", 0)
         return mab
 
 
 class AssociationMatrix:
     """[Brief description of class purpose.]"""
+
     def __init__(self) -> None:
         """[Brief description of function purpose.]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         self._matrix: dict[str, dict[str, BetaArm]] = {}
         self._total_successes: int = 0
 
     def ensure_entry(self, operator: str, field: str) -> BetaArm:
         """[Brief description of function purpose.]
 
-            Args:
-                operator (str): [Description]
-                field (str): [Description]
+        Args:
+            operator (str): [Description]
+            field (str): [Description]
 
-            Returns:
-                BetaArm: [Description]
-            """
+        Returns:
+            BetaArm: [Description]
+        """
         if operator not in self._matrix:
             self._matrix[operator] = {}
         if field not in self._matrix[operator]:
@@ -792,15 +798,15 @@ class AssociationMatrix:
     def update(self, operator: str, field: str, reward: float = 0.0, penalty: float = 0.0) -> None:
         """[Brief description of function purpose.]
 
-            Args:
-                operator (str): [Description]
-                field (str): [Description]
-                reward (float): [Description]
-                penalty (float): [Description]
+        Args:
+            operator (str): [Description]
+            field (str): [Description]
+            reward (float): [Description]
+            penalty (float): [Description]
 
-            Returns:
-                None: [Description]
-            """
+        Returns:
+            None: [Description]
+        """
         arm = self.ensure_entry(operator, field)
         if reward > 0:
             arm.reward(reward)
@@ -811,13 +817,13 @@ class AssociationMatrix:
     def get_top_fields(self, operator: str, top_k: int = 10) -> list[tuple[str, float]]:
         """[Brief description of function purpose.]
 
-            Args:
-                operator (str): [Description]
-                top_k (int): [Description]
+        Args:
+            operator (str): [Description]
+            top_k (int): [Description]
 
-            Returns:
-                list[tuple[str, float]]: [Description]
-            """
+        Returns:
+            list[tuple[str, float]]: [Description]
+        """
         ops_entries = self._matrix.get(operator, {})
         if not ops_entries:
             return []
@@ -828,13 +834,13 @@ class AssociationMatrix:
     def get_top_operators(self, field: str, top_k: int = 10) -> list[tuple[str, float]]:
         """[Brief description of function purpose.]
 
-            Args:
-                field (str): [Description]
-                top_k (int): [Description]
+        Args:
+            field (str): [Description]
+            top_k (int): [Description]
 
-            Returns:
-                list[tuple[str, float]]: [Description]
-            """
+        Returns:
+            list[tuple[str, float]]: [Description]
+        """
         results: dict[str, float] = {}
         for op, entries in self._matrix.items():
             if field in entries:
@@ -897,17 +903,17 @@ class AssociationMatrix:
     def total_successes(self) -> int:
         """[Brief description of function purpose.]
 
-            Returns:
-                int: [Description]
-            """
+        Returns:
+            int: [Description]
+        """
         return self._total_successes
 
     def health_check(self) -> dict[str, Any]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, Any]: [Description]
-            """
+        Returns:
+            dict[str, Any]: [Description]
+        """
         return {
             "module": "AssociationMatrix",
             "status": "active",
@@ -918,9 +924,9 @@ class AssociationMatrix:
     def to_dict(self) -> dict[str, Any]:
         """[Brief description of function purpose.]
 
-            Returns:
-                dict[str, Any]: [Description]
-            """
+        Returns:
+            dict[str, Any]: [Description]
+        """
         matrix_data: dict[str, dict[str, dict[str, float]]] = {}
         for op, entries in self._matrix.items():
             matrix_data[op] = {field: arm.to_dict() for field, arm in entries.items()}
@@ -933,12 +939,12 @@ class AssociationMatrix:
     def from_dict(cls, d: dict[str, Any]) -> AssociationMatrix:
         """[Brief description of function purpose.]
 
-            Args:
-                d (dict[str, Any]): [Description]
+        Args:
+            d (dict[str, Any]): [Description]
 
-            Returns:
-                'AssociationMatrix': [Description]
-            """
+        Returns:
+            'AssociationMatrix': [Description]
+        """
         am = cls()
         matrix_data = d.get("matrix", {})
         for op, entries in matrix_data.items():
@@ -983,8 +989,7 @@ class TemplateFamilyBandit:
     Each arm key is "{template_id}::{family_id}".
     """
 
-    def __init__(self, window_size: int = 20, decay_factor: float = 0.95,
-                 exploration_const: float = 2.0) -> None:
+    def __init__(self, window_size: int = 20, decay_factor: float = 0.95, exploration_const: float = 2.0) -> None:
         self._arms: dict[str, SlidingWindowUCB] = {}
         self._template_ids: set[str] = set()
         self._family_ids: set[str] = set()
@@ -1020,10 +1025,7 @@ class TemplateFamilyBandit:
         if explore_mode:
             scores = {aid: arm.ucb_score for aid, arm in self._arms.items()}
             unvisited = [aid for aid in self._arms if self._arms[aid].total_pulls == 0]
-            if unvisited:
-                key = unvisited[0]
-            else:
-                key = min(scores, key=lambda k: cast(float, scores[k]))
+            key = unvisited[0] if unvisited else min(scores, key=lambda k: cast(float, scores[k]))
         else:
             scores = {aid: arm.ucb_score for aid, arm in self._arms.items()}
             key = max(scores, key=lambda k: cast(float, scores[k]))
@@ -1052,20 +1054,22 @@ class TemplateFamilyBandit:
         for key in sorted_arms:
             template_id, family_id = self._parse_arm_key(key)
             sw_arm = self._arms.get(key)
-            results.append({
-                "template_id": template_id,
-                "family_id": family_id,
-                "arm_key": key,
-                "ucb_score": scores[key],
-                "visits": sw_arm.total_pulls if sw_arm else 0,
-            })
+            results.append(
+                {
+                    "template_id": template_id,
+                    "family_id": family_id,
+                    "arm_key": key,
+                    "ucb_score": scores[key],
+                    "visits": sw_arm.total_pulls if sw_arm else 0,
+                }
+            )
             if len(results) >= k:
                 break
         return results
 
     @algo_log()
     def update(self, template_id: str, family_id: str, reward: float = 0.0, penalty: float = 0.0) -> None:
-        key = self._arm_key(template_id, family_id)
+        self._arm_key(template_id, family_id)
         sw_arm = self.ensure_arm(template_id, family_id)
         if reward > 0:
             sw_arm.update(reward)
@@ -1096,14 +1100,16 @@ class TemplateFamilyBandit:
         for key in sorted_arms[:top_k]:
             template_id, family_id = self._parse_arm_key(key)
             sw_arm = self._arms.get(key)
-            results.append({
-                "template_id": template_id,
-                "family_id": family_id,
-                "arm_key": key,
-                "ucb_score": scores[key],
-                "expectation": sw_arm.expectation if sw_arm else 0.0,
-                "visits": sw_arm.total_pulls if sw_arm else 0,
-            })
+            results.append(
+                {
+                    "template_id": template_id,
+                    "family_id": family_id,
+                    "arm_key": key,
+                    "ucb_score": scores[key],
+                    "expectation": sw_arm.expectation if sw_arm else 0.0,
+                    "visits": sw_arm.total_pulls if sw_arm else 0,
+                }
+            )
         return results
 
     @property
@@ -1151,8 +1157,7 @@ class TemplateFamilyBandit:
     def select_with_direction(self, explore_mode: bool = False, focus_area: str | None = None) -> dict[str, Any] | None:
         if focus_area:
             direction_arms = [
-                aid for aid in self._arms
-                if _TEMPLATE_DIRECTION_MAP.get(self._parse_arm_key(aid)[0]) == focus_area
+                aid for aid in self._arms if _TEMPLATE_DIRECTION_MAP.get(self._parse_arm_key(aid)[0]) == focus_area
             ]
             if direction_arms:
                 if explore_mode:
@@ -1238,7 +1243,9 @@ class TemplateFamilyBandit:
                 self.ensure_arm(template_id, family_id)
 
     def initialize_priors(self, prior_initializer: MABPriorInitializer) -> None:
-        logger.info("[DEFENSIVE_LOG] TemplateFamilyBandit::initialize_priors 开始设置 %d 个 arm 的先验", len(self._arms))
+        logger.info(
+            "[DEFENSIVE_LOG] TemplateFamilyBandit::initialize_priors 开始设置 %d 个 arm 的先验", len(self._arms)
+        )
         count = 0
         for key in list(self._arms.keys()):
             template_id, family_id = self._parse_arm_key(key)
@@ -1248,13 +1255,13 @@ class TemplateFamilyBandit:
         logger.info("[DEFENSIVE_LOG] TemplateFamilyBandit::initialize_priors 完成，共设置 %d 个先验", count)
 
 
-REWARD_VALIDATOR_PASS = getattr(settings, 'MAB_REWARD_VALIDATOR_PASS', 0.1)
-REWARD_BRAIN_SUBMIT = getattr(settings, 'MAB_REWARD_BRAIN_SUBMIT', 0.3)
-REWARD_SHARPE_05 = getattr(settings, 'MAB_REWARD_SHARPE_05', 0.5)
-REWARD_SHARPE_10 = getattr(settings, 'MAB_REWARD_SHARPE_10', 1.0)
-PENALTY_BRAIN_FAIL = getattr(settings, 'MAB_PENALTY_BRAIN_FAIL', 0.3)
-PENALTY_BRAIN_ERROR = getattr(settings, 'MAB_PENALTY_BRAIN_ERROR', 0.5)
-PENALTY_OVERUSE = getattr(settings, 'MAB_PENALTY_OVERUSE', 0.1)
+REWARD_VALIDATOR_PASS = getattr(settings, "MAB_REWARD_VALIDATOR_PASS", 0.1)
+REWARD_BRAIN_SUBMIT = getattr(settings, "MAB_REWARD_BRAIN_SUBMIT", 0.3)
+REWARD_SHARPE_05 = getattr(settings, "MAB_REWARD_SHARPE_05", 0.5)
+REWARD_SHARPE_10 = getattr(settings, "MAB_REWARD_SHARPE_10", 1.0)
+PENALTY_BRAIN_FAIL = getattr(settings, "MAB_PENALTY_BRAIN_FAIL", 0.3)
+PENALTY_BRAIN_ERROR = getattr(settings, "MAB_PENALTY_BRAIN_ERROR", 0.5)
+PENALTY_OVERUSE = getattr(settings, "MAB_PENALTY_OVERUSE", 0.1)
 
 
 def save_mab_state(
@@ -1282,7 +1289,17 @@ def save_mab_state(
 
 def load_mab_state(
     path: str | Path | None = None,
-) -> tuple[HierarchicalMAB, AssociationMatrix, dict[str, Any], dict[str, Any] | None, TemplateFamilyBandit | None, dict[str, Any] | None] | None:
+) -> (
+    tuple[
+        HierarchicalMAB,
+        AssociationMatrix,
+        dict[str, Any],
+        dict[str, Any] | None,
+        TemplateFamilyBandit | None,
+        dict[str, Any] | None,
+    ]
+    | None
+):
     path = Path(path) if path else _MAB_STATE_PATH
     if not path.exists():
         return None

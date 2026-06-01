@@ -88,6 +88,7 @@ class ToolFactory:
             )
             if not has_tool:
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(
@@ -108,6 +109,7 @@ class ToolFactory:
         tool_name = f"fix_{failure_type.lower()}_{direction.lower()}"
         tool_name = tool_name.replace(" ", "_").replace(";", "").replace(",", "")
         import re
+
         parameters = []
         param_patterns = [
             r"change\s+(\w+)\s+to\s+(\w+)",
@@ -132,10 +134,7 @@ class ToolFactory:
             try:
                 vec = await self._embed_fn(fix_logic)
                 if isinstance(vec, list):
-                    if len(vec) > 0 and isinstance(vec[0], list):
-                        embedding = vec[0]
-                    else:
-                        embedding = vec
+                    embedding = vec[0] if len(vec) > 0 and isinstance(vec[0], list) else vec
                 elif isinstance(vec, np.ndarray):
                     embedding = vec.tolist()
             except (ValueError, TypeError, OSError):
@@ -190,12 +189,14 @@ class ToolFactory:
                     decay = 0.2
                 decayed_sim = sim * decay
                 deprecated = age_days >= 60
-                results.append({
-                    "tool": tool,
-                    "similarity": round(sim, 4),
-                    "decayed_similarity": round(decayed_sim, 4),
-                    "deprecated": deprecated,
-                })
+                results.append(
+                    {
+                        "tool": tool,
+                        "similarity": round(sim, 4),
+                        "decayed_similarity": round(decayed_sim, 4),
+                        "deprecated": deprecated,
+                    }
+                )
 
             def _sim_key(item: dict[str, object]) -> float:
                 return cast(float, item["decayed_similarity"])
@@ -242,7 +243,7 @@ class ToolFactory:
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
     if norm_a == 0 or norm_b == 0:

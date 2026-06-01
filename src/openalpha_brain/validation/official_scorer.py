@@ -32,6 +32,7 @@ Usage::
     report = scorer.compute_score(metrics)
     print(f"总分: {report.overall_score:.1f} ({report.grade})")
 """
+
 from __future__ import annotations
 
 import math
@@ -40,23 +41,25 @@ from typing import Any
 
 # ── 数据结构 ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ScoreReport:
     """完整评分报告"""
-    overall_score: float       # 0-100
-    grade: str                 # A+ to F
-    breakdown: dict            # {sharpe_score, fitness_score, ...}
-    passed: bool               # overall >= threshold (默认 60)
+
+    overall_score: float  # 0-100
+    grade: str  # A+ to F
+    breakdown: dict  # {sharpe_score, fitness_score, ...}
+    passed: bool  # overall >= threshold (默认 60)
     details: str = ""
     improvement_hints: list[str] = field(default_factory=list)
 
     # 🆕 增强字段 (v1.0.0+)
-    advanced_metrics: AdvancedMetrics | None = None      # 高级指标
-    multi_layer_result: dict | None = None               # 多层评估结果
-    factor_profile: str = ""                                # 因子画像分类
+    advanced_metrics: AdvancedMetrics | None = None  # 高级指标
+    multi_layer_result: dict | None = None  # 多层评估结果
+    factor_profile: str = ""  # 因子画像分类
 
     # 🆕 策略 D 字段 (v2.0.0+)
-    icir_metrics: ICIRMetrics | None = None              # ICIR 推断指标
+    icir_metrics: ICIRMetrics | None = None  # ICIR 推断指标
     multi_faceted_reward: MultiFacetedReward | None = None  # 多面奖励
 
     def to_dict(self) -> dict:
@@ -64,10 +67,7 @@ class ScoreReport:
             "overall_score": round(self.overall_score, 2),
             "grade": self.grade,
             "passed": self.passed,
-            "breakdown": {
-                k: round(v, 2) if isinstance(v, float) else v
-                for k, v in self.breakdown.items()
-            },
+            "breakdown": {k: round(v, 2) if isinstance(v, float) else v for k, v in self.breakdown.items()},
             "details": self.details,
             "improvement_hints": self.improvement_hints,
         }
@@ -120,12 +120,13 @@ class ScoreReport:
 @dataclass
 class CheckItem:
     """单个检查项"""
+
     name: str
     value: Any
     limit: Any
     result: bool
-    severity: str = "ERROR"      # ERROR | WARNING | INFO
-    weight: float = 1.0          # 权重（用于扣分计算）
+    severity: str = "ERROR"  # ERROR | WARNING | INFO
+    weight: float = 1.0  # 权重（用于扣分计算）
 
     @property
     def passed(self) -> bool:
@@ -139,23 +140,24 @@ class AdvancedMetrics:
     当 WQ 不直接提供这些指标时，
     可从 Sharpe/Fitness/Turnover 推断或标记为 unavailable
     """
+
     # IC 系列 (信息系数)
-    ic: float | None = None           # Information Coefficient (Pearson)
-    rank_ic: float | None = None      # Rank IC (Spearman)
-    ir: float | None = None           # Information Ratio (mean_IC / std_IC)
-    icir: float | None = None         # ICIR (mean_IC * sqrt(n) / std_IC)
-    rank_icir: float | None = None    # Rank ICIR
+    ic: float | None = None  # Information Coefficient (Pearson)
+    rank_ic: float | None = None  # Rank IC (Spearman)
+    ir: float | None = None  # Information Ratio (mean_IC / std_IC)
+    icir: float | None = None  # ICIR (mean_IC * sqrt(n) / std_IC)
+    rank_icir: float | None = None  # Rank ICIR
 
     # 收益分解
     quantile_returns: dict | None = None  # {Q1: -2%, Q2: -0.5%, ..., Q5: 3%, spread: 5%}
 
     # 稳定性指标
-    win_rate: float | None = None     # 月度胜率 (>0 为正收益月份占比)
-    stability: float | None = None   # IC 时间序列稳定性 (1 - CV_IC)
+    win_rate: float | None = None  # 月度胜率 (>0 为正收益月份占比)
+    stability: float | None = None  # IC 时间序列稳定性 (1 - CV_IC)
 
     # 综合诊断
-    overall_diagnosis: str = ""          # 诊断结论 (如 "HIGH_SHARPE_LOW_FITNESS")
-    risk_level: str = "MEDIUM"         # LOW / MEDIUM / HIGH / CRITICAL
+    overall_diagnosis: str = ""  # 诊断结论 (如 "HIGH_SHARPE_LOW_FITNESS")
+    risk_level: str = "MEDIUM"  # LOW / MEDIUM / HIGH / CRITICAL
     improvement_potential: float = 0.0  # 改进潜力 (0-1, 越高越值得投入资源改进)
 
     def to_dict(self) -> dict:
@@ -190,6 +192,7 @@ class ICIRMetrics:
         predicted_fitness: 基于 ICIR 的 fitness 预测值
         confidence: 推断置信度 (0-1)
     """
+
     ic: float = 0.0
     rank_ic: float = 0.0
     ir: float = 0.0
@@ -239,6 +242,7 @@ class MultiFacetedReward:
         simplicity: 简单性惩罚 (复杂度惩罚)
         total_reward: 加权总分 (0-1)
     """
+
     signal_quality: float = 0.0
     stability: float = 0.0
     efficiency: float = 0.0
@@ -286,39 +290,39 @@ class MultiFacetedReward:
 
 # BRAIN 官方阈值（来自 alpha_checks.py）
 BRAIN_THRESHOLDS = {
-    "min_sharpe": 1.25,           # Delay >= 1 的最小 Sharpe
-    "min_sharpe_delay0": 2.0,     # Delay = 0 的最小 Sharpe
-    "min_fitness": 1.0,           # Delay >= 1 的最小 Fitness
-    "min_fitness_delay0": 1.3,    # Delay = 0 的最小 Fitness
-    "min_turnover": 0.01,         # 最小换手率 (1%)
-    "platform_max_turnover": 0.70,# 平台最大换手率 (70%)
+    "min_sharpe": 1.25,  # Delay >= 1 的最小 Sharpe
+    "min_sharpe_delay0": 2.0,  # Delay = 0 的最小 Sharpe
+    "min_fitness": 1.0,  # Delay >= 1 的最小 Fitness
+    "min_fitness_delay0": 1.3,  # Delay = 0 的最小 Fitness
+    "min_turnover": 0.01,  # 最小换手率 (1%)
+    "platform_max_turnover": 0.70,  # 平台最大换手率 (70%)
     "target_max_turnover": 0.30,  # 目标最大换手率 (30%)
-    "max_self_correlation": 0.70,# 最大自相关
+    "max_self_correlation": 0.70,  # 最大自相关
     "max_weight_concentration": 0.10,  # 最大权重集中度
-    "max_drawdown": 0.25,        # 最大回撤
-    "min_margin_bps": 4.0,       # 最小利润率 (bps)
+    "max_drawdown": 0.25,  # 最大回撤
+    "min_margin_bps": 4.0,  # 最小利润率 (bps)
 }
 
 # 评分维度权重（总计 100 分）
 SCORE_WEIGHTS = {
-    "sharpe_score": 40,          # Sharpe 分数 (0-40)
-    "fitness_score": 30,         # Fitness 分数 (0-30)
-    "turnover_score": 15,        # 换手率分数 (0-15)
-    "drawdown_score": 10,        # 回撤分数 (0-10)
-    "checks_penalty": 5,         # 检查项扣分 (0-5)
+    "sharpe_score": 40,  # Sharpe 分数 (0-40)
+    "fitness_score": 30,  # Fitness 分数 (0-30)
+    "turnover_score": 15,  # 换手率分数 (0-15)
+    "drawdown_score": 10,  # 回撤分数 (0-10)
+    "checks_penalty": 5,  # 检查项扣分 (0-5)
 }
 
 # 增强版权重 (当有高级指标数据时使用)
 ENHANCED_SCORE_WEIGHTS = {
-    "sharpe_score": 30,          # 降低 (原40→30)，因为有了更细的 IC 维度
-    "fitness_score": 20,         # 降低 (原30→20)
-    "turnover_score": 12,        # 微调 (原15→12)
-    "drawdown_score": 8,         # 微调 (原10→8)
-    "checks_penalty": 5,         # 保持
+    "sharpe_score": 30,  # 降低 (原40→30)，因为有了更细的 IC 维度
+    "fitness_score": 20,  # 降低 (原30→20)
+    "turnover_score": 12,  # 微调 (原15→12)
+    "drawdown_score": 8,  # 微调 (原10→8)
+    "checks_penalty": 5,  # 保持
     # 🆕 新增维度 (当数据可用时激活)
-    "ic_score": 10,              # IC 绝对值评分
-    "icir_score": 8,             # ICIR 稳定性评分
-    "stability_score": 7,        # 时间序列稳定性
+    "ic_score": 10,  # IC 绝对值评分
+    "icir_score": 8,  # ICIR 稳定性评分
+    "stability_score": 7,  # 时间序列稳定性
 }
 
 # 评级标准
@@ -464,11 +468,11 @@ class OfficialScoringAdapter:
             passed=passed,
             details=details,
             improvement_hints=hints,
-            advanced_metrics=advanced,           # 🆕 v1.0
-            multi_layer_result=multi_layer,     # 🆕 v1.0
-            factor_profile=profile,             # 🆕 v1.0
-            icir_metrics=icir,                  # 🆕 v2.0 策略 D
-            multi_faceted_reward=mfr,           # 🆕 v2.0 策略 D
+            advanced_metrics=advanced,  # 🆕 v1.0
+            multi_layer_result=multi_layer,  # 🆕 v1.0
+            factor_profile=profile,  # 🆕 v1.0
+            icir_metrics=icir,  # 🆕 v2.0 策略 D
+            multi_faceted_reward=mfr,  # 🆕 v2.0 策略 D
         )
 
     def grade(self, overall_score: float) -> str:
@@ -601,9 +605,7 @@ class OfficialScoringAdapter:
     # 辅助方法
     # ══════════════════════════════════════════════════════════════════════
 
-    def _generate_improvement_hints(
-        self, metrics: dict, breakdown: dict
-    ) -> list[str]:
+    def _generate_improvement_hints(self, metrics: dict, breakdown: dict) -> list[str]:
         """生成改进建议（来自 official_scoring.py _generate_improvement_hints）"""
         hints = []
 
@@ -617,27 +619,19 @@ class OfficialScoringAdapter:
         if breakdown.get("sharpe_score", 0) < 25:
             if sharpe < 1.25:
                 hints.append(
-                    f"Sharpe ({sharpe:.2f}) 低于 BRAIN 最低要求 (1.25)。"
-                    "建议: 缩短衰减窗口、更换 universe、添加风险控制"
+                    f"Sharpe ({sharpe:.2f}) 低于 BRAIN 最低要求 (1.25)。建议: 缩短衰减窗口、更换 universe、添加风险控制"
                 )
             elif sharpe < 1.75:
                 hints.append(
-                    f"Sharpe ({sharpe:.2f}) 未达理想水平。"
-                    "考虑: 使用 ts_decay_linear 替代 ts_mean、优化信号组合"
+                    f"Sharpe ({sharpe:.2f}) 未达理想水平。考虑: 使用 ts_decay_linear 替代 ts_mean、优化信号组合"
                 )
 
         # Fitness 建议
         if breakdown.get("fitness_score", 0) < 18:
             if fitness < 1.0:
-                hints.append(
-                    f"Fitness ({fitness:.2f}) 低于阈值。"
-                    "建议: 降低换手率以提高 returns/turnover 比值"
-                )
+                hints.append(f"Fitness ({fitness:.2f}) 低于阈值。建议: 降低换手率以提高 returns/turnover 比值")
             else:
-                hints.append(
-                    f"Fitness ({fitness:.2f}) 有提升空间。"
-                    "尝试: 增加窗口长度、减少频繁触发信号"
-                )
+                hints.append(f"Fitness ({fitness:.2f}) 有提升空间。尝试: 增加窗口长度、减少频繁触发信号")
 
         # Turnover 建议
         if breakdown.get("turnover_score", 0) < 12:
@@ -647,16 +641,12 @@ class OfficialScoringAdapter:
                     "建议: 使用更长窗口 (ts_mean, ts_decay_linear)、降低信号频率"
                 )
             elif turnover < 0.05:
-                hints.append(
-                    f"换手率 ({turnover:.1%}) 过低。"
-                    "可能信号过于平滑或触发条件过严"
-                )
+                hints.append(f"换手率 ({turnover:.1%}) 过低。可能信号过于平滑或触发条件过严")
 
         # Drawdown 建议
         if breakdown.get("drawdown_score", 0) < 6:
             hints.append(
-                f"回撤 ({drawdown:.1%}) 较大。"
-                "建议: 添加 group_neutralize(subindustry)、使用 winsorize、增加止损机制"
+                f"回撤 ({drawdown:.1%}) 较大。建议: 添加 group_neutralize(subindustry)、使用 winsorize、增加止损机制"
             )
 
         # 检查项失败建议
@@ -695,7 +685,9 @@ class OfficialScoringAdapter:
 
         failed_count = sum(1 for c in checks if not c.get("result", True))
         total_count = len(checks)
-        parts.append(f"Checks={total_count - failed_count}/{total_count} passed → {breakdown.get('checks_penalty', 0):.1f}/5")
+        parts.append(
+            f"Checks={total_count - failed_count}/{total_count} passed → {breakdown.get('checks_penalty', 0):.1f}/5"
+        )
 
         return "; ".join(parts)
 
@@ -722,7 +714,7 @@ class OfficialScoringAdapter:
         sharpe = float(metrics.get("sharpe", 0))
         fitness = float(metrics.get("fitness", 0))
         turnover = max(float(metrics.get("turnover", 0.01)), 0.01)  # 避免除零
-        returns = float(metrics.get("returns", 0))
+        float(metrics.get("returns", 0))
 
         result = ICIRMetrics()
 
@@ -748,7 +740,7 @@ class OfficialScoringAdapter:
             # Sharpe 高时 IR 也倾向于高
             ir_from_sharpe = min(sharpe / 1.5, 2.0)
             # 加权平均
-            estimated_ir = (base_ir * 0.6 + ir_from_sharpe * 0.4)
+            estimated_ir = base_ir * 0.6 + ir_from_sharpe * 0.4
             result.ir = round(estimated_ir, 4)
 
         # ── ICIR 计算 ──
@@ -872,11 +864,11 @@ class OfficialScoringAdapter:
         # ── Total Reward ──
         # 加权求和 (simplicity 是惩罚项)
         reward.total_reward = (
-            weights["signal_quality"] * reward.signal_quality +
-            weights["stability"] * reward.stability +
-            weights["efficiency"] * reward.efficiency +
-            weights["uniqueness"] * reward.uniqueness -
-            weights["simplicity"] * reward.simplicity
+            weights["signal_quality"] * reward.signal_quality
+            + weights["stability"] * reward.stability
+            + weights["efficiency"] * reward.efficiency
+            + weights["uniqueness"] * reward.uniqueness
+            - weights["simplicity"] * reward.simplicity
         )
         reward.total_reward = max(0.0, min(1.0, reward.total_reward))
 
@@ -906,10 +898,17 @@ class OfficialScoringAdapter:
 
         # 非价格字段加分
         unique_fields = [
-            'earnings', 'sales', 'revenue', 'cap',
-            'analyst', 'estimate', 'guidance',
-            'institutional', 'short_interest',
-            'options', 'implied',
+            "earnings",
+            "sales",
+            "revenue",
+            "cap",
+            "analyst",
+            "estimate",
+            "guidance",
+            "institutional",
+            "short_interest",
+            "options",
+            "implied",
         ]
         for field in unique_fields:
             if field in expr_lower:
@@ -918,9 +917,15 @@ class OfficialScoringAdapter:
 
         # 罕见算子加分
         rare_operators = [
-            'ts_regression', 'ts_av_diff', 'ts_corr',
-            'ts_skewness', 'ts_kurtosis', 'ts_product',
-            'signed_power', 'tanh', 'sigmoid',
+            "ts_regression",
+            "ts_av_diff",
+            "ts_corr",
+            "ts_skewness",
+            "ts_kurtosis",
+            "ts_product",
+            "signed_power",
+            "tanh",
+            "sigmoid",
         ]
         rare_count = sum(1 for op in rare_operators if op in expr_lower)
         uniqueness += min(rare_count * 0.05, 0.15)
@@ -970,10 +975,10 @@ class OfficialScoringAdapter:
         max_nesting = 0
         current_nesting = 0
         for char in expr:
-            if char == '(':
+            if char == "(":
                 current_nesting += 1
                 max_nesting = max(max_nesting, current_nesting)
-            elif char == ')':
+            elif char == ")":
                 current_nesting -= 1
 
         if max_nesting > 6:
@@ -985,7 +990,8 @@ class OfficialScoringAdapter:
 
         # 算子数量惩罚
         import re
-        operators = re.findall(r'ts_\w+|rank|group_neutralize|tanh|sigmoid|signed_power', expr_lower := expr.lower())
+
+        operators = re.findall(r"ts_\w+|rank|group_neutralize|tanh|sigmoid|signed_power", _expr_lower := expr.lower())
         operator_count = len(set(operators))  # 去重后的算子数量
         if operator_count > 8:
             penalty += 0.2
@@ -1201,6 +1207,7 @@ class OfficialScoringAdapter:
         # 假设 n=60 (约5年月度数据), std_IC ≈ IC/IR
         if advanced.ic and advanced.ir and advanced.ir > 0:
             import math
+
             n_periods = 60  # 假设 5 年月度数据
             std_ic_estimated = abs(advanced.ic) / advanced.ir
             if std_ic_estimated > 0:
@@ -1213,10 +1220,11 @@ class OfficialScoringAdapter:
         # 经验公式: win_rate ≈ norm.cdf(sharpe / sqrt(12)) 的近似
         if sharpe > 0:
             import math
+
             # 使用近似: P(X>0) 当 X~N(μ,σ), μ=sharpe/sqrt(12), σ=1
             z_score = sharpe / math.sqrt(12)
             # 近似标准正态 CDF
-            win_rate_approx = 1.0 / (1.0 + math.exp(-0.07056 * z_score ** 3 - 1.5976 * z_score))
+            win_rate_approx = 1.0 / (1.0 + math.exp(-0.07056 * z_score**3 - 1.5976 * z_score))
             advanced.win_rate = round(win_rate_approx, 3)
 
         # ── Stability 推断 ──
@@ -1353,6 +1361,7 @@ class OfficialScoringAdapter:
 
 
 # ── 便捷函数 ──────────────────────────────────────────────────────────────
+
 
 def quick_score(sharpe: float, fitness: float, turnover: float, **kwargs) -> ScoreReport:
     """快速评分函数（简化接口）"""

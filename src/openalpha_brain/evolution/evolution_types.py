@@ -15,11 +15,13 @@ class AlphaTrajectory:
     final_sharpe: float | None = None
 
     def add_decision(self, decision_type: str, chosen: str, alternatives: list[str]) -> None:
-        self.decision_points.append({
-            "type": decision_type,
-            "chosen": chosen,
-            "alternatives": alternatives,
-        })
+        self.decision_points.append(
+            {
+                "type": decision_type,
+                "chosen": chosen,
+                "alternatives": alternatives,
+            }
+        )
 
     def add_expression_version(self, expression: str) -> None:
         self.expression_versions.append(expression)

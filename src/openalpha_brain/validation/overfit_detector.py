@@ -6,6 +6,7 @@ from openalpha_brain.config.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class OverfitResult:
     is_overfit: bool = False
@@ -22,10 +23,11 @@ class OverfitResult:
     def __post_init__(self):
         pass
 
-_IS_OS_DECAY_SEVERE = getattr(settings, 'OVERFIT_IS_OS_DECAY_SEVERE', 0.5)
-_IS_OS_DECAY_WARNING = getattr(settings, 'OVERFIT_IS_OS_DECAY_WARNING', 0.7)
-_YEARLY_SHARPE_CV_SEVERE = getattr(settings, 'OVERFIT_YEARLY_SHARPE_CV_SEVERE', 1.0)
-_YEARLY_SHARPE_CV_WARNING = getattr(settings, 'OVERFIT_YEARLY_SHARPE_CV_WARNING', 0.5)
+
+_IS_OS_DECAY_SEVERE = getattr(settings, "OVERFIT_IS_OS_DECAY_SEVERE", 0.5)
+_IS_OS_DECAY_WARNING = getattr(settings, "OVERFIT_IS_OS_DECAY_WARNING", 0.7)
+_YEARLY_SHARPE_CV_SEVERE = getattr(settings, "OVERFIT_YEARLY_SHARPE_CV_SEVERE", 1.0)
+_YEARLY_SHARPE_CV_WARNING = getattr(settings, "OVERFIT_YEARLY_SHARPE_CV_WARNING", 0.5)
 
 
 def detect_overfit(
@@ -48,9 +50,13 @@ def detect_overfit(
         result.is_os_decay_ratio = round(os_sharpe / is_sharpe, 4)
         if result.is_os_decay_ratio < _IS_OS_DECAY_SEVERE:
             result.is_overfit = True
-            result.warnings.append(f"IS/OS decay ratio {result.is_os_decay_ratio:.2f} < {_IS_OS_DECAY_SEVERE}: severe overfitting")
+            result.warnings.append(
+                f"IS/OS decay ratio {result.is_os_decay_ratio:.2f} < {_IS_OS_DECAY_SEVERE}: severe overfitting"
+            )
         elif result.is_os_decay_ratio < _IS_OS_DECAY_WARNING:
-            result.warnings.append(f"IS/OS decay ratio {result.is_os_decay_ratio:.2f} < {_IS_OS_DECAY_WARNING}: moderate overfitting risk")
+            result.warnings.append(
+                f"IS/OS decay ratio {result.is_os_decay_ratio:.2f} < {_IS_OS_DECAY_WARNING}: moderate overfitting risk"
+            )
 
     # Signal 2: Yearly Sharpe consistency
     if yearly_sharpes and len(yearly_sharpes) >= 2:
@@ -64,20 +70,25 @@ def detect_overfit(
                 result.yearly_sharpe_std = math.sqrt(variance)
                 result.yearly_sharpe_cv = result.yearly_sharpe_std / mean_s
                 if result.yearly_sharpe_cv > _YEARLY_SHARPE_CV_SEVERE:
-                    result.warnings.append(f"Yearly Sharpe CV {result.yearly_sharpe_cv:.2f} > {_YEARLY_SHARPE_CV_SEVERE}: highly inconsistent")
+                    result.warnings.append(
+                        f"Yearly Sharpe CV {result.yearly_sharpe_cv:.2f} > {_YEARLY_SHARPE_CV_SEVERE}: highly inconsistent"  # noqa: E501
+                    )
                     result.is_overfit = True
                 elif result.yearly_sharpe_cv > _YEARLY_SHARPE_CV_WARNING:
-                    result.warnings.append(f"Yearly Sharpe CV {result.yearly_sharpe_cv:.2f} > {_YEARLY_SHARPE_CV_WARNING}: inconsistent performance")
+                    result.warnings.append(
+                        f"Yearly Sharpe CV {result.yearly_sharpe_cv:.2f} > {_YEARLY_SHARPE_CV_WARNING}: inconsistent performance"  # noqa: E501
+                    )
 
             if mean_s > 1.0 and result.worst_year_sharpe < 0:
-                result.warnings.append(f"Year reversal: mean Sharpe {mean_s:.2f} but worst year {result.worst_year_sharpe:.2f}")
+                result.warnings.append(
+                    f"Year reversal: mean Sharpe {mean_s:.2f} but worst year {result.worst_year_sharpe:.2f}"
+                )
                 result.consistency_score = 0.5
 
     # Signal 3: Drawdown recovery analysis
     if pnl_curve and len(pnl_curve) >= 10:
         max_drawdown = 0.0
         peak = pnl_curve[0]
-        drawdown_start_idx = 0
         max_dd_duration = 0
         current_dd_start = 0
         in_drawdown = False

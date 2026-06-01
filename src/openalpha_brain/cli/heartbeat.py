@@ -3,6 +3,7 @@ OpenAlpha - Quant — Zombie Session Heartbeat Detection
 Passive timeout mechanism: record last activity timestamp,
 background task scans periodically and marks timed-out sessions as CRASHED.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,11 +14,13 @@ from openalpha_brain.core.models import SessionStatus
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL_STATUSES = frozenset({
-    SessionStatus.STOPPED,
-    SessionStatus.ERROR,
-    SessionStatus.CRASHED,
-})
+_TERMINAL_STATUSES = frozenset(
+    {
+        SessionStatus.STOPPED,
+        SessionStatus.ERROR,
+        SessionStatus.CRASHED,
+    }
+)
 
 
 class SessionHeartbeat:
@@ -60,12 +63,13 @@ class SessionHeartbeat:
             if elapsed > self._timeout_seconds:
                 logger.warning(
                     "[%s] Heartbeat timeout: no activity for %.0fs (threshold=%ds) — marking CRASHED",
-                    sid, elapsed, self._timeout_seconds,
+                    sid,
+                    elapsed,
+                    self._timeout_seconds,
                 )
                 state.status = SessionStatus.CRASHED
                 state.error_message = (
-                    f"heartbeat_timeout: no activity for {int(elapsed)}s "
-                    f"(threshold={self._timeout_seconds}s)"
+                    f"heartbeat_timeout: no activity for {int(elapsed)}s (threshold={self._timeout_seconds}s)"
                 )
                 await sm.save_session(state)
                 self._activity_times.pop(sid, None)
@@ -84,7 +88,8 @@ class SessionHeartbeat:
             if state.status not in _TERMINAL_STATUSES:
                 logger.info(
                     "[%s] Startup scan: session in non-terminal state '%s' — marking CRASHED",
-                    sid, state.status.value,
+                    sid,
+                    state.status.value,
                 )
                 state.status = SessionStatus.CRASHED
                 state.error_message = "heartbeat_timeout: stale session from previous run"
@@ -117,7 +122,8 @@ class SessionHeartbeat:
         async def _scan_loop() -> None:
             logger.info(
                 "Heartbeat background scan started (interval=%ds, timeout=%ds)",
-                self._scan_interval_seconds, self._timeout_seconds,
+                self._scan_interval_seconds,
+                self._timeout_seconds,
             )
             while True:
                 await asyncio.sleep(self._scan_interval_seconds)
@@ -127,7 +133,8 @@ class SessionHeartbeat:
                     logger.error("Heartbeat scan failed", exc_info=True)
 
         self._background_task = asyncio.create_task(
-            _scan_loop(), name="heartbeat-scan",
+            _scan_loop(),
+            name="heartbeat-scan",
         )
 
     def stop_background_task(self) -> None:

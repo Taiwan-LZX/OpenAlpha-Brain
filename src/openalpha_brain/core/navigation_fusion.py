@@ -33,18 +33,19 @@ Usage:
         "classifier_weight": 0.3,
         "aligner_weight": 0.3,
     })
-    
+
     result = fusion.fuse(
         mab_output=MABOutput(...),
         classifier_output=ClassifierOutput(...),
         aligner_output=AlignerOutput(...),
         cycle_num=42,
     )
-    
+
     print(result.final_direction)     # "momentum"
     print(result.confidence)           # 0.78
     print(result.weight_distribution)   # {"mab": 0.45, "classifier": 0.28, "aligner": 0.27}
 """
+
 from __future__ import annotations
 
 import logging
@@ -57,19 +58,21 @@ logger = logging.getLogger(__name__)
 
 class FusionStrategy(Enum):
     """融合策略"""
+
     WEIGHTED_AVERAGE = "weighted_average"  # 加权平均 (默认)
-    MAJORITY_VOTE = "majority_vote"        # 多数投票
+    MAJORITY_VOTE = "majority_vote"  # 多数投票
     CONFIDENCE_WEIGHTED = "confidence_weighted"  # 置信度加权
-    WINNER_TAKES_ALL = "winner_takes_all"    # 最高置信度胜出
+    WINNER_TAKES_ALL = "winner_takes_all"  # 最高置信度胜出
 
 
 @dataclass
 class MABOutput:
     """MAB (TemplateFamilyBandit) 输出"""
-    selected_family: str = ""           # 选中的模板家族 (momentum/reversal/mean_reversion等)
+
+    selected_family: str = ""  # 选中的模板家族 (momentum/reversal/mean_reversion等)
     weight_vector: dict[str, float] = field(default_factory=dict)  # 完整权重向量
-    confidence: float = 0.5              # UCB置信度或exploitation概率
-    exploration_rate: float = 0.3       # 当前探索率
+    confidence: float = 0.5  # UCB置信度或exploitation概率
+    exploration_rate: float = 0.3  # 当前探索率
 
     @property
     def is_valid(self) -> bool:
@@ -79,11 +82,12 @@ class MABOutput:
 @dataclass
 class ClassifierOutput:
     """StrategyClassifier 输出"""
-    direction: str = ""                  # 主导方向
-    confidence: float = 0.5              # 分类置信度
-    market_state: str = ""               # 市场状态 (trending/ranging/volatile)
-    is_ambiguous: bool = False          # 是否模糊/不确定
-    is_tied: bool = False                # 是否平局
+
+    direction: str = ""  # 主导方向
+    confidence: float = 0.5  # 分类置信度
+    market_state: str = ""  # 市场状态 (trending/ranging/volatile)
+    is_ambiguous: bool = False  # 是否模糊/不确定
+    is_tied: bool = False  # 是否平局
     calibration_details: dict = field(default_factory=dict)  # LLM校准详情
 
     @property
@@ -94,11 +98,12 @@ class ClassifierOutput:
 @dataclass
 class AlignerOutput:
     """HypothesisAligner 输出"""
-    alignment_level: str = ""            # 对齐等级 (aligned/weak/contradictory)
-    r2_score: float = 0.0               # R² 对齐分数
-    offset_magnitude: float = 0.0       # 偏移量大小
-    suggested_adjustment: str = ""       # 建议的方向调整
-    diagnosis: str = ""                  # 诊断信息
+
+    alignment_level: str = ""  # 对齐等级 (aligned/weak/contradictory)
+    r2_score: float = 0.0  # R² 对齐分数
+    offset_magnitude: float = 0.0  # 偏移量大小
+    suggested_adjustment: str = ""  # 建议的方向调整
+    diagnosis: str = ""  # 诊断信息
 
     @property
     def is_valid(self) -> bool:
@@ -123,12 +128,13 @@ class AlignerOutput:
 @dataclass
 class FusionResult:
     """融合结果"""
-    final_direction: str = ""            # 最终探索方向
-    confidence: float = 0.0              # 融合后综合置信度 (0-1)
+
+    final_direction: str = ""  # 最终探索方向
+    confidence: float = 0.0  # 融合后综合置信度 (0-1)
     strategy: FusionStrategy = FusionStrategy.WEIGHTED_AVERAGE
     weight_distribution: dict[str, float] = field(default_factory=dict)
     raw_votes: dict[str, str] = field(default_factory=dict)  # 各模块原始投票
-    disagreement_score: float = 0.0      # 模块间不一致程度 (0-1, 高=冲突)
+    disagreement_score: float = 0.0  # 模块间不一致程度 (0-1, 高=冲突)
     processing_time_ms: float = 0.0
     metadata: dict = field(default_factory=dict)
 
@@ -136,7 +142,7 @@ class FusionResult:
     def has_consensus(self) -> bool:
         """三个模块是否达成一致"""
         votes = list(self.raw_votes.values())
-        unique_votes = set(v for v in votes if v)
+        unique_votes = {v for v in votes if v}
         return len(unique_votes) == 1 or self.disagreement_score < 0.3
 
     def to_log_dict(self) -> dict:
@@ -170,10 +176,10 @@ class NavigationFusion:
             "aligner": 0.3,
         },
         "fusion_strategy": "weighted_average",
-        "min_confidence_threshold": 0.3,    # 低于此值的模块降权
-        "disagreement_penalty": 0.15,        # 不一致时的惩罚系数
-        "history_window": 20,               # 历史成功率计算窗口
-        "adaptive_enabled": True,           # 是否启用自适应权重调整
+        "min_confidence_threshold": 0.3,  # 低于此值的模块降权
+        "disagreement_penalty": 0.15,  # 不一致时的惩罚系数
+        "history_window": 20,  # 历史成功率计算窗口
+        "adaptive_enabled": True,  # 是否启用自适应权重调整
     }
 
     def __init__(
@@ -214,14 +220,10 @@ class NavigationFusion:
         result.raw_votes = votes
 
         # Step 2: 检测可用性和有效性
-        availability = self._check_availability(
-            mab_output, classifier_output, aligner_output
-        )
+        availability = self._check_availability(mab_output, classifier_output, aligner_output)
 
         # Step 3: 计算动态权重
-        weights = self._compute_dynamic_weights(
-            mab_output, classifier_output, aligner_output, availability
-        )
+        weights = self._compute_dynamic_weights(mab_output, classifier_output, aligner_output, availability)
         result.weight_distribution = weights
 
         # Step 4: 检测不一致性
@@ -232,9 +234,7 @@ class NavigationFusion:
         result.strategy = strategy
 
         if strategy == FusionStrategy.WEIGHTED_AVERAGE:
-            final_dir, conf = self._weighted_average_fuse(
-                votes, weights, availability
-            )
+            final_dir, conf = self._weighted_average_fuse(votes, weights, availability)
         elif strategy == FusionStrategy.CONFIDENCE_WEIGHTED:
             final_dir, conf = self._confidence_weighted_fuse(
                 votes, mab_output, classifier_output, aligner_output, availability
@@ -256,8 +256,7 @@ class NavigationFusion:
         }
 
         logger.info(
-            "[FUSION] ◆ RESULT | cycle=%d direction=%s confidence=%.3f "
-            "disagreement=%.3f consensus=%s weights=%s",
+            "[FUSION] ◆ RESULT | cycle=%d direction=%s confidence=%.3f disagreement=%.3f consensus=%s weights=%s",
             cycle_num,
             final_dir,
             conf,
@@ -268,8 +267,7 @@ class NavigationFusion:
 
         if not result.has_consensus and result.disagreement_score > 0.6:
             logger.warning(
-                "[FUSION] ⚠ HIGH DISAGREEMENT | cycle=%d score=%.3f "
-                "votes=%s",
+                "[FUSION] ⚠ HIGH DISAGREEMENT | cycle=%d score=%.3f votes=%s",
                 cycle_num,
                 result.disagreement_score,
                 votes,
@@ -341,13 +339,13 @@ class NavigationFusion:
 
             min_conf = self.config.get("min_confidence_threshold", 0.3)
             if conf < min_conf:
-                base[module_name] *= (conf / min_conf)  # 低置信度降权
+                base[module_name] *= conf / min_conf  # 低置信度降权
 
             # 历史成功率调整 (如果启用)
             if self.config.get("adaptive_enabled", True):
                 success_rate = self._get_success_rate(module_name)
                 if success_rate is not None:
-                    base[module_name] *= (0.5 + success_rate)  # 成功率高则增权
+                    base[module_name] *= 0.5 + success_rate  # 成功率高则增权
 
         # 归一化
         total = sum(base.values())
@@ -363,6 +361,7 @@ class NavigationFusion:
             return 0.0
 
         from collections import Counter
+
         counts = Counter(valid_votes)
         most_common_count = counts.most_common(1)[0][1]
 
@@ -428,6 +427,7 @@ class NavigationFusion:
     ) -> tuple[str, float]:
         """多数投票融合"""
         from collections import Counter
+
         counter = Counter(votes.values())
 
         if not counter:

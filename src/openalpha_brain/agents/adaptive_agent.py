@@ -84,7 +84,9 @@ class AdaptiveAgentFactory:
             matching.sort(key=lambda a: (a.is_expert, a.success_count), reverse=True)
             best = matching[0]
             if best.is_expert:
-                logger.info("Expert agent %s available for %s, reusing instead of creating new", best.agent_id, failure_type)
+                logger.info(
+                    "Expert agent %s available for %s, reusing instead of creating new", best.agent_id, failure_type
+                )
             best.last_used = time.time()
             return best
 
@@ -97,7 +99,9 @@ class AdaptiveAgentFactory:
         self._agents[agent.agent_id] = agent
         return agent
 
-    def get_specialist_prompt(self, agent_type: str, expression: str, failure_info: str, agent: SpecialistAgent | None = None) -> str:
+    def get_specialist_prompt(
+        self, agent_type: str, expression: str, failure_info: str, agent: SpecialistAgent | None = None
+    ) -> str:
         base_prompt = ""
         if agent_type == "originality":
             base_prompt = _ORIGINALITY_PROMPT.format(expression=expression, failure_info=failure_info)
@@ -134,10 +138,7 @@ class AdaptiveAgentFactory:
     def cleanup_idle_agents(self, max_idle_cycles: int = 10) -> int:
         now = time.time()
         threshold = max_idle_cycles * 60
-        to_remove = [
-            aid for aid, agent in self._agents.items()
-            if (now - agent.last_used) > threshold
-        ]
+        to_remove = [aid for aid, agent in self._agents.items() if (now - agent.last_used) > threshold]
         for aid in to_remove:
             del self._agents[aid]
         return len(to_remove)

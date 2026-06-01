@@ -23,9 +23,11 @@ WQ 反馈接收、LLM 改进串联成真正的自主闭环。
                          │      → 优先提升重投   │
                          └──────────────────────┘
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -79,6 +81,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GeneratedAlpha:
     """LLM 生成的候选因子"""
+
     expression: str
     rationale: str
     strategy: str
@@ -90,6 +93,7 @@ class GeneratedAlpha:
 @dataclass
 class CycleResult:
     """单个 cycle 的结果"""
+
     cycle_num: int
     generated: int = 0
     prefiltered: int = 0
@@ -104,6 +108,7 @@ class CycleResult:
 @dataclass
 class OrchestratorStats:
     """全局统计"""
+
     total_cycles: int = 0
     total_generated: int = 0
     total_submitted: int = 0
@@ -122,6 +127,7 @@ class OrchestratorStats:
 
 class DecisionAction(Enum):
     """WQ 完成回调决策动作"""
+
     SUCCESS_PASS = "success_pass"
     IMPROVE_AND_RESUBMIT = "improve_and_resubmit"
     WEAK_IMPROVE = "weak_improve"
@@ -133,6 +139,7 @@ class DecisionAction(Enum):
 @dataclass
 class ImprovementChain:
     """改进链追踪"""
+
     original_task_id: str
     original_expression: str
     current_generation: int = 0
@@ -144,7 +151,7 @@ class ImprovementChain:
 class FeedbackLoopOrchestrator:
     """
     自循环 Alpha 挖掘管线编排器
-    
+
     职责:
     1. 调用 LLM 生成因子表达式 (IdeaAgent + FactorAgent)
     2. 通过 SignalQualityPreFilter 预筛选
@@ -153,16 +160,16 @@ class FeedbackLoopOrchestrator:
     5. 如果需要: 调用 ReflexionEngine (LLM 改进 Block A)
     6. 改进版以更高优先级重新提交
     7. 更新 MAB reward + ExperienceReplay
-    
+
     Usage:
         orchestrator = FeedbackLoopOrchestrator(
             cookies=cookies,
             slot_manager=slot_manager,
         )
         await orchestrator.start()
-        
+
         result = await orchestrator.run_one_cycle(focus_area="momentum")
-        
+
         await orchestrator.stop()
     """
 
@@ -174,7 +181,7 @@ class FeedbackLoopOrchestrator:
     ):
         """
         初始化 FeedbackLoopOrchestrator
-        
+
         Args:
             cookies: WQ 认证凭证 (httpx.Cookies)
             slot_manager: SlotManager 实例（必须已初始化）
@@ -189,10 +196,13 @@ class FeedbackLoopOrchestrator:
 
         try:
             from openalpha_brain.knowledge.field_proxy_map import get_field_proxy_map
+
             self._field_proxy_map = get_field_proxy_map()
-            logger.info("[FIELD-REC] ✓ FieldProxyMap initialized | fields=%d families=%d",
-                       self._field_proxy_map.field_count,
-                       self._field_proxy_map.family_count)
+            logger.info(
+                "[FIELD-REC] ✓ FieldProxyMap initialized | fields=%d families=%d",
+                self._field_proxy_map.field_count,
+                self._field_proxy_map.family_count,
+            )
         except (ImportError, AttributeError, RuntimeError, OSError) as exc:
             self._field_proxy_map = None
             logger.warning("[FIELD-REC] ⚠ FieldProxyMap init failed (graceful degradation): %s", exc)
@@ -207,6 +217,7 @@ class FeedbackLoopOrchestrator:
 
         try:
             from openalpha_brain.knowledge.graph_experience_db import GraphBasedExperienceDB
+
             self._graph_db = GraphBasedExperienceDB()
             self._graph_db.load()
             logger.info("[FEEDBACK] ✅ GraphBasedExperienceDB loaded successfully")
@@ -216,6 +227,7 @@ class FeedbackLoopOrchestrator:
 
         try:
             from openalpha_brain.validation.wq_expression_validator import WQExpressionValidator
+
             self._expr_validator = WQExpressionValidator()
             logger.info("[ORCH] ✓ WQExpressionValidator initialized")
         except (ImportError, AttributeError, RuntimeError, OSError) as exc:
@@ -226,6 +238,7 @@ class FeedbackLoopOrchestrator:
             from openalpha_brain.validation.official_scorer import (
                 OfficialScoringAdapter,
             )
+
             self._scorer = OfficialScoringAdapter()
             logger.info("[ORCH] ✓ OfficialScoringAdapter initialized")
         except (ImportError, AttributeError, RuntimeError, OSError) as exc:
@@ -234,6 +247,7 @@ class FeedbackLoopOrchestrator:
 
         try:
             from openalpha_brain.evolution.fitness_boost import FitnessBoostEngine
+
             self._fitness_boost = FitnessBoostEngine()
             logger.info("[ORCH] ✓ FitnessBoostEngine initialized")
         except (ImportError, AttributeError, RuntimeError, OSError) as exc:
@@ -242,6 +256,7 @@ class FeedbackLoopOrchestrator:
 
         try:
             from openalpha_brain.learning.reflection_engine import ReflectionEngine
+
             self._reflection_engine = ReflectionEngine()
             logger.info("[ORCH] ✓ ReflectionEngine initialized")
         except Exception as exc:  # noqa: BLE001
@@ -257,6 +272,7 @@ class FeedbackLoopOrchestrator:
 
         try:
             from openalpha_brain.validation.stability_guard import StabilityGuard
+
             self._stability_guard = StabilityGuard()
             logger.info("[ORCH] ✓ StabilityGuard initialized")
         except (ImportError, AttributeError, RuntimeError, OSError) as exc:
@@ -266,6 +282,7 @@ class FeedbackLoopOrchestrator:
         try:
             if AdaptiveNeutralizer is not None:
                 from openalpha_brain.data import get_data_path
+
                 exp_path = get_data_path("neutralization_experience.json")
                 self._adaptive_neutralizer = AdaptiveNeutralizer(
                     experience_path=exp_path,
@@ -334,14 +351,17 @@ class FeedbackLoopOrchestrator:
         try:
             from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
             from openalpha_brain.generation.template_reasoning_generator import TemplateReasoningGenerator
+
             self._lib = AlphaLogicLibrary()
             self._reasoning_generator = TemplateReasoningGenerator(
                 llm_call_fn=self.config.get("llm_generate_fn", llm_client.generate),
                 field_proxy_map=self._field_proxy_map,
                 alpha_logic_lib=self._lib,
             )
-            logger.info("[ORCH] ✓ TemplateReasoningGenerator initialized with %d templates",
-                        len(self._lib._three_block_templates))
+            logger.info(
+                "[ORCH] ✓ TemplateReasoningGenerator initialized with %d templates",
+                len(self._lib._three_block_templates),
+            )
         except (ImportError, AttributeError, RuntimeError) as e:
             logger.warning("[ORCH] TemplateReasoningGenerator init failed: %s (fallback to direct LLM)", e)
             self._reasoning_generator = None
@@ -350,7 +370,7 @@ class FeedbackLoopOrchestrator:
     async def start(self) -> None:
         """
         启动管线
-        
+
         - 初始化 ReflexionEngine
         - 注册 WQ 完成回调到 SlotManager
         - 初始化 MAB（延迟）
@@ -378,18 +398,16 @@ class FeedbackLoopOrchestrator:
         self.slot_manager.register_callback(self._on_wq_completion)
 
         logger.info(
-            "[ORCH] ✓ FeedbackLoopOrchestrator started | "
-            "config=%s",
-            json.dumps({
-                k: v for k, v in self.config.items()
-                if k not in ("llm_generate_fn", "llm_improve_fn")
-            }, default=str),
+            "[ORCH] ✓ FeedbackLoopOrchestrator started | config=%s",
+            json.dumps(
+                {k: v for k, v in self.config.items() if k not in ("llm_generate_fn", "llm_improve_fn")}, default=str
+            ),
         )
 
     async def stop(self) -> None:
         """
         停止管线
-        
+
         - 注销回调
         - 清理资源
         """
@@ -398,10 +416,8 @@ class FeedbackLoopOrchestrator:
 
         self._running = False
 
-        try:
+        with contextlib.suppress(ValueError):
             self.slot_manager.unregister_callback(self._on_wq_completion)
-        except ValueError:
-            pass
 
         pending_count = len(self._pending_completions)
         if pending_count > 0:
@@ -424,16 +440,16 @@ class FeedbackLoopOrchestrator:
     ) -> CycleResult:
         """
         执行一个完整的挖掘 cycle
-        
+
         流程:
           1. generate_batch() → 生成 N 个候选因子
           2. prefilter_batch() → 预筛选
           3. submit_to_slots() → 提交到 SlotManager (TIER_3 原始)
           4. (异步等待完成回调)
-        
+
         Args:
             focus_area: 策略方向 ("momentum" / "reversal" / "volatility" / ...)
-        
+
         Returns:
             CycleResult 包含本周期统计
         """
@@ -517,18 +533,18 @@ class FeedbackLoopOrchestrator:
     ) -> list[CycleResult]:
         """
         持续运行多个 cycle（主循环模式）
-        
+
         Args:
             max_cycles: 最大 cycle 数 (0=无限)
             focus_area: 策略方向
             interval_sec: cycle 间隔秒数 (None=使用配置默认值)
-        
+
         Returns:
             所有 cycle 的结果列表
         """
         results = []
         actual_interval = interval_sec or self.config.get("cycle_interval_sec", 2.0)
-        cycle_limit = max_cycles if max_cycles > 0 else float('inf')
+        cycle_limit = max_cycles if max_cycles > 0 else float("inf")
 
         logger.info(
             "[ORCH] Starting continuous mode | max_cycles=%s interval=%.1fs focus=%s",
@@ -569,10 +585,10 @@ class FeedbackLoopOrchestrator:
     ) -> None:
         eid = None
         t0 = time.perf_counter()
-        try:
-            eid = await self._tel.record_enter("FeedbackOrchestrator", cycle_id=self._cycle_num, expr_id=hash(slot_info.expression) % 10000)
-        except (OSError, ValueError, RuntimeError):
-            pass
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            eid = await self._tel.record_enter(
+                "FeedbackOrchestrator", cycle_id=self._cycle_num, expr_id=hash(slot_info.expression) % 10000
+            )
 
         self._result_router.update_cycle_num(self._cycle_num)
 
@@ -628,27 +644,44 @@ class FeedbackLoopOrchestrator:
 
         elif decision == DecisionAction.IMPROVE_AND_RESUBMIT:
             await self._handle_improvement(
-                slot_info, brain_result, expression, task_id,
+                slot_info,
+                brain_result,
+                expression,
+                task_id,
             )
 
         elif decision == DecisionAction.WEAK_IMPROVE:
             await self._handle_weak_improve(
-                slot_info, brain_result, expression, task_id, sharpe,
+                slot_info,
+                brain_result,
+                expression,
+                task_id,
+                sharpe,
             )
 
         elif decision == DecisionAction.REPAIR_AND_RETRY:
             await self._handle_repair_retry(
-                slot_info, brain_result, expression, task_id, sharpe,
+                slot_info,
+                brain_result,
+                expression,
+                task_id,
+                sharpe,
             )
 
         elif decision == DecisionAction.WEAK_SIGNAL_RECORD:
             await self._handle_weak_signal(
-                slot_info, brain_result, expression, sharpe,
+                slot_info,
+                brain_result,
+                expression,
+                sharpe,
             )
 
         elif decision == DecisionAction.NOISE_PENALIZE:
             await self._handle_noise(
-                slot_info, brain_result, expression, sharpe,
+                slot_info,
+                brain_result,
+                expression,
+                sharpe,
             )
 
         completion_event = self._pending_completions.get(task_id)
@@ -656,9 +689,19 @@ class FeedbackLoopOrchestrator:
             completion_event.set()
             try:
                 ms = (time.perf_counter() - t0) * 1000
-                _fitness = getattr(parsed_result, 'fitness', 0) or 0.0
-                _turnover = getattr(brain_result, 'turnover', None) or 0
-                await self._tel.record_exit("FeedbackOrchestrator", eid, metrics={"sharpe": round(sharpe, 3), "fitness": round(_fitness, 3), "turnover": round(float(_turnover), 2) if _turnover else 0, "decision": decision.value}, duration_ms=ms)
+                _fitness = getattr(parsed_result, "fitness", 0) or 0.0
+                _turnover = getattr(brain_result, "turnover", None) or 0
+                await self._tel.record_exit(
+                    "FeedbackOrchestrator",
+                    eid,
+                    metrics={
+                        "sharpe": round(sharpe, 3),
+                        "fitness": round(_fitness, 3),
+                        "turnover": round(float(_turnover), 2) if _turnover else 0,
+                        "decision": decision.value,
+                    },
+                    duration_ms=ms,
+                )
             except (OSError, ValueError, RuntimeError):
                 pass
 
@@ -690,18 +733,17 @@ class FeedbackLoopOrchestrator:
         Returns:
             (decision, reason) 元组
         """
-        eid = None
-        t0 = time.perf_counter()
-        try:
-            eid = self._tel.record_enter_sync("FeedbackOrchestrator", cycle_id=self._cycle_num, expr_id=hash(str(sharpe)) % 10000)
-        except (OSError, ValueError, RuntimeError):
-            pass
+        time.perf_counter()
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            self._tel.record_enter_sync(
+                "FeedbackOrchestrator", cycle_id=self._cycle_num, expr_id=hash(str(sharpe)) % 10000
+            )
         pass_threshold = self.config["sharpe_pass_threshold"]
         improve_threshold = self.config["sharpe_improve_threshold"]
         weak_improve_threshold = self.config["weak_improve_threshold"]
         repair_retry_threshold = self.config["repair_retry_threshold"]
 
-        anti_fit_penalty = (anti_fit_score is not None and anti_fit_score < 40)
+        anti_fit_penalty = anti_fit_score is not None and anti_fit_score < 40
 
         # 🆕 策略 D: 提取 ICIR 和 MFR 信息
         is_high_icir_low_fitness = False
@@ -711,14 +753,13 @@ class FeedbackLoopOrchestrator:
 
         if score_report is not None:
             # 检查 HIGH_ICIR_LOW_FITNESS
-            if hasattr(score_report, 'multi_layer_result') and score_report.multi_layer_result:
+            if hasattr(score_report, "multi_layer_result") and score_report.multi_layer_result:
                 ml_result = score_report.multi_layer_result
                 if ml_result.get("is_high_icir_low_fitness"):
                     is_high_icir_low_fitness = True
                     icir_info = ml_result.get("icir_metrics", {})
                     icir_override_reason = (
-                        f"HIGH_ICIR_LOW_FITNESS: ICIR={icir_info.get('icir', 'N/A')} "
-                        f"but Fitness < 1.0 → 强制改进路径"
+                        f"HIGH_ICIR_LOW_FITNESS: ICIR={icir_info.get('icir', 'N/A')} but Fitness < 1.0 → 强制改进路径"
                     )
 
                 # 检查 EFFICIENT_ALPHA
@@ -743,8 +784,7 @@ class FeedbackLoopOrchestrator:
         if is_high_icir_low_fitness and sharpe >= improve_threshold * 0.8:
             return (
                 DecisionAction.IMPROVE_AND_RESUBMIT,
-                f"Sharpe={sharpe:.3f} + HIGH_ICIR_LOW_FITNESS → "
-                f"强制改进 (Turnover优化优先) | {icir_override_reason}",
+                f"Sharpe={sharpe:.3f} + HIGH_ICIR_LOW_FITNESS → 强制改进 (Turnover优化优先) | {icir_override_reason}",
             )
 
         if sharpe >= improve_threshold:
@@ -797,8 +837,8 @@ class FeedbackLoopOrchestrator:
         expression: str,
     ) -> None:
         """处理成功通过的因子"""
-        sharpe = getattr(brain_result, 'sharpe', 0) or 0.0
-        alpha_id = getattr(brain_result, 'alpha_id', '') or ''
+        sharpe = getattr(brain_result, "sharpe", 0) or 0.0
+        alpha_id = getattr(brain_result, "alpha_id", "") or ""
 
         self.stats.total_passed += 1
 
@@ -813,10 +853,13 @@ class FeedbackLoopOrchestrator:
 
         if self.config.get("enable_mab_update") and self._mab:
             try:
-                reward = compute_hierarchical_reward(expression, {
-                    "sharpe": sharpe,
-                    "passed": True,
-                })
+                reward = compute_hierarchical_reward(
+                    expression,
+                    {
+                        "sharpe": sharpe,
+                        "passed": True,
+                    },
+                )
                 direction = self._extract_direction(expression)
                 self._mab.update(arm=direction, reward=reward)
                 logger.debug("[ORCH] MAB updated: direction=%s reward=%.3f", direction, reward)
@@ -839,19 +882,19 @@ class FeedbackLoopOrchestrator:
     ) -> None:
         eid = None
         t0 = time.perf_counter()
-        try:
-            eid = await self._tel.record_enter("FeedbackOrchestrator", cycle_id=self._cycle_num, expr_id=hash(expression) % 10000)
-        except (OSError, ValueError, RuntimeError):
-            pass
-        sharpe = getattr(brain_result, 'sharpe', 0) or 0.0
-        fitness = getattr(brain_result, 'fitness', 0) or 0.0
-        turnover = getattr(brain_result, 'turnover', None)
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            eid = await self._tel.record_enter(
+                "FeedbackOrchestrator", cycle_id=self._cycle_num, expr_id=hash(expression) % 10000
+            )
+        sharpe = getattr(brain_result, "sharpe", 0) or 0.0
+        fitness = getattr(brain_result, "fitness", 0) or 0.0
+        turnover = getattr(brain_result, "turnover", None)
 
         wq_feedback = {
             "sharpe": sharpe,
             "turnover": turnover,
             "fitness": fitness,
-            "checks": getattr(brain_result, 'brain_checks', []) or [],
+            "checks": getattr(brain_result, "brain_checks", []) or [],
         }
 
         if self._adaptive_neutralizer is not None and AdaptiveRecommendation is not None:
@@ -870,10 +913,11 @@ class FeedbackLoopOrchestrator:
                     "mab_adjusted": adap_rec.mab_adjusted,
                 }
                 logger.info(
-                    "[ORCH] [ADAPT-NEUT] recommendation: level=%s conf=%.2f "
-                    "forced=%s mab=%s reason=%.80s",
-                    adap_rec.recommended_level, adap_rec.confidence,
-                    adap_rec.is_forced, adap_rec.mab_adjusted,
+                    "[ORCH] [ADAPT-NEUT] recommendation: level=%s conf=%.2f forced=%s mab=%s reason=%.80s",
+                    adap_rec.recommended_level,
+                    adap_rec.confidence,
+                    adap_rec.is_forced,
+                    adap_rec.mab_adjusted,
                     adap_rec.reasoning,
                 )
                 if adap_rec.is_forced and "DOWNGRADE" in adap_rec.reasoning:
@@ -889,6 +933,7 @@ class FeedbackLoopOrchestrator:
                         self._adaptive_weights = sampling_weights
                         try:
                             from openalpha_brain.core import loop_state as _ls_module
+
                             _ls_module._adaptive_weights = sampling_weights
                         except (ImportError, AttributeError):
                             pass
@@ -919,7 +964,7 @@ class FeedbackLoopOrchestrator:
                     expression=expression,
                     brain_result=brain_result_dict,
                 )
-                diagnosis_available = getattr(reflection_result, 'llm_diagnosis_available', False)
+                diagnosis_available = getattr(reflection_result, "llm_diagnosis_available", False)
 
                 if diagnosis_available:
                     boost_context["llm_root_cause"] = reflection_result.root_cause
@@ -933,9 +978,9 @@ class FeedbackLoopOrchestrator:
                     "[REFLECTION-DIAG-FLOW] Diagnosis available=%s | "
                     "root_cause=%.60s | composite_factors=%s | stage=%s | task=%s",
                     "Yes" if diagnosis_available else "No",
-                    getattr(reflection_result, 'root_cause', '')[:60] if reflection_result else '',
-                    list(getattr(reflection_result, 'composite_factors', [])) if reflection_result else [],
-                    getattr(reflection_result, 'failure_stage', '') if reflection_result else '',
+                    getattr(reflection_result, "root_cause", "")[:60] if reflection_result else "",
+                    list(getattr(reflection_result, "composite_factors", [])) if reflection_result else [],
+                    getattr(reflection_result, "failure_stage", "") if reflection_result else "",
                     task_id,
                 )
             except Exception as refl_early_exc:  # noqa: BLE001
@@ -958,7 +1003,11 @@ class FeedbackLoopOrchestrator:
                         last_stability.get("current_stability_score", 0),
                     )
                     wq_feedback["stability_mode"] = "conservative"
-                    constraints = self._stability_guard._last_result.get("constraints") if self._stability_guard._last_result else None
+                    constraints = (
+                        self._stability_guard._last_result.get("constraints")
+                        if self._stability_guard._last_result
+                        else None
+                    )
                     if constraints:
                         wq_feedback["stability_constraints"] = constraints
                         constraint_prompt = (
@@ -969,9 +1018,7 @@ class FeedbackLoopOrchestrator:
                             f"- Reason: {constraints.get('reason', 'N/A')}\n"
                             f"Avoid drastic structural changes. Focus on parameter tuning only."
                         )
-                        wq_feedback["targeted_feedback"] = (
-                            wq_feedback.get("targeted_feedback", "") + constraint_prompt
-                        )
+                        wq_feedback["targeted_feedback"] = wq_feedback.get("targeted_feedback", "") + constraint_prompt
             except (OSError, ValueError, RuntimeError) as stab_improve_exc:
                 logger.debug("[ORCH] [STABILITY] improvement check failed: %s", stab_improve_exc)
 
@@ -979,17 +1026,18 @@ class FeedbackLoopOrchestrator:
             try:
                 to_value = float(turnover) if isinstance(turnover, (int, float, str)) else None
                 to_threshold = 0.25
-                priority_reordered = False
 
                 if diagnosis_available and reflection_result:
                     cf = reflection_result.composite_factors
                     if any(f in ("turnover", "signal_weakness") for f in cf):
                         to_threshold = 0.15
-                        priority_reordered = True
                         logger.info(
                             "[REFLECTION-DIAG-FLOW] Priority reordered: TurnoverOptimizer "
                             "threshold lowered %.2f→%.2f (composite_factors=%s) | task=%s",
-                            0.25, to_threshold, cf, task_id,
+                            0.25,
+                            to_threshold,
+                            cf,
+                            task_id,
                         )
 
                 if to_value is not None and to_value > to_threshold:
@@ -1022,6 +1070,7 @@ class FeedbackLoopOrchestrator:
                             if pf_to.passed:
                                 try:
                                     from openalpha_brain.services.slot_manager import PriorityTier
+
                                     await self.slot_manager.submit_improved(
                                         expression=variant.expression,
                                         source="turnover_optimizer",
@@ -1070,7 +1119,9 @@ class FeedbackLoopOrchestrator:
             return
 
         near_pass_analysis = self._near_pass_improver.analyze(
-            sharpe=sharpe, fitness=fitness, turnover=turnover,
+            sharpe=sharpe,
+            fitness=fitness,
+            turnover=turnover,
             checks=wq_feedback.get("checks", []),
         )
 
@@ -1081,9 +1132,12 @@ class FeedbackLoopOrchestrator:
             logger.info(
                 "[ORCH] 🎯 NEAR-PASS DETECTED | task=%s sharpe=%.2f fitness=%.2f "
                 "target=%s gap(sharpe=%.2f fitness=%.2f) → trying deterministic variants first",
-                task_id, sharpe, fitness,
+                task_id,
+                sharpe,
+                fitness,
                 near_pass_analysis.primary_fix_target,
-                near_pass_analysis.sharpe_gap, near_pass_analysis.fitness_gap,
+                near_pass_analysis.sharpe_gap,
+                near_pass_analysis.fitness_gap,
             )
             variants = self._near_pass_improver.generate_deterministic_variants(
                 expression=expression,
@@ -1096,6 +1150,7 @@ class FeedbackLoopOrchestrator:
                 if pf_result.passed:
                     try:
                         from openalpha_brain.services.slot_manager import PriorityTier
+
                         await self.slot_manager.submit_improved(
                             expression=variant.expression,
                             source="near_pass_deterministic",
@@ -1105,7 +1160,8 @@ class FeedbackLoopOrchestrator:
                         submitted_count += 1
                         logger.info(
                             "[ORCH] [NEAR-PASS] Submitted variant #%d [%s] %s",
-                            submitted_count, variant.mutation_type,
+                            submitted_count,
+                            variant.mutation_type,
                             variant.expression[:60],
                         )
                     except (TimeoutError, aiohttp.ClientError, ConnectionError) as submit_exc:
@@ -1114,12 +1170,16 @@ class FeedbackLoopOrchestrator:
             if submitted_count > 0:
                 logger.info(
                     "[ORCH] [NEAR-PASS] Submitted %d deterministic variants for task=%s",
-                    submitted_count, task_id,
+                    submitted_count,
+                    task_id,
                 )
                 chain.current_generation += 1
                 self.stats.total_improved += submitted_count
 
-            if self._fitness_boost is not None and near_pass_analysis.category == NearPassCategory.SHARPE_GOOD_FITNESS_POOR:
+            if (
+                self._fitness_boost is not None
+                and near_pass_analysis.category == NearPassCategory.SHARPE_GOOD_FITNESS_POOR
+            ):
                 try:
                     logger.info(
                         "[REFLECTION-DIAG-FLOW] Root cause passed to FitnessBoost: %s | task=%s",
@@ -1140,6 +1200,7 @@ class FeedbackLoopOrchestrator:
                         if pf_fb.passed:
                             try:
                                 from openalpha_brain.services.slot_manager import PriorityTier
+
                                 await self.slot_manager.submit_improved(
                                     expression=fv.expression,
                                     source="fitness_boost",
@@ -1149,8 +1210,10 @@ class FeedbackLoopOrchestrator:
                                 fb_submitted += 1
                                 logger.info(
                                     "[ORCH] [FITNESS-BOOST] #%d [%s] Δ=%.3f %s",
-                                    fb_submitted, fv.boost_tier,
-                                    fv.expected_fitness_delta, fv.expression[:60],
+                                    fb_submitted,
+                                    fv.boost_tier,
+                                    fv.expected_fitness_delta,
+                                    fv.expression[:60],
                                 )
                             except (TimeoutError, aiohttp.ClientError, ConnectionError) as fb_exc:
                                 logger.warning("[ORCH] [FITNESS-BOOST] Submit failed: %s", fb_exc)
@@ -1159,7 +1222,8 @@ class FeedbackLoopOrchestrator:
                         logger.info(
                             "[ORCH] [FITNESS-BOOST] Submitted %d fitness-boosted variants | "
                             "bottleneck=%s best_Δ=%.3f | task=%s",
-                            fb_submitted, fb_result.analysis_summary,
+                            fb_submitted,
+                            fb_result.analysis_summary,
                             fb_result.best_variant().expected_fitness_delta if fb_result.best_variant() else 0,
                             task_id,
                         )
@@ -1185,7 +1249,7 @@ class FeedbackLoopOrchestrator:
                 )
 
                 if similar_experiences:
-                    similarity_scores = [exp.get('similarity', 0) for exp in similar_experiences]
+                    similarity_scores = [exp.get("similarity", 0) for exp in similar_experiences]
                     logger.info(
                         "[EXPERIENCE] 📚 Found %d experiences | similarity range=[%.2f, %.2f] avg=%.2f",
                         len(similar_experiences),
@@ -1214,13 +1278,15 @@ class FeedbackLoopOrchestrator:
 
                     if improved_expr:
                         chain.current_generation += 1
-                        chain.improvements.append({
-                            "gen": chain.current_generation,
-                            "from_sharpe": sharpe,
-                            "expression": improved_expr,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                            "strategy": "llm_enhanced_with_experience",
-                        })
+                        chain.improvements.append(
+                            {
+                                "gen": chain.current_generation,
+                                "from_sharpe": sharpe,
+                                "expression": improved_expr,
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "strategy": "llm_enhanced_with_experience",
+                            }
+                        )
                         self.stats.total_improved += 1
                         self.stats.total_improvement_attempts += 1
 
@@ -1326,12 +1392,15 @@ class FeedbackLoopOrchestrator:
                     logger.warning(
                         "[REFLECTION] ⚠ HIGH_ICIR_LOW_FITNESS DETECTED | task=%s "
                         "sharpe=%.2f fitness=%.2f turnover=%.2f%% → specialized analysis",
-                        task_id, sharpe, fitness, float(turnover) * 100,
+                        task_id,
+                        sharpe,
+                        fitness,
+                        float(turnover) * 100,
                     )
 
                     targeted_hypothesis = (
                         f"Signal strength is good (Sharpe={sharpe:.2f}) but execution cost is too high "
-                        f"(Fitness={fitness:.2f}, Turnover={float(turnover)*100:.1f}%). "
+                        f"(Fitness={fitness:.2f}, Turnover={float(turnover) * 100:.1f}%). "
                         f"Root cause: high-frequency trading signal without proper smoothing. "
                         f"Recommended fix: apply ts_decay_linear(window=10-20) or increase lookback periods."
                     )
@@ -1367,13 +1436,15 @@ class FeedbackLoopOrchestrator:
 
                         if improved_expr:
                             chain.current_generation += 1
-                            chain.improvements.append({
-                                "gen": chain.current_generation,
-                                "from_sharpe": sharpe,
-                                "expression": improved_expr,
-                                "timestamp": datetime.now(UTC).isoformat(),
-                                "strategy": "reflection_enhanced_specialized",
-                            })
+                            chain.improvements.append(
+                                {
+                                    "gen": chain.current_generation,
+                                    "from_sharpe": sharpe,
+                                    "expression": improved_expr,
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                    "strategy": "reflection_enhanced_specialized",
+                                }
+                            )
                             self.stats.total_improved += 1
                             self.stats.total_improvement_attempts += 1
 
@@ -1428,13 +1499,15 @@ class FeedbackLoopOrchestrator:
 
                     if improved_expr:
                         chain.current_generation += 1
-                        chain.improvements.append({
-                            "gen": chain.current_generation,
-                            "from_sharpe": sharpe,
-                            "expression": improved_expr,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                            "strategy": "reflection_enhanced",
-                        })
+                        chain.improvements.append(
+                            {
+                                "gen": chain.current_generation,
+                                "from_sharpe": sharpe,
+                                "expression": improved_expr,
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "strategy": "reflection_enhanced",
+                            }
+                        )
                         self.stats.total_improved += 1
                         self.stats.total_improvement_attempts += 1
 
@@ -1474,17 +1547,21 @@ class FeedbackLoopOrchestrator:
 
         if improved_expr:
             chain.current_generation += 1
-            chain.improvements.append({
-                "gen": chain.current_generation,
-                "from_sharpe": sharpe,
-                "expression": improved_expr,
-                "timestamp": datetime.now(UTC).isoformat(),
-            })
+            chain.improvements.append(
+                {
+                    "gen": chain.current_generation,
+                    "from_sharpe": sharpe,
+                    "expression": improved_expr,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
             self.stats.total_improved += 1
             self.stats.total_improvement_attempts += 1
             try:
                 ms = (time.perf_counter() - t0) * 1000
-                await self._tel.record_exit("FeedbackOrchestrator", eid, metrics={"improvement_path_taken": "completed"}, duration_ms=ms)
+                await self._tel.record_exit(
+                    "FeedbackOrchestrator", eid, metrics={"improvement_path_taken": "completed"}, duration_ms=ms
+                )
             except (OSError, ValueError, RuntimeError):
                 pass
 
@@ -1539,7 +1616,7 @@ class FeedbackLoopOrchestrator:
     ) -> None:
         """
         处理弱改进信号 (0 ≤ Sharpe < 0.8)
-        
+
         策略:
           - 信号方向可能正确，但强度不足
           - 给 LLM 1 次改进机会（生成 targeted feedback）
@@ -1560,10 +1637,7 @@ class FeedbackLoopOrchestrator:
             )
             self._improvement_chains[task_id] = chain
 
-        weak_improve_count = sum(
-            1 for imp in chain.improvements
-            if imp.get("decision_type") == "WEAK_IMPROVE"
-        )
+        weak_improve_count = sum(1 for imp in chain.improvements if imp.get("decision_type") == "WEAK_IMPROVE")
 
         max_attempts = self.config.get("max_weak_improve_attempts", 1)
 
@@ -1578,23 +1652,29 @@ class FeedbackLoopOrchestrator:
 
         wq_metrics = {
             "sharpe": sharpe,
-            "turnover": getattr(brain_result, 'turnover', None) or 0,
-            "fitness": getattr(brain_result, 'fitness', None) or 0,
-            "ic_mean": getattr(brain_result, 'ic_mean', 0) or 0,
-            "ic_ir": getattr(brain_result, 'ic_ir', 0) or 0,
+            "turnover": getattr(brain_result, "turnover", None) or 0,
+            "fitness": getattr(brain_result, "fitness", None) or 0,
+            "ic_mean": getattr(brain_result, "ic_mean", 0) or 0,
+            "ic_ir": getattr(brain_result, "ic_ir", 0) or 0,
         }
-        checks = getattr(brain_result, 'brain_checks', []) or []
+        checks = getattr(brain_result, "brain_checks", []) or []
 
         if self._mutation_engine is not None:
             diagnosis = self._mutation_engine.diagnose(expression, wq_metrics, checks)
             mutation_prompt = self._mutation_engine.generate_mutation_prompt(
-                diagnosis, expression,
+                diagnosis,
+                expression,
                 inspiration_exprs=self._get_inspiration_exprs(),
             )
         else:
             from openalpha_brain.evolution.mutation_engine import Diagnosis, MutationStrategy
-            diagnosis = Diagnosis(strategy=MutationStrategy.REGENERATE_FULL, reason="mutation_engine_unavailable", composite_score=30)
-            mutation_prompt = f"Generate a new alpha expression based on: {expression}. Ensure >=5 operators, cross-family fields."
+
+            diagnosis = Diagnosis(
+                strategy=MutationStrategy.REGENERATE_FULL, reason="mutation_engine_unavailable", composite_score=30
+            )
+            mutation_prompt = (
+                f"Generate a new alpha expression based on: {expression}. Ensure >=5 operators, cross-family fields."
+            )
 
         logger.info(
             "[ORCH] 🧬 MUTATION-ENGINE DIAGNOSIS | task=%s strategy=%s reason=%s",
@@ -1627,13 +1707,15 @@ class FeedbackLoopOrchestrator:
 
         if improved_expr:
             chain.current_generation += 1
-            chain.improvements.append({
-                "gen": chain.current_generation,
-                "from_sharpe": sharpe,
-                "expression": improved_expr,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "decision_type": "WEAK_IMPROVE",
-            })
+            chain.improvements.append(
+                {
+                    "gen": chain.current_generation,
+                    "from_sharpe": sharpe,
+                    "expression": improved_expr,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "decision_type": "WEAK_IMPROVE",
+                }
+            )
             self.stats.total_improved += 1
             self.stats.total_improvement_attempts += 1
             logger.info(
@@ -1652,7 +1734,7 @@ class FeedbackLoopOrchestrator:
     ) -> None:
         """
         处理修复/重试 (-0.5 ≤ Sharpe < 0)
-        
+
         策略 (参考 QuantGPT MutationEngine):
           1. 先检查 WQ 格式错误（如 "lookback required"）
              → 如果是格式错误 → 自动修复后重新提交（不经过 LLM）
@@ -1678,10 +1760,7 @@ class FeedbackLoopOrchestrator:
             )
             self._improvement_chains[task_id] = chain
 
-        repair_count = sum(
-            1 for imp in chain.improvements
-            if imp.get("decision_type") == "REPAIR_AND_RETRY"
-        )
+        repair_count = sum(1 for imp in chain.improvements if imp.get("decision_type") == "REPAIR_AND_RETRY")
 
         max_attempts = self.config.get("max_repair_retry_attempts", 1)
 
@@ -1694,15 +1773,15 @@ class FeedbackLoopOrchestrator:
             await self._handle_noise(slot_info, brain_result, expression, sharpe)
             return
 
-        checks = getattr(brain_result, 'brain_checks', []) or []
+        checks = getattr(brain_result, "brain_checks", []) or []
         format_error = self._detect_format_error(checks, expression)
 
         wq_metrics = {
             "sharpe": sharpe,
-            "turnover": getattr(brain_result, 'turnover', None) or 0,
-            "fitness": getattr(brain_result, 'fitness', None) or 0,
-            "ic_mean": getattr(brain_result, 'ic_mean', 0) or 0,
-            "ic_ir": getattr(brain_result, 'ic_ir', 0) or 0,
+            "turnover": getattr(brain_result, "turnover", None) or 0,
+            "fitness": getattr(brain_result, "fitness", None) or 0,
+            "ic_mean": getattr(brain_result, "ic_mean", 0) or 0,
+            "ic_ir": getattr(brain_result, "ic_ir", 0) or 0,
         }
 
         if format_error:
@@ -1714,9 +1793,9 @@ class FeedbackLoopOrchestrator:
 
             error_msgs = []
             for c in checks:
-                result_val = c.get('result')
-                if result_val is False or str(result_val).lower() in ('false', 'fail', 'failed'):
-                    error_msgs.append(str(c.get('name', '')) + ": " + str(c.get('value', '')))
+                result_val = c.get("result")
+                if result_val is False or str(result_val).lower() in ("false", "fail", "failed"):
+                    error_msgs.append(str(c.get("name", "")) + ": " + str(c.get("value", "")))
 
             repaired_expr = None
             for err_msg in error_msgs[:3]:
@@ -1758,14 +1837,16 @@ class FeedbackLoopOrchestrator:
                         )
 
                         chain.current_generation += 1
-                        chain.improvements.append({
-                            "gen": chain.current_generation,
-                            "from_sharpe": sharpe,
-                            "expression": repaired_expr,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                            "decision_type": "REPAIR_AND_RETRY",
-                            "repair_type": "auto_format_fix",
-                        })
+                        chain.improvements.append(
+                            {
+                                "gen": chain.current_generation,
+                                "from_sharpe": sharpe,
+                                "expression": repaired_expr,
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "decision_type": "REPAIR_AND_RETRY",
+                                "repair_type": "auto_format_fix",
+                            }
+                        )
 
                         logger.info(
                             "[ORCH] ✅ AUTO-REPAIRED | task=%s new_task=%s expr=%.60s...",
@@ -1780,7 +1861,8 @@ class FeedbackLoopOrchestrator:
         try:
             mutation_diagnosis = self._mutation_engine.diagnose(expression, wq_metrics, checks)
             mutation_prompt = self._mutation_engine.generate_mutation_prompt(
-                mutation_diagnosis, expression,
+                mutation_diagnosis,
+                expression,
                 inspiration_exprs=self._get_inspiration_exprs(),
             )
             logger.info(
@@ -1792,7 +1874,9 @@ class FeedbackLoopOrchestrator:
             logger.warning("[ORCH] MutationEngine diagnosis failed in repair_retry: %s", exc)
             mutation_diagnosis = None
             mutation_prompt = self._generate_mutation_based_repair_feedback(
-                expression, wq_metrics, checks,
+                expression,
+                wq_metrics,
+                checks,
             )
 
         wq_feedback = {
@@ -1819,14 +1903,16 @@ class FeedbackLoopOrchestrator:
 
         if improved_expr:
             chain.current_generation += 1
-            chain.improvements.append({
-                "gen": chain.current_generation,
-                "from_sharpe": sharpe,
-                "expression": improved_expr,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "decision_type": "REPAIR_AND_RETRY",
-                "repair_type": "llm_improve",
-            })
+            chain.improvements.append(
+                {
+                    "gen": chain.current_generation,
+                    "from_sharpe": sharpe,
+                    "expression": improved_expr,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "decision_type": "REPAIR_AND_RETRY",
+                    "repair_type": "llm_improve",
+                }
+            )
             self.stats.total_improved += 1
             self.stats.total_improvement_attempts += 1
             logger.info(
@@ -1845,26 +1931,25 @@ class FeedbackLoopOrchestrator:
     ) -> str | None:
         """
         调用 LLM 改进因子并重新提交
-        
+
         流程:
           1. 构建 Reflexion prompt (包含 wq_feedback 的具体数值)
           2. 调用 LLM (通过 llm_client.generate())
           3. 解析新表达式
           4. PreFilter 检查
           5. submit_improved() 到 SlotManager (根据 priority_tier 选择 Tier)
-        
+
         Args:
             expression: 原始因子表达式
             wq_feedback: WQ 返回的指标 {sharpe, turnover, ..., targeted_feedback, decision_type}
             improvement_gen: 当前改进代数
             original_task_id: 原任务 ID
             priority_tier: 优先级 ("TIER_1", "TIER_2", "TIER_3", None=auto)
-        
+
         Returns:
             改进后的表达式字符串，失败返回 None
         """
         decision_type = wq_feedback.get("decision_type", "IMPROVE_AND_RESUBMIT")
-        targeted_feedback = wq_feedback.get("targeted_feedback", "")
 
         logger.info(
             "[ORCH] 🔧 IMPROVING | gen=%d original_task=%s decision=%s sharpe_input=%.3f tier=%s",
@@ -1877,11 +1962,11 @@ class FeedbackLoopOrchestrator:
 
         try:
             _ft_module = __import__(
-                'openalpha_brain.services.brain_submitter',
-                fromlist=['FailureType'],
+                "openalpha_brain.services.brain_submitter",
+                fromlist=["FailureType"],
             )
             _FailureType = _ft_module.FailureType
-            _failure_value = getattr(_FailureType, 'LOW_SHARPE', None)
+            _failure_value = getattr(_FailureType, "LOW_SHARPE", None)
 
             if decision_type == "WEAK_IMPROVE":
                 failure_type_str = "WEAK_SIGNAL"
@@ -1982,10 +2067,10 @@ class FeedbackLoopOrchestrator:
     def _get_predicted_prob(self, decision_type: str) -> float:
         """
         根据决策类型返回预测通过概率
-        
+
         Args:
             decision_type: 决策类型字符串
-        
+
         Returns:
             预测通过概率 (0.0 - 1.0)
         """
@@ -2004,7 +2089,7 @@ class FeedbackLoopOrchestrator:
     ) -> str | None:
         """
         简单 LLM 改进回退方案（当 ReflexionEngine 不可用时）
-        
+
         Args:
             expression: 原始表达式
             wq_feedback: WQ 反馈数据
@@ -2015,10 +2100,11 @@ class FeedbackLoopOrchestrator:
         checks = wq_feedback.get("checks", [])
         targeted_feedback = wq_feedback.get("targeted_feedback", "")
 
-        check_str = "; ".join([
-            f"{c.get('name', '?')}={c.get('value', '?')}"
-            for c in checks if c.get('result') == 'FAIL'
-        ]) if checks else "none"
+        check_str = (
+            "; ".join([f"{c.get('name', '?')}={c.get('value', '?')}" for c in checks if c.get("result") == "FAIL"])
+            if checks
+            else "none"
+        )
 
         if decision_type == "WEAK_IMPROVE":
             improve_prompt = f"""You are a quantitative alpha factor engineer.
@@ -2216,7 +2302,6 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
         )
 
         field_rec = self._build_field_recommendation(focus_area, self._cycle_num)
-        field_rec_str = json.dumps(field_rec, ensure_ascii=False, indent=2)
 
         low_crowding_families = [
             f"{fid}: {', '.join(data['fields'][:5])}"
@@ -2354,7 +2439,7 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
                     reasoning_result = await self._reasoning_generator.generate(
                         focus_area=focus_area,
                         cycle=self._cycle_num,
-                        rag_context=getattr(self, '_last_rag_context', None),
+                        rag_context=getattr(self, "_last_rag_context", None),
                     )
 
                     expr = reasoning_result.final_expression
@@ -2368,7 +2453,11 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
                                 logger.warning("[ORCH] [EXPR-VAL] 表达式验证未通过: %s", "; ".join(errors[:3]))
                                 approved = False
                             else:
-                                logger.info("[ORCH] [EXPR-VAL] 表达式验证通过 (complexity=%.1f, tags=%s)", validation.complexity_score, ", ".join(validation.semantic_tags[:3]))
+                                logger.info(
+                                    "[ORCH] [EXPR-VAL] 表达式验证通过 (complexity=%.1f, tags=%s)",
+                                    validation.complexity_score,
+                                    ", ".join(validation.semantic_tags[:3]),
+                                )
                         except (ValueError, TypeError, SyntaxError) as val_exc:
                             logger.debug("[ORCH] [EXPR-VAL] 验证异常，跳过: %s", val_exc)
 
@@ -2380,25 +2469,34 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
                         expr[:80],
                     )
 
-                    alphas.append(GeneratedAlpha(
-                        expression=expr,
-                        rationale=reasoning_result.phase1_reasoning.get("reasoning", ""),
-                        strategy=focus_area,
-                        confidence=0.9 if approved else 0.7,
-                        raw_output=json.dumps({
-                            "phase1": reasoning_result.phase1_reasoning,
-                            "phase2": reasoning_result.phase2_mapping,
-                            "phase3": reasoning_result.phase3_expression,
-                            "phase4": reasoning_result.phase4_critique,
-                        }, ensure_ascii=False),
-                        metadata={
-                            "source": "template_reasoning",
-                            "template_id": reasoning_result.phase1_reasoning.get("selected_template"),
-                            "approved": approved,
-                            "families_used": reasoning_result.phase2_mapping.get("cross_family_check", {}).get("families_used", []),
-                            "phase4_verdict": reasoning_result.phase4_critique.get("critique", {}).get("overall_verdict", "UNKNOWN"),
-                        },
-                    ))
+                    alphas.append(
+                        GeneratedAlpha(
+                            expression=expr,
+                            rationale=reasoning_result.phase1_reasoning.get("reasoning", ""),
+                            strategy=focus_area,
+                            confidence=0.9 if approved else 0.7,
+                            raw_output=json.dumps(
+                                {
+                                    "phase1": reasoning_result.phase1_reasoning,
+                                    "phase2": reasoning_result.phase2_mapping,
+                                    "phase3": reasoning_result.phase3_expression,
+                                    "phase4": reasoning_result.phase4_critique,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            metadata={
+                                "source": "template_reasoning",
+                                "template_id": reasoning_result.phase1_reasoning.get("selected_template"),
+                                "approved": approved,
+                                "families_used": reasoning_result.phase2_mapping.get("cross_family_check", {}).get(
+                                    "families_used", []
+                                ),
+                                "phase4_verdict": reasoning_result.phase4_critique.get("critique", {}).get(
+                                    "overall_verdict", "UNKNOWN"
+                                ),
+                            },
+                        )
+                    )
 
                 except (ValueError, TypeError, OSError, RuntimeError) as e:
                     logger.warning(
@@ -2427,10 +2525,10 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     ) -> tuple[list[GeneratedAlpha], int]:
         """
         批量预筛选
-        
+
         Args:
             alphas: 生成的因子列表
-        
+
         Returns:
             (通过筛选的列表, 被过滤的数量)
         """
@@ -2460,10 +2558,10 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     ) -> int:
         """
         批量提交到 SlotManager
-        
+
         Args:
             alphas: 通过预筛选的因子列表
-        
+
         Returns:
             成功提交的数量
         """
@@ -2498,7 +2596,7 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     def set_mab(self, mab: Any) -> None:
         """
         设置 MAB 实例（用于更新奖励）
-        
+
         Args:
             mab: HierarchicalMAB 或兼容的 bandit 实例
         """
@@ -2508,7 +2606,7 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     def get_status(self) -> dict:
         """
         获取编排器当前状态
-        
+
         Returns:
             包含运行状态和统计信息的字典
         """
@@ -2531,10 +2629,7 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
             },
             "pending_completions": len(self._pending_completions),
             "active_improvement_chains": len(self._improvement_chains),
-            "config": {
-                k: v for k, v in self.config.items()
-                if k not in ("llm_generate_fn", "llm_improve_fn")
-            },
+            "config": {k: v for k, v in self.config.items() if k not in ("llm_generate_fn", "llm_improve_fn")},
         }
 
     def status_summary(self) -> str:
@@ -2582,18 +2677,18 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     def _extract_direction(self, expression: str) -> str:
         """
         从表达式中推断策略方向（简化版）
-        
+
         用于 MAB arm 选择
         """
         expr_lower = expression.lower()
 
-        if any(op in expr_lower for op in ['ts_delta', 'ts_regression']):
+        if any(op in expr_lower for op in ["ts_delta", "ts_regression"]):
             return "momentum"
-        if any(op in expr_lower for op in ['ts_mean', 'ts_decay_linear', '-']):
+        if any(op in expr_lower for op in ["ts_mean", "ts_decay_linear", "-"]):
             return "reversal"
-        if any(op in expr_lower for op in ['ts_std_dev', 'ts_av_diff', 'ts_corr']):
+        if any(op in expr_lower for op in ["ts_std_dev", "ts_av_diff", "ts_corr"]):
             return "volatility"
-        if any(fld in expr_lower for fld in ['earnings', 'sales', 'revenue', 'cap']):
+        if any(fld in expr_lower for fld in ["earnings", "sales", "revenue", "cap"]):
             return "value"
         return "unknown"
 
@@ -2603,7 +2698,6 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
         expr_lower = expression.lower()
         neutralize_count = expr_lower.count("group_neutralize")
         has_subindustry = "subindustry" in expr_lower
-        has_market = expr_lower.count("group_neutralize(") > 0 and ("market" in expr_lower)
         if neutralize_count >= 3:
             return "triple"
         if neutralize_count == 2:
@@ -2620,31 +2714,32 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
         if not checks:
             return None
 
-        failed_checks = [c for c in checks if c.get('result') == 'FAIL']
+        failed_checks = [c for c in checks if c.get("result") == "FAIL"]
 
         for check in failed_checks:
-            name = check.get('name', '').lower()
-            value = str(check.get('value', '')).lower()
+            name = check.get("name", "").lower()
+            value = str(check.get("value", "")).lower()
 
-            if 'lookback' in name and 'required' in value:
+            if "lookback" in name and "required" in value:
                 return "lookback_window_required"
-            if 'group' in name and ('neutralize' in name or 'missing' in value):
+            if "group" in name and ("neutralize" in name or "missing" in value):
                 return "missing_group_neutralize"
-            if 'operator' in name and 'invalid' in value:
+            if "operator" in name and "invalid" in value:
                 return "invalid_operator"
-            if 'field' in name and ('not found' in value or 'invalid' in value):
+            if "field" in name and ("not found" in value or "invalid" in value):
                 return "invalid_field"
-            if 'syntax' in name or 'parse' in name:
+            if "syntax" in name or "parse" in name:
                 return "syntax_error"
 
         expr_lower = expression.lower()
 
-        if 'group_neutralize' not in expr_lower:
+        if "group_neutralize" not in expr_lower:
             return "missing_group_neutralize"
 
         import re
-        if not re.search(r'ts_\w+\(\w+,\s*\d+\)', expression):
-            has_any_window = re.search(r'\w+\([^)]*,\s*\d+\)', expression)
+
+        if not re.search(r"ts_\w+\(\w+,\s*\d+\)", expression):
+            has_any_window = re.search(r"\w+\([^)]*,\s*\d+\)", expression)
             if not has_any_window:
                 return "missing_lookback_window"
 
@@ -2653,22 +2748,22 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     def _auto_repair_expression(self, expression: str, error_type: str) -> str | None:
         """
         自动修复表达式中的常见格式错误
-        
+
         Args:
             expression: 原始表达式
             error_type: 错误类型 (由 _detect_format_error 返回)
-        
+
         Returns:
             修复后的表达式，如果无法修复返回 None
         """
         import re
 
         if error_type == "lookback_window_required":
-            match = re.search(r'(ts_\w+)\(([^)]+)\)', expression)
-            if match and ',' not in match.group(2):
+            match = re.search(r"(ts_\w+)\(([^)]+)\)", expression)
+            if match and "," not in match.group(2):
                 operator = match.group(1)
                 inner = match.group(2)
-                if operator in ['ts_zscore', 'ts_std_dev', 'ts_mean', 'ts_delta']:
+                if operator in ["ts_zscore", "ts_std_dev", "ts_mean", "ts_delta"]:
                     repaired = expression.replace(
                         f"{operator}({inner})",
                         f"{operator}({inner}, 20)",
@@ -2677,14 +2772,14 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
                     return repaired
 
         elif error_type == "missing_group_neutralize":
-            if 'group_neutralize' not in expression.lower():
+            if "group_neutralize" not in expression.lower():
                 repaired = f"group_neutralize({expression}, industry)"
                 logger.debug("[ORCH] Auto-repair: wrapped with group_neutralize(..., industry)")
                 return repaired
 
         elif error_type == "syntax_error":
             try:
-                compiled = compile(expression, '<string>', 'eval')
+                compile(expression, "<string>", "eval")
                 return expression
             except SyntaxError:
                 logger.debug("[ORCH] Auto-repair: cannot fix syntax error automatically")
@@ -2696,17 +2791,17 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
     def _generate_repair_feedback(self, sharpe: float, checks: list, expression: str) -> str:
         """
         生成针对修复/重试场景的 targeted feedback (参考 QuantGPT MutationEngine)
-        
+
         策略:
           - IC 为负 (Sharpe < 0) → 反转信号方向
           - 检查失败多 → 完全重写
           - 无非线性变换 → 注入 tanh/power
-        
+
         Args:
             sharpe: 当前 Sharpe 值
             checks: WQ 检查列表
             expression: 原始表达式
-        
+
         Returns:
             targeted feedback 字符串
         """
@@ -2715,37 +2810,38 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
         if sharpe < -0.2:
             strategies.append("⚠ IC 为负值，建议反转信号方向：在整个表达式前加负号 (-expr) 或反转 rank 逻辑")
 
-        failed_checks = len([c for c in checks if c.get('result') == 'FAIL'])
+        failed_checks = len([c for c in checks if c.get("result") == "FAIL"])
         if failed_checks >= 3:
             strategies.append("⚠ 多项检查失败，建议完全重写因子逻辑，换用不同的数据字段或算子族")
 
         expr_lower = expression.lower()
-        nonlinear_operators = ['tanh', 'power', 'signed_power', 'sigmoid']
+        nonlinear_operators = ["tanh", "power", "signed_power", "sigmoid"]
         has_nonlinear = any(op in expr_lower for op in nonlinear_operators)
 
         if not has_nonlinear:
-            strategies.append("💡 缺少非线性变换，建议在 rank() 外层包裹 tanh() 或 signed_power(expr, 0.5) 提升信号区分度")
+            strategies.append(
+                "💡 缺少非线性变换，建议在 rank() 外层包裹 tanh() 或 signed_power(expr, 0.5) 提升信号区分度"
+            )
 
-        if 'ts_decay_linear' not in expr_lower:
+        if "ts_decay_linear" not in expr_lower:
             strategies.append("💡 缺少时间衰减，建议用 ts_decay_linear(expr, 5-10) 降低换手率")
 
         turnover = None
         for c in checks:
-            if 'turnover' in c.get('name', '').lower():
-                turnover = c.get('value')
+            if "turnover" in c.get("name", "").lower():
+                turnover = c.get("value")
                 break
 
         if turnover:
             try:
-                turnover_val = float(turnover.replace('%', ''))
+                turnover_val = float(turnover.replace("%", ""))
                 if turnover_val > 50:
                     strategies.append(f"⚠ 换手率过高 ({turnover_val}%)，必须增加 ts_decay_linear 或增大窗口期")
             except (ValueError, AttributeError):
                 pass
 
         base_feedback = (
-            f"Sharpe={sharpe:.3f} 为负值，因子可能存在根本性问题。\n"
-            f"诊断策略 (参考 QuantGPT MutationEngine):\n"
+            f"Sharpe={sharpe:.3f} 为负值，因子可能存在根本性问题。\n诊断策略 (参考 QuantGPT MutationEngine):\n"
         )
 
         for i, strategy in enumerate(strategies, 1):
@@ -2774,7 +2870,8 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
         try:
             diagnosis = self._mutation_engine.diagnose(expression, wq_metrics, checks)
             mutation_prompt = self._mutation_engine.generate_mutation_prompt(
-                diagnosis, expression,
+                diagnosis,
+                expression,
                 inspiration_exprs=self._get_inspiration_exprs(),
             )
 
@@ -2794,10 +2891,13 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
 
         except (ValueError, TypeError, SyntaxError) as exc:
             logger.warning(
-                "[ORCH] MutationEngine diagnosis failed, fallback to legacy: %s", exc,
+                "[ORCH] MutationEngine diagnosis failed, fallback to legacy: %s",
+                exc,
             )
             return self._generate_repair_feedback(
-                wq_metrics.get("sharpe", 0), checks, expression,
+                wq_metrics.get("sharpe", 0),
+                checks,
+                expression,
             )
 
     def _get_inspiration_exprs(self) -> list[str]:
@@ -2807,10 +2907,11 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
             List of example factor expressions (empty if none available)
         """
         try:
-            if hasattr(self, '_lib') and self._lib is not None:
-                templates = getattr(self._lib, '_three_block_templates', [])
+            if hasattr(self, "_lib") and self._lib is not None:
+                templates = getattr(self._lib, "_three_block_templates", [])
                 if templates:
                     import random
+
                     return random.sample(
                         templates,
                         min(3, len(templates)),
@@ -2831,9 +2932,7 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
 
         attempts = self.stats.total_improvement_attempts
         if attempts > 0:
-            self.stats.improvement_success_rate = (
-                self.stats.successful_improvements / attempts
-            )
+            self.stats.improvement_success_rate = self.stats.successful_improvements / attempts
 
     def _build_experience_context(self, experiences: list[dict]) -> str:
         """将查询到的经验格式化为可读的文本上下文。
@@ -2847,26 +2946,26 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
         context_parts = [f"## 📚 历史类似因子的改进经验 (Top-{len(experiences)})\n"]
 
         for idx, exp in enumerate(experiences, 1):
-            similarity = exp.get('similarity', 0)
-            expression = exp.get('expression', 'N/A')
-            wq_feedback = exp.get('wq_feedback', {})
-            improvement_result = exp.get('improvement_result', {})
+            similarity = exp.get("similarity", 0)
+            expression = exp.get("expression", "N/A")
+            wq_feedback = exp.get("wq_feedback", {})
+            improvement_result = exp.get("improvement_result", {})
 
-            original_sharpe = wq_feedback.get('sharpe', 'N/A')
-            original_fitness = wq_feedback.get('fitness', 'N/A')
-            original_turnover = wq_feedback.get('turnover', 'N/A')
+            original_sharpe = wq_feedback.get("sharpe", "N/A")
+            original_fitness = wq_feedback.get("fitness", "N/A")
+            original_turnover = wq_feedback.get("turnover", "N/A")
 
-            strategy = improvement_result.get('strategy', 'unknown')
-            new_expression = improvement_result.get('new_expression', 'N/A')
-            success = improvement_result.get('success', False)
+            strategy = improvement_result.get("strategy", "unknown")
+            new_expression = improvement_result.get("new_expression", "N/A")
+            success = improvement_result.get("success", False)
             status_icon = "✅" if success else "❌"
 
             experience_text = f"""### 经验 #{idx} (相似度: {similarity:.2f})
-- **表达式**: {expression[:100]}{'...' if len(expression) > 100 else ''}
+- **表达式**: {expression[:100]}{"..." if len(expression) > 100 else ""}
 - **原始指标**: Sharpe={original_sharpe}, Fitness={original_fitness}, Turnover={original_turnover}
 - **改进策略**: {strategy}
-- **改进后表达式**: {str(new_expression)[:80]}{'...' if new_expression and len(str(new_expression)) > 80 else ''}
-- **改进结果**: {status_icon} {'PASS' if success else 'FAIL'}"""
+- **改进后表达式**: {str(new_expression)[:80]}{"..." if new_expression and len(str(new_expression)) > 80 else ""}
+- **改进结果**: {status_icon} {"PASS" if success else "FAIL"}"""
 
             context_parts.append(experience_text)
 
@@ -2898,10 +2997,10 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
 {experience_context}
 
 ### 当前因子分析
-- **Sharpe Ratio**: {current_analysis.get('sharpe', 'N/A')}
-- **Fitness**: {current_analysis.get('fitness', 'N/A')}
-- **Category**: {current_analysis.get('category', 'N/A')}
-- **Turnover**: {current_analysis.get('turnover', 'N/A')}
+- **Sharpe Ratio**: {current_analysis.get("sharpe", "N/A")}
+- **Fitness**: {current_analysis.get("fitness", "N/A")}
+- **Category**: {current_analysis.get("category", "N/A")}
+- **Turnover**: {current_analysis.get("turnover", "N/A")}
 
 **改进建议**:
 基于以上历史经验,如果存在相似的改进成功案例,优先采用相同或类似的策略。
@@ -2936,12 +3035,13 @@ CRITICAL: All expressions MUST include group_neutralize(..., industry)."""
         turnover = wq_feedback.get("turnover")
         checks = wq_feedback.get("checks", [])
 
-        check_str = "; ".join([
-            f"{c.get('name', '?')}={c.get('value', '?')}"
-            for c in checks if c.get('result') == 'FAIL'
-        ]) if checks else "none"
+        check_str = (
+            "; ".join([f"{c.get('name', '?')}={c.get('value', '?')}" for c in checks if c.get("result") == "FAIL"])
+            if checks
+            else "none"
+        )
 
-        base_prompt = f"""You are a quantitative alpha factor engineer with access to historical improvement experiences.
+        base_prompt = f"""You are a quantitative alpha factor engineer with access to historical improvement experiences.  # noqa: E501
 The following alpha was submitted to WorldQuant BRAIN but needs improvement.
 
 ORIGINAL EXPRESSION:
@@ -2977,7 +3077,7 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
 
         try:
             raw_response = await self.config["llm_improve_fn"](
-                system_prompt="You are a quantitative alpha factor improver with historical experience. Output ONLY the improved expression.",
+                system_prompt="You are a quantitative alpha factor improver with historical experience. Output ONLY the improved expression.",  # noqa: E501
                 history=[],
                 user_msg=enhanced_prompt,
                 session_id=f"orch_improve_exp_{original_task_id}",
@@ -3120,10 +3220,11 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
         turnover = wq_feedback.get("turnover")
         checks = wq_feedback.get("checks", [])
 
-        check_str = "; ".join([
-            f"{c.get('name', '?')}={c.get('value', '?')}"
-            for c in checks if c.get("result") == "FAIL"
-        ]) if checks else "none"
+        check_str = (
+            "; ".join([f"{c.get('name', '?')}={c.get('value', '?')}" for c in checks if c.get("result") == "FAIL"])
+            if checks
+            else "none"
+        )
 
         base_prompt = f"""You are a senior quantitative alpha factor engineer with deep self-reflection capabilities.
 The following alpha was submitted to WorldQuant BRAIN and analyzed by an intelligent reflection engine.
@@ -3158,7 +3259,7 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
 
         try:
             raw_response = await self.config["llm_improve_fn"](
-                system_prompt="You are a senior quantitative alpha improver with self-reflection abilities. Output ONLY the improved expression.",
+                system_prompt="You are a senior quantitative alpha improver with self-reflection abilities. Output ONLY the improved expression.",  # noqa: E501
                 history=[],
                 user_msg=base_prompt,
                 session_id=f"orch_improve_refl_{original_task_id}",
@@ -3211,14 +3312,6 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
         """
         if self._graph_db is not None:
             try:
-                outcome_data = {
-                    "strategy": strategy,
-                    "new_expression": new_expression,
-                    "success": success,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "source": "reflection_engine",
-                }
-
                 if success:
                     logger.info(
                         "[REFLECTION] ✅ Recording SUCCESS | expr=%.50s... strategy=%s",
@@ -3244,13 +3337,13 @@ async def create_orchestrator(
 ) -> FeedbackLoopOrchestrator:
     """
     工厂函数：创建并可选启动 FeedbackLoopOrchestrator
-    
+
     Args:
         cookies: WQ 认证凭证
         slot_manager: 已初始化的 SlotManager
         config: 配置选项
         auto_start: 是否自动调用 start()
-    
+
     Returns:
         已初始化（并可选启动）的 FeedbackLoopOrchestrator 实例
     """

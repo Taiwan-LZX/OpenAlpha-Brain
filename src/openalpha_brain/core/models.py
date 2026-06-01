@@ -2,15 +2,16 @@
 OpenAlpha - Quant — Pydantic Data Models
 Single source of truth for all data shapes used across the system.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     IDLE = "IDLE"
     GENERATING = "GENERATING"
     PARSING = "PARSING"
@@ -24,16 +25,16 @@ class SessionStatus(str, Enum):
     CRASHED = "CRASHED"
 
 
-class BrainSimStatus(str, Enum):
-    PENDING  = "PENDING"
-    RUNNING  = "RUNNING"
-    PASS     = "PASS"
-    FAIL     = "FAIL"
-    ERROR    = "ERROR"
-    SKIPPED  = "SKIPPED"   # no BRAIN credentials configured
+class BrainSimStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    PASS = "PASS"
+    FAIL = "FAIL"
+    ERROR = "ERROR"
+    SKIPPED = "SKIPPED"  # no BRAIN credentials configured
 
 
-class PipelineStatus(str, Enum):
+class PipelineStatus(StrEnum):
     GENERATED = "GENERATED"
     VALIDATED = "VALIDATED"
     QUEUED = "QUEUED"
@@ -48,8 +49,9 @@ class PipelineStatus(str, Enum):
 
 class BrainSubmissionResult(BaseModel):
     """Result from submitting an alpha to WorldQuant BRAIN API."""
+
     status: BrainSimStatus = BrainSimStatus.PENDING
-    alpha_id: str | None = None       # BRAIN-assigned alpha ID
+    alpha_id: str | None = None  # BRAIN-assigned alpha ID
     real_sharpe: float | None = None
     real_fitness: float | None = None
     real_turnover: float | None = None
@@ -70,33 +72,35 @@ class BrainSubmissionResult(BaseModel):
     overfitting_warning: str | None = None
 
 
-
 class AlphaMetrics(BaseModel):
     """Estimated metrics extracted from the LLM's [3] ESTIMATED METRICS section."""
+
     sharpe_min: float | None = None
     sharpe_max: float | None = None
     fitness_min: float | None = None
     fitness_max: float | None = None
-    fitness_computed: float | None = None     # v2: computed via exact formula
-    fitness_breakdown: str | None = None      # v2: shows arithmetic
+    fitness_computed: float | None = None  # v2: computed via exact formula
+    fitness_breakdown: str | None = None  # v2: shows arithmetic
     turnover_min: float | None = None
     turnover_max: float | None = None
-    returns_pct: float | None = None          # v2: annualized returns estimate
+    returns_pct: float | None = None  # v2: annualized returns estimate
     corr_risk: str | None = None  # LOW | MEDIUM | HIGH
 
 
 class AlphaFingerprint(BaseModel):
     """6-field structural fingerprint for anti-crowding memory."""
-    dataset: str | None = None       # fundamental | price_volume | analyst | ...
-    topology: str | None = None      # additive | multiplicative | nonlinear
-    temporal: str | None = None      # short | medium | long
-    normalization: str | None = None # rank | zscore | scale | signed_power
-    direction: str | None = None     # mean-reverting | trending | regime-switching
-    neutral: str | None = None       # sector | industry
+
+    dataset: str | None = None  # fundamental | price_volume | analyst | ...
+    topology: str | None = None  # additive | multiplicative | nonlinear
+    temporal: str | None = None  # short | medium | long
+    normalization: str | None = None  # rank | zscore | scale | signed_power
+    direction: str | None = None  # mean-reverting | trending | regime-switching
+    neutral: str | None = None  # sector | industry
 
 
 class AlphaResult(BaseModel):
     """A single fully-parsed alpha that survived the validation pipeline."""
+
     alpha_id: str
     family: str | None = None
     expression: str
@@ -130,33 +134,34 @@ class AlphaResult(BaseModel):
 
 class SessionState(BaseModel):
     """Full session state — serialised to / deserialised from sessions/{id}.json."""
+
     id: str
     status: SessionStatus = SessionStatus.IDLE
     cycle: int = 0
     focus_area: str = ""
     passed_alphas: list[AlphaResult] = []
-    fingerprint_memory: list[dict] = []    # raw dicts for JSON round-trip simplicity
-    family_run_tracker: list[str] = []     # last N families generated
-    rejected_motifs: list[dict] = []       # fingerprints that caused REJECT
+    fingerprint_memory: list[dict] = []  # raw dicts for JSON round-trip simplicity
+    family_run_tracker: list[str] = []  # last N families generated
+    rejected_motifs: list[dict] = []  # fingerprints that caused REJECT
     conversation_history: list[dict] = []  # [{role, content}] for LLM context
-    mutation_count: int = 0                # mutations on the current alpha
-    brain_mutation_count: int = 0          # BRAIN improvement attempts on current alpha
+    mutation_count: int = 0  # mutations on the current alpha
+    brain_mutation_count: int = 0  # BRAIN improvement attempts on current alpha
     stop_requested: bool = False
     last_decision: str | None = None
     consecutive_same_decision: int = 0
     error_message: str | None = None
     # v2 POMDP belief-state components
-    topology_map: dict = {}               # {topology_hash: "PASSED"|"FAILED"|"CROWDED"}
-    dataset_usage: dict = {}              # {family_name: count}
-    failure_catalog: list[dict] = []      # [{fingerprint, failure_type, mutation_tried}]
-    open_frontiers: list[dict] = []       # unexplored 5-dim fingerprint combos
+    topology_map: dict = {}  # {topology_hash: "PASSED"|"FAILED"|"CROWDED"}
+    dataset_usage: dict = {}  # {family_name: count}
+    failure_catalog: list[dict] = []  # [{fingerprint, failure_type, mutation_tried}]
+    open_frontiers: list[dict] = []  # unexplored 5-dim fingerprint combos
     # v3: live activity log for UI display
-    activity_log: list[dict] = []         # [{time, type, message, detail}]
+    activity_log: list[dict] = []  # [{time, type, message, detail}]
     current_brain_alpha_id: str | None = None  # BRAIN alpha being improved
     hallucination_log: list[dict] = Field(default_factory=list)
     pipeline_queue: list[str] = []
     brain_slots: dict = {}
-    trajectories: list[dict] = []          # AlphaTrajectory snapshots from MultiAgent
+    trajectories: list[dict] = []  # AlphaTrajectory snapshots from MultiAgent
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -167,6 +172,7 @@ class StartSessionRequest(BaseModel):
 
 class ValidationResult(BaseModel):
     """Returned by every validator function."""
+
     passed: bool
     failures: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

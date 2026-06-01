@@ -90,10 +90,7 @@ class EvolutionDatabase:
             try:
                 vec = await self._embed_fn(expr)
                 if isinstance(vec, list):
-                    if len(vec) > 0 and isinstance(vec[0], list):
-                        embedding = vec[0]
-                    else:
-                        embedding = vec
+                    embedding = vec[0] if len(vec) > 0 and isinstance(vec[0], list) else vec
                 elif isinstance(vec, np.ndarray):
                     embedding = vec.tolist()
             except (ValueError, TypeError, OSError):
@@ -119,10 +116,7 @@ class EvolutionDatabase:
 
     def sample_inspiration(self, n: int = 3, min_sharpe: float = 0.5) -> list[EvolutionRecord]:
         with self._lock:
-            candidates = [
-                rec for rec in self._records.values()
-                if rec.sharpe is not None and rec.sharpe >= min_sharpe
-            ]
+            candidates = [rec for rec in self._records.values() if rec.sharpe is not None and rec.sharpe >= min_sharpe]
         if not candidates:
             with self._lock:
                 candidates = list(self._records.values())
@@ -195,7 +189,14 @@ class EvolutionDatabase:
             records = list(self._records.values())
         total = len(records)
         if total == 0:
-            return {"total": 0, "pass_count": 0, "fail_count": 0, "avg_sharpe": 0.0, "top_sharpe": 0.0, "direction_distribution": {}}
+            return {
+                "total": 0,
+                "pass_count": 0,
+                "fail_count": 0,
+                "avg_sharpe": 0.0,
+                "top_sharpe": 0.0,
+                "direction_distribution": {},
+            }
         pass_count = sum(1 for r in records if r.status == "PASS")
         fail_count = sum(1 for r in records if r.status != "PASS")
         sharpes = [r.sharpe for r in records if r.sharpe is not None]
@@ -232,7 +233,7 @@ class EvolutionDatabase:
             for r in records_with_emb:
                 if r.embedding is None:
                     continue
-                dot = sum(a * b for a, b in zip(query_vec, r.embedding))
+                dot = sum(a * b for a, b in zip(query_vec, r.embedding, strict=False))
                 norm_a = math.sqrt(sum(a * a for a in query_vec))
                 norm_b = math.sqrt(sum(b * b for b in r.embedding))
                 if norm_a == 0 or norm_b == 0:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
 import numpy as np
 
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
@@ -103,14 +105,36 @@ class ReflectionEngine:
             checks = brain_result.get("checks", [])
 
             depth = expression.count("(")
-            operators = sorted(set(_re.findall(r'\b(?:rank|ts_delta|ts_mean|ts_std|ts_max|ts_min|ts_decay_linear|ts_sum|ts_argmax|ts_argmin|ts_skewness|ts_kurtosis|ts_corr|ts_covariance|ts_product|ts_av_diff|group_neutralize|group_rank|group_zscore|log|abs|sign|pow|sigmoid|tanh|max|min|if_else|where)\b', expression)))
-            fields = sorted(set(_re.findall(r'(?:close|open|high|low|volume|vwap|returns|sharesout|cap|sales|earnings|assets|market_cap|adv\d+|bid|ask|bidask|spread|trade_\w+|sale_\w+|fundamental_\w+)\b', expression)))
-            neut_level = "subindustry" if "subindustry" in expression else ("industry" if "industry" in expression else ("market" if "market" in expression or "group_neutralize" in expression else "none"))
-            has_decay = bool(_re.search(r'ts_decay_linear', expression))
-            has_hump = bool(_re.search(r'trade_when|hump', expression, _re.IGNORECASE))
+            operators = sorted(
+                set(
+                    _re.findall(
+                        r"\b(?:rank|ts_delta|ts_mean|ts_std|ts_max|ts_min|ts_decay_linear|ts_sum|ts_argmax|ts_argmin|ts_skewness|ts_kurtosis|ts_corr|ts_covariance|ts_product|ts_av_diff|group_neutralize|group_rank|group_zscore|log|abs|sign|pow|sigmoid|tanh|max|min|if_else|where)\b",
+                        expression,
+                    )
+                )
+            )
+            fields = sorted(
+                set(
+                    _re.findall(
+                        r"(?:close|open|high|low|volume|vwap|returns|sharesout|cap|sales|earnings|assets|market_cap|adv\d+|bid|ask|bidask|spread|trade_\w+|sale_\w+|fundamental_\w+)\b",
+                        expression,
+                    )
+                )
+            )
+            neut_level = (
+                "subindustry"
+                if "subindustry" in expression
+                else (
+                    "industry"
+                    if "industry" in expression
+                    else ("market" if "market" in expression or "group_neutralize" in expression else "none")
+                )
+            )
+            has_decay = bool(_re.search(r"ts_decay_linear", expression))
+            has_hump = bool(_re.search(r"trade_when|hump", expression, _re.IGNORECASE))
 
             prompt = (
-                f"You are a WorldQuant BRAIN alpha factor diagnostic expert. Analyze why this factor failed WQ review.\n\n"
+                f"You are a WorldQuant BRAIN alpha factor diagnostic expert. Analyze why this factor failed WQ review.\n\n"  # noqa: E501
                 f"Expression: {expr_truncated}\n"
                 f"Sharpe: {sharpe} | Fitness: {fitness} | Turnover: {turnover}% | Returns: {returns_val}\n"
                 f"Check Failures: {checks}\n"
@@ -128,7 +152,9 @@ class ReflectionEngine:
 
             try:
                 response = await asyncio.wait_for(
-                    self._llm_generate_fn(system_prompt=prompt, history=[], user_msg="", session_id="reflection_diag", cycle=0),
+                    self._llm_generate_fn(
+                        system_prompt=prompt, history=[], user_msg="", session_id="reflection_diag", cycle=0
+                    ),
                     timeout=20.0,
                 )
                 logger.info("[LLM-DIAG] LLM response received (%d chars)", len(response or ""))
@@ -137,10 +163,13 @@ class ReflectionEngine:
                 if not parsed or not isinstance(parsed, dict):
                     logger.warning("[LLM-DIAG] Failed to parse valid JSON from LLM response")
                     ms = (time.perf_counter() - t0) * 1000
-                    try:
-                        await self._tel.record_exit("ReflectionEngine", eid, metrics={"diagnosis_success": False, "error": "parse_failed"}, duration_ms=ms)
-                    except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
-                        pass
+                    with contextlib.suppress(TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
+                        await self._tel.record_exit(
+                            "ReflectionEngine",
+                            eid,
+                            metrics={"diagnosis_success": False, "error": "parse_failed"},
+                            duration_ms=ms,
+                        )
                     return {}
 
                 required_keys = {"primary_failure_stage", "root_cause_analysis", "confidence"}
@@ -156,36 +185,47 @@ class ReflectionEngine:
                     "confidence": float(parsed.get("confidence", 0.0)),
                     "avoid_patterns": parsed.get("avoid_patterns", []),
                 }
-                logger.info("[LLM-DIAG] Diagnosis complete: stage=%s, confidence=%.2f", result["primary_failure_stage"], result["confidence"])
+                logger.info(
+                    "[LLM-DIAG] Diagnosis complete: stage=%s, confidence=%.2f",
+                    result["primary_failure_stage"],
+                    result["confidence"],
+                )
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("ReflectionEngine", eid, metrics={"diagnosis_success": True, "confidence": round(result["confidence"], 2)}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "ReflectionEngine",
+                        eid,
+                        metrics={"diagnosis_success": True, "confidence": round(result["confidence"], 2)},
+                        duration_ms=ms,
+                    )
                 return result
 
             except TimeoutError:
                 logger.warning("[LLM-DIAG] LLM diagnosis timed out after 20s")
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("ReflectionEngine", eid, metrics={"diagnosis_success": False, "error": "timeout"}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "ReflectionEngine",
+                        eid,
+                        metrics={"diagnosis_success": False, "error": "timeout"},
+                        duration_ms=ms,
+                    )
                 return {}
             except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 logger.warning("[LLM-DIAG] LLM diagnosis failed with exception", exc_info=True)
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("ReflectionEngine", eid, metrics={"diagnosis_success": False, "error": "exception"}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "ReflectionEngine",
+                        eid,
+                        metrics={"diagnosis_success": False, "error": "exception"},
+                        duration_ms=ms,
+                    )
                 return {}
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     await self._tel.record_error("ReflectionEngine", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     @algo_log(log_args_to_skip=("self", "brain_result", "trajectory"))
@@ -206,10 +246,16 @@ class ReflectionEngine:
                 result.failure_reason = "No BRAIN result available"
                 result.confidence = 0.1
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("ReflectionEngine", eid, metrics={"failure_stage": result.failure_stage, "llm_available": self._llm_generate_fn is not None}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "ReflectionEngine",
+                        eid,
+                        metrics={
+                            "failure_stage": result.failure_stage,
+                            "llm_available": self._llm_generate_fn is not None,
+                        },
+                        duration_ms=ms,
+                    )
                 return result
 
             status = brain_result.get("status", "")
@@ -231,11 +277,15 @@ class ReflectionEngine:
             elif sharpe > 0 and sharpe < 1.25:
                 result.failure_stage = "parameters"
                 result.failure_reason = f"Weak Sharpe ({sharpe:.2f}): signal exists but too weak"
-                result.suggested_fix = "Try different lookback windows, add volatility normalization, or combine with complementary signal"
+                result.suggested_fix = (
+                    "Try different lookback windows, add volatility normalization, or combine with complementary signal"
+                )
                 result.confidence = 0.6
             elif sharpe >= 1.25 and fitness < 1.0:
                 result.failure_stage = "turnover"
-                result.failure_reason = f"Good Sharpe ({sharpe:.2f}) but low Fitness ({fitness:.2f}), Turnover={turnover:.1f}%"
+                result.failure_reason = (
+                    f"Good Sharpe ({sharpe:.2f}) but low Fitness ({fitness:.2f}), Turnover={turnover:.1f}%"
+                )
                 result.suggested_fix = "Apply ts_decay_linear to reduce turnover, target 15-30% range"
                 result.confidence = 0.8
                 result.avoid_patterns = ["high frequency signals without smoothing"]
@@ -281,44 +331,46 @@ class ReflectionEngine:
                             result.avoid_patterns = merged_avoid
                         logger.info("[LLM-DIAG] Merged LLM diagnosis into reflection result")
                 except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
-                    logger.warning("[LLM-DIAG] LLM diagnosis integration failed, using rule-based fallback", exc_info=True)
+                    logger.warning(
+                        "[LLM-DIAG] LLM diagnosis integration failed, using rule-based fallback", exc_info=True
+                    )
 
             embedding = None
             if self._embed_fn is not None:
                 try:
                     vec = await self._embed_fn(f"{result.failure_stage} {expression}")
                     if isinstance(vec, list):
-                        if len(vec) > 0 and isinstance(vec[0], list):
-                            embedding = vec[0]
-                        else:
-                            embedding = vec
+                        embedding = vec[0] if len(vec) > 0 and isinstance(vec[0], list) else vec
                     elif isinstance(vec, np.ndarray):
                         embedding = vec.tolist()
                 except (ValueError, TypeError, OSError):
                     logger.warning("ReflectionEngine: embed failed for reflection")
 
-            self._reflections.append({
-                "expr": expression[:80],
-                "failure_stage": result.failure_stage,
-                "failure_reason": result.failure_reason,
-                "suggested_fix": result.suggested_fix,
-                "confidence": result.confidence,
-                "embedding": embedding,
-            })
+            self._reflections.append(
+                {
+                    "expr": expression[:80],
+                    "failure_stage": result.failure_stage,
+                    "failure_reason": result.failure_reason,
+                    "suggested_fix": result.suggested_fix,
+                    "confidence": result.confidence,
+                    "embedding": embedding,
+                }
+            )
             self._save()
 
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                await self._tel.record_exit("ReflectionEngine", eid, metrics={"failure_stage": result.failure_stage, "llm_available": self._llm_generate_fn is not None}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                await self._tel.record_exit(
+                    "ReflectionEngine",
+                    eid,
+                    metrics={"failure_stage": result.failure_stage, "llm_available": self._llm_generate_fn is not None},
+                    duration_ms=ms,
+                )
             return result
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     await self._tel.record_error("ReflectionEngine", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     def plan_next_iteration(
@@ -382,10 +434,10 @@ class ReflectionEngine:
                 result.critique_available = False
                 result.issues = ["LLM client not available for self-critique"]
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("ReflectionEngine", eid, metrics={"critique_available": False}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "ReflectionEngine", eid, metrics={"critique_available": False}, duration_ms=ms
+                    )
                 return result
 
             max_expr_len = 300
@@ -401,12 +453,15 @@ class ReflectionEngine:
             )
             try:
                 response = await asyncio.wait_for(
-                    self._llm_generate_fn(system_prompt=prompt, history=[], user_msg="", session_id="reflection", cycle=0),
+                    self._llm_generate_fn(
+                        system_prompt=prompt, history=[], user_msg="", session_id="reflection", cycle=0
+                    ),
                     timeout=15.0,
                 )
                 text = response or ""
                 import re as _re
-                _consistency_match = _re.search(r'(?:\*\*|\b)CONSISTENCY(?:\*\*)?\s*[:：]\s*([\d.]+)', text)
+
+                _consistency_match = _re.search(r"(?:\*\*|\b)CONSISTENCY(?:\*\*)?\s*[:：]\s*([\d.]+)", text)
                 if _consistency_match:
                     result.consistency_score = min(1.0, max(0.0, float(_consistency_match.group(1))))
                     result.critique_available = True
@@ -425,10 +480,10 @@ class ReflectionEngine:
                         result.consistency_score = 0.5
                         result.critique_available = True
 
-                _issues_match = _re.search(r'(?:\*\*|\b)ISSUES(?:\*\*)?\s*[:：]\s*(.+)', text)
+                _issues_match = _re.search(r"(?:\*\*|\b)ISSUES(?:\*\*)?\s*[:：]\s*(.+)", text)
                 if _issues_match:
                     result.issues = [s.strip() for s in _issues_match.group(1).split(",") if s.strip()]
-                _sugg_match = _re.search(r'(?:\*\*|\b)SUGGESTIONS(?:\*\*)?\s*[:：]\s*(.+)', text)
+                _sugg_match = _re.search(r"(?:\*\*|\b)SUGGESTIONS(?:\*\*)?\s*[:：]\s*(.+)", text)
                 if _sugg_match:
                     result.suggestions = [s.strip() for s in _sugg_match.group(1).split(",") if s.strip()]
             except TimeoutError:
@@ -441,17 +496,18 @@ class ReflectionEngine:
                 result.critique_available = False
 
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                await self._tel.record_exit("ReflectionEngine", eid, metrics={"critique_available": result.critique_available, "score": result.consistency_score}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                await self._tel.record_exit(
+                    "ReflectionEngine",
+                    eid,
+                    metrics={"critique_available": result.critique_available, "score": result.consistency_score},
+                    duration_ms=ms,
+                )
             return result
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     await self._tel.record_error("ReflectionEngine", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     def get_recent_reflections(self, n: int = 5) -> list[dict]:
@@ -483,7 +539,7 @@ class ReflectionEngine:
                 emb = r.get("embedding")
                 if emb is None:
                     continue
-                dot = sum(a * b for a, b in zip(query_vec, emb))
+                dot = sum(a * b for a, b in zip(query_vec, emb, strict=False))
                 norm_a = math.sqrt(sum(a * a for a in query_vec))
                 norm_b = math.sqrt(sum(b * b for b in emb))
                 if norm_a == 0 or norm_b == 0:

@@ -1,5 +1,6 @@
 import logging
 
+import aiohttp
 import httpx
 
 from openalpha_brain.services import brain_client
@@ -33,7 +34,7 @@ class BrainDataClient:
             result = await brain_client.fetch_yearly_performance(alpha_id, cookies)
             if result is not None:
                 return result
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:  # noqa: SIM105
             logger.warning("Failed to get yearly performance for %s: %s", alpha_id, e)
 
         logger.info("Falling back to alpha details for yearly performance of %s", alpha_id)
@@ -69,7 +70,7 @@ class BrainDataClient:
                         "returns": (os_returns * 100) if isinstance(os_returns, (int, float)) else None,
                     }
                     return [summary]
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             logger.warning("Fallback to alpha details also failed for %s: %s", alpha_id, e)
         return None
 
@@ -82,7 +83,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_pnl_curve(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             logger.warning("Failed to get PnL curve for %s: %s", alpha_id, e)
             return None
 
@@ -99,7 +100,7 @@ class BrainDataClient:
             result = await brain_client.fetch_correlations(alpha_id, cookies)
             if result is not None:
                 return result
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
+        except (TimeoutError, aiohttp.ClientError, ConnectionError):  # noqa: SIM105
             return None
 
     async def get_self_correlations(self, alpha_id: str) -> dict | None:
@@ -111,7 +112,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_self_correlations(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             logger.warning("Failed to get self correlations for %s: %s", alpha_id, e)
             return None
 
@@ -124,7 +125,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_prod_correlations(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError, OSError) as e:
+        except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             logger.warning("Failed to get prod correlations for %s: %s", alpha_id, e)
             return None
 
@@ -137,7 +138,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_yearly_stats(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
+        except (TimeoutError, aiohttp.ClientError, ConnectionError):  # noqa: SIM105
             return None
 
     async def get_daily_pnl(self, alpha_id: str) -> list[float] | None:
@@ -149,7 +150,7 @@ class BrainDataClient:
             self._cookies = None
             cookies = await self._ensure_client()
             return await brain_client.fetch_daily_pnl(alpha_id, cookies)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError):
+        except (TimeoutError, aiohttp.ClientError, ConnectionError):
             return None
 
 

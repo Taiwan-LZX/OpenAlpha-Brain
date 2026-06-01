@@ -134,6 +134,7 @@ def algo_log(
         func_label = label or f"{func.__module__}.{func.__qualname__}"
 
         if asyncio and inspect.iscoroutinefunction(func):
+
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 t0 = time.perf_counter()
@@ -159,6 +160,7 @@ def algo_log(
                     if log_error:
                         log_call(func_label, input=inp, elapsed_ms=elapsed, error=str(e), level=logging.WARNING)
                     raise
+
             return async_wrapper
 
         @functools.wraps(func)
@@ -186,7 +188,9 @@ def algo_log(
                 if log_error:
                     log_call(func_label, input=inp, elapsed_ms=elapsed, error=str(e), level=logging.WARNING)
                 raise
+
         return sync_wrapper
+
     return decorator
 
 

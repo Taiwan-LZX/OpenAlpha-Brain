@@ -15,6 +15,7 @@ OpenAlpha-Brain — Dynamic Skill Library（動態技能庫）
   - brain_submitter._brain_improvement_loop: 作為突變指導來源
   - 與靜態 ELM 矩陣共存，動態優先
 """
+
 from __future__ import annotations
 
 import json
@@ -32,23 +33,56 @@ _DEFAULT_SKILLS_PATH = "data/dynamic_skills.json"
 
 # 已知 BRAIN 欄位集合，用於模式辨識
 _KNOWN_FIELDS = {
-    "close", "open", "high", "low", "volume", "amount", "vwap",
-    "returns", "cap", "sharesout", "adv20", "sales", "earnings",
-    "assets", "income", "cashflow", "debt", "equity", "margin",
-    "turnover", "roa", "roe", "book_value", "market_cap",
+    "close",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "amount",
+    "vwap",
+    "returns",
+    "cap",
+    "sharesout",
+    "adv20",
+    "sales",
+    "earnings",
+    "assets",
+    "income",
+    "cashflow",
+    "debt",
+    "equity",
+    "margin",
+    "turnover",
+    "roa",
+    "roe",
+    "book_value",
+    "market_cap",
 }
 
 # 已知時間序列運算子，用於 operator_chain 提取
 _TS_OPERATORS = {
-    "ts_delta", "ts_mean", "ts_std_dev", "ts_rank", "ts_zscore",
-    "ts_decay_linear", "ts_sum", "ts_corr", "ts_regression",
-    "ts_arg_max", "ts_arg_min", "ts_delay", "ts_av_diff",
-    "ts_quantile", "ts_backfill",
+    "ts_delta",
+    "ts_mean",
+    "ts_std_dev",
+    "ts_rank",
+    "ts_zscore",
+    "ts_decay_linear",
+    "ts_sum",
+    "ts_corr",
+    "ts_regression",
+    "ts_arg_max",
+    "ts_arg_min",
+    "ts_delay",
+    "ts_av_diff",
+    "ts_quantile",
+    "ts_backfill",
 }
 
 # 已知群組運算子
 _GROUP_OPERATORS = {
-    "group_neutralize", "group_rank", "group_zscore",
+    "group_neutralize",
+    "group_rank",
+    "group_zscore",
 }
 
 # 已知正規化運算子
@@ -155,6 +189,7 @@ class DynamicSkillLibrary:
             session_id: 當前 session ID，用於日誌標記
         """
         from openalpha_brain.services import brain_client
+
         logger.info(
             "[%s] DynamicSkillLibrary: 開始從 BRAIN API 初始化技能庫...",
             session_id,
@@ -218,9 +253,7 @@ class DynamicSkillLibrary:
 
                     pattern = self.analyze_alpha_pattern(code, sharpe, fitness)
                     pattern["alpha_id"] = alpha_id
-                    pattern["is_successful"] = (
-                        sharpe is not None and sharpe >= 1.25
-                    )
+                    pattern["is_successful"] = sharpe is not None and sharpe >= 1.25
 
                     all_patterns.append(pattern)
 
@@ -334,8 +367,7 @@ class DynamicSkillLibrary:
                 if op not in _TS_OPERATORS
                 and op not in _GROUP_OPERATORS
                 and op not in _NORM_OPERATORS
-                and op
-                not in {"abs", "log", "signed_power", "max", "min", "vec_sum", "vec_avg", "quantile"}
+                and op not in {"abs", "log", "signed_power", "max", "min", "vec_sum", "vec_avg", "quantile"}
             ]
 
             chain = []
@@ -365,7 +397,8 @@ class DynamicSkillLibrary:
             fp["nesting_depth"] = max_depth
 
             neut_match = re.search(
-                r"group_neutralize\s*\([^,]+,\s*(\w+)", expression,
+                r"group_neutralize\s*\([^,]+,\s*(\w+)",
+                expression,
             )
             if neut_match:
                 fp["has_neutralization"] = True
@@ -374,7 +407,10 @@ class DynamicSkillLibrary:
                 fp["has_neutralization"] = True
                 fp["neutralization_scope"] = "industry"
 
-            has_plus = "+" in expression and not re.search(r"\+\s*[\w(]", expression.split("group_neutralize")[0] if "group_neutralize" in expression else expression)
+            has_plus = "+" in expression and not re.search(
+                r"\+\s*[\w(]",
+                expression.split("group_neutralize")[0] if "group_neutralize" in expression else expression,
+            )
             has_star = "*" in expression or "/" in expression
             has_divide = "/" in expression
 
@@ -425,11 +461,8 @@ class DynamicSkillLibrary:
         now = datetime.now(UTC).isoformat()
         skill_idx = len(self._skills)
 
-        for cluster_key, group in clusters.items():
-            if len(group) == 1:
-                centroid = group[0]
-            else:
-                centroid = self._compute_centroid(group)
+        for _cluster_key, group in clusters.items():
+            centroid = group[0] if len(group) == 1 else self._compute_centroid(group)
 
             skill_id = f"skill_{skill_idx + len(skills):03d}"
             name = self._generate_skill_name(centroid)
@@ -463,24 +496,18 @@ class DynamicSkillLibrary:
         root_ops = Counter(p.get("root_operator", "") for p in group)
         comp_types = Counter(p.get("composition_type", "") for p in group)
 
-        all_chains: list[list[str]] = [
-            p.get("operator_chain", []) for p in group if p.get("operator_chain")
-        ]
+        all_chains: list[list[str]] = [p.get("operator_chain", []) for p in group if p.get("operator_chain")]
         chain_freq: Counter[tuple[str, ...]] = Counter()
         for chain in all_chains:
             chain_freq[tuple(chain)] += 1
 
-        all_fields: list[list[str]] = [
-            p.get("fields", []) for p in group if p.get("fields")
-        ]
+        all_fields: list[list[str]] = [p.get("fields", []) for p in group if p.get("fields")]
         field_counter: Counter[str] = Counter()
         for flds in all_fields:
             for f in flds:
                 field_counter[f] += 1
 
-        all_windows: list[list[int]] = [
-            p.get("windows", []) for p in group if p.get("windows")
-        ]
+        all_windows: list[list[int]] = [p.get("windows", []) for p in group if p.get("windows")]
         window_counter: Counter[int] = Counter()
         for wins in all_windows:
             for w in wins:
@@ -577,9 +604,7 @@ class DynamicSkillLibrary:
 
         parts: list[str] = []
 
-        high_sharpe_examples = [
-            p for p in group if p.get("sharpe") is not None and p.get("sharpe", 0) >= 1.5
-        ][:2]
+        high_sharpe_examples = [p for p in group if p.get("sharpe") is not None and p.get("sharpe", 0) >= 1.5][:2]
 
         if high_sharpe_examples:
             parts.append("參考以下真實高 Sharpe alpha 的結構：")
@@ -675,9 +700,8 @@ class DynamicSkillLibrary:
             struct_diff = self._structural_diff(current_fp, sk.pattern_fingerprint)
             score += min(struct_diff * 20.0, 25.0)
 
-            if direction == "short":
-                if "reversal" in sk.name.lower() or "mean" in sk.name.lower():
-                    score += 8.0
+            if direction == "short" and ("reversal" in sk.name.lower() or "mean" in sk.name.lower()):
+                score += 8.0
 
             scored.append((score, sk))
 
@@ -765,15 +789,13 @@ class DynamicSkillLibrary:
 
         sections.append("## 🧠 動態技能庫指引（來自真實 BRAIN 成功數據）\n")
         sections.append(
-            "以下是從平台上真實高 Sharpe alpha 中自動學習到的結構模式。"
-            "請優先考慮這些經驗驗證的模式進行突變：\n",
+            "以下是從平台上真實高 Sharpe alpha 中自動學習到的結構模式。請優先考慮這些經驗驗證的模式進行突變：\n",
         )
 
         for i, sk in enumerate(skills, 1):
             stat = sk.statistics
             stats_str = (
-                f"勝率={stat.win_rate:.0%} | "
-                f"試用={stat.trial_count}次"
+                f"勝率={stat.win_rate:.0%} | 試用={stat.trial_count}次"
                 if stat.trial_count > 0
                 else "全新技能（尚未試用）"
             )
@@ -945,7 +967,8 @@ class DynamicSkillLibrary:
                     continue
 
                 sim = self._pattern_similarity(
-                    sk_a.pattern_fingerprint, sk_b.pattern_fingerprint,
+                    sk_a.pattern_fingerprint,
+                    sk_b.pattern_fingerprint,
                 )
                 if sim > 0.9:
                     merged_indices.add(j)
@@ -959,9 +982,7 @@ class DynamicSkillLibrary:
                     keep.statistics.trial_count += discard.statistics.trial_count
                     keep.statistics.success_count += discard.statistics.success_count
                     if keep.statistics.trial_count > 0:
-                        keep.statistics.win_rate = (
-                            keep.statistics.success_count / keep.statistics.trial_count
-                        )
+                        keep.statistics.win_rate = keep.statistics.success_count / keep.statistics.trial_count
 
                     logger.info(
                         "evolve_skills: 合併 %s → %s (sim=%.2f)",
@@ -1049,7 +1070,7 @@ class DynamicSkillLibrary:
         total_w = sum(weights)
         if total_w == 0:
             return 0.0
-        return sum(s * w for s, w in zip(scores, weights)) / total_w
+        return sum(s * w for s, w in zip(scores, weights, strict=False)) / total_w
 
     def _find_emerging_patterns(self, min_trials: int = 5) -> list[dict]:
         """從 pattern buffer 中找出有潛力的新興模式。"""
@@ -1098,11 +1119,7 @@ class DynamicSkillLibrary:
         """
         total = len(self._skills)
         active = sum(1 for s in self._skills if s.statistics.trial_count > 0)
-        prunable = sum(
-            1
-            for s in self._skills
-            if s.statistics.trial_count >= 10 and s.statistics.win_rate < 0.2
-        )
+        prunable = sum(1 for s in self._skills if s.statistics.trial_count >= 10 and s.statistics.win_rate < 0.2)
 
         top_skills = sorted(
             self._skills,
@@ -1198,9 +1215,7 @@ class DynamicSkillLibrary:
                 data = json.load(fh)
             if not isinstance(data, dict):
                 return
-            self._skills = [
-                Skill.from_dict(d) for d in data.get("skills", []) if isinstance(d, dict)
-            ]
+            self._skills = [Skill.from_dict(d) for d in data.get("skills", []) if isinstance(d, dict)]
             self._last_evolution = data.get("last_evolution", "")
             logger.info(
                 "DynamicSkillLibrary: 已載入 %d 個技能",

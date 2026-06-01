@@ -10,13 +10,18 @@ from openalpha_brain.config.config import settings
 
 logger = logging.getLogger(__name__)
 
-STREAM_THRESHOLD = getattr(settings, 'ALPHA_CHANNEL_STREAM_THRESHOLD', 1.0)
-BATCH_SIZE = getattr(settings, 'ALPHA_CHANNEL_BATCH_SIZE', 5)
-BATCH_TIMEOUT = getattr(settings, 'ALPHA_CHANNEL_BATCH_TIMEOUT', 30.0)
+STREAM_THRESHOLD = getattr(settings, "ALPHA_CHANNEL_STREAM_THRESHOLD", 1.0)
+BATCH_SIZE = getattr(settings, "ALPHA_CHANNEL_BATCH_SIZE", 5)
+BATCH_TIMEOUT = getattr(settings, "ALPHA_CHANNEL_BATCH_TIMEOUT", 30.0)
 
 
 class AlphaChannel:
-    def __init__(self, stream_threshold: float = STREAM_THRESHOLD, batch_size: int = BATCH_SIZE, batch_timeout: float = BATCH_TIMEOUT) -> None:
+    def __init__(
+        self,
+        stream_threshold: float = STREAM_THRESHOLD,
+        batch_size: int = BATCH_SIZE,
+        batch_timeout: float = BATCH_TIMEOUT,
+    ) -> None:
         self._stream_threshold = stream_threshold
         self._batch_size = batch_size
         self._batch_timeout = batch_timeout
@@ -32,12 +37,14 @@ class AlphaChannel:
             self._streamed += 1
             self._sharpe_stream_sum += sharpe
             return "stream"
-        self._buffer.append({
-            "alpha_id": alpha_id,
-            "sharpe": sharpe,
-            "expression": expression,
-            "direction": direction,
-        })
+        self._buffer.append(
+            {
+                "alpha_id": alpha_id,
+                "sharpe": sharpe,
+                "expression": expression,
+                "direction": direction,
+            }
+        )
         self._batched += 1
         self._sharpe_batch_sum += sharpe
         if len(self._buffer) == 1:
@@ -89,8 +96,10 @@ class AlphaChannel:
     async def shutdown(self) -> list[dict[str, Any]]:
         remaining = await self.drain()
         logger.info(
-            "AlphaChannel shutdown: streamed=%d batched=%d buffered_remaining=%d avg_stream_sharpe=%.2f avg_batch_sharpe=%.2f",
-            self._streamed, self._batched, len(remaining),
+            "AlphaChannel shutdown: streamed=%d batched=%d buffered_remaining=%d avg_stream_sharpe=%.2f avg_batch_sharpe=%.2f",  # noqa: E501
+            self._streamed,
+            self._batched,
+            len(remaining),
             self._sharpe_stream_sum / max(self._streamed, 1),
             self._sharpe_batch_sum / max(self._batched, 1),
         )
@@ -126,7 +135,7 @@ class AlphaChannelIntegrator:
             return
         total_sharpe = sum(a.get("sharpe", 0.0) for a in alphas)
         weighted_reward = total_sharpe / len(alphas)
-        directions = set(a.get("direction", "unknown") for a in alphas)
+        directions = {a.get("direction", "unknown") for a in alphas}
         expressions = [a.get("expression", "") for a in alphas if a.get("expression")]
         for direction in directions:
             await self._mab_update_fn(direction=direction, expression=";".join(expressions), reward=weighted_reward)

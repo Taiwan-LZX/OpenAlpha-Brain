@@ -16,8 +16,10 @@ Safety Constraints:
   - Auto-downgrade when Sharpe < 0.8 after neutralization
   - Mark (category, level) as forbidden when success_rate < 0.3 after 5+ trials
 """
+
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -110,12 +112,8 @@ class NeutralizationExperienceTracker:
                 exp.successes += 1
 
             n = exp.total_trials
-            exp.avg_sharpe_delta += (
-                (trial.sharpe_after - trial.sharpe_before - exp.avg_sharpe_delta) / n
-            )
-            exp.avg_fitness_delta += (
-                (trial.fitness_delta - exp.avg_fitness_delta) / n
-            )
+            exp.avg_sharpe_delta += (trial.sharpe_after - trial.sharpe_before - exp.avg_sharpe_delta) / n
+            exp.avg_fitness_delta += (trial.fitness_delta - exp.avg_fitness_delta) / n
             exp.success_rate = exp.successes / n
             exp.last_updated = trial.timestamp
 
@@ -127,17 +125,20 @@ class NeutralizationExperienceTracker:
                 exp.is_forbidden = True
                 _FORBIDDEN_PAIRS.add(key)
                 logger.warning(
-                    "[ADAPT-NEUT] [DEFENSIVE_LOG] Marking (%s, %s) as FORBIDDEN: "
-                    "success_rate=%.2f after %d trials",
-                    trial.category, trial.neutralization_level,
-                    exp.success_rate, exp.total_trials,
+                    "[ADAPT-NEUT] [DEFENSIVE_LOG] Marking (%s, %s) as FORBIDDEN: success_rate=%.2f after %d trials",
+                    trial.category,
+                    trial.neutralization_level,
+                    exp.success_rate,
+                    exp.total_trials,
                 )
 
             logger.info(
-                "[ADAPT-NEUT] Recorded trial: cat=%s lvl=%s outcome=%s "
-                "sharpe_delta=%.3f fitness_delta=%.3f sr=%.2f",
-                trial.category, trial.neutralization_level, trial.outcome,
-                trial.sharpe_after - trial.sharpe_before, trial.fitness_delta,
+                "[ADAPT-NEUT] Recorded trial: cat=%s lvl=%s outcome=%s sharpe_delta=%.3f fitness_delta=%.3f sr=%.2f",
+                trial.category,
+                trial.neutralization_level,
+                trial.outcome,
+                trial.sharpe_after - trial.sharpe_before,
+                trial.fitness_delta,
                 exp.success_rate,
             )
         except (ValueError, TypeError) as e:
@@ -153,9 +154,7 @@ class NeutralizationExperienceTracker:
         return exp
 
     @algo_log()
-    def get_best_level_for_category(
-        self, category: str, min_trials: int = 3
-    ) -> str | None:
+    def get_best_level_for_category(self, category: str, min_trials: int = 3) -> str | None:
         try:
             levels = DEFAULT_CONFIG["neutralization_levels"]
             candidates: list[tuple[str, NeutralizationExperience]] = []
@@ -171,7 +170,9 @@ class NeutralizationExperienceTracker:
             best = max(candidates, key=lambda x: x[1].avg_sharpe_delta)
             logger.info(
                 "[ADAPT-NEUT] Best level for %s: %s (avg_sharpe_delta=%.3f)",
-                category, best[0], best[1].avg_sharpe_delta,
+                category,
+                best[0],
+                best[1].avg_sharpe_delta,
             )
             return best[0]
         except (ValueError, KeyError) as e:
@@ -248,7 +249,9 @@ class NeutralizationExperienceTracker:
 
             logger.info(
                 "[ADAPT-NEUT] Loaded experience from %s (%d entries, %d forbidden)",
-                path, len(self._experiences), len(_FORBIDDEN_PAIRS),
+                path,
+                len(self._experiences),
+                len(_FORBIDDEN_PAIRS),
             )
         except (OSError, json.JSONDecodeError) as e:
             logger.error("[ADAPT-NEUT] Failed to load from disk: %s", e)
@@ -260,9 +263,7 @@ class EhsaniConditionEvaluator:
         self._rho = self._config.get("ehsani_correlation_estimate", 0.7)
 
     @algo_log()
-    def evaluate(
-        self, sharpe_raw: float, sharpe_neutralized: float, correlation: float
-    ) -> bool:
+    def evaluate(self, sharpe_raw: float, sharpe_neutralized: float, correlation: float) -> bool:
         try:
             if sharpe_raw <= 0:
                 return False
@@ -271,7 +272,9 @@ class EhsaniConditionEvaluator:
 
             logger.info(
                 "[ADAPT-NEUT] Ehsani eval: raw=%.3f neut=%.3f ratio=%.3f rho=%.3f → %s",
-                sharpe_raw, sharpe_neutralized, sr_ratio,
+                sharpe_raw,
+                sharpe_neutralized,
+                sr_ratio,
                 correlation or self._rho,
                 "APPLY" if should_apply else "SKIP",
             )
@@ -285,8 +288,12 @@ class EhsaniConditionEvaluator:
         try:
             if not historical_data:
                 defaults = {
-                    "momentum": 0.55, "value": 0.75, "volatility": 0.65,
-                    "quality": 0.80, "size": 0.70, "liquidity": 0.68,
+                    "momentum": 0.55,
+                    "value": 0.75,
+                    "volatility": 0.65,
+                    "quality": 0.80,
+                    "size": 0.70,
+                    "liquidity": 0.68,
                 }
                 return defaults.get(category, 0.7)
 
@@ -315,7 +322,7 @@ class EhsaniConditionEvaluator:
             cat_defaults = self._config.get("category_defaults", {})
             default_info = cat_defaults.get(category, {"default_level": "industry", "max_level": "subindustry"})
             default_level = default_info.get("default_level", "industry")
-            max_level = default_info.get("max_level", "subindustry")
+            default_info.get("max_level", "subindustry")
 
             best_from_exp = experience.get_best_level_for_category(category)
             if best_from_exp:
@@ -330,7 +337,8 @@ class EhsaniConditionEvaluator:
                 coarser = self._coarsen(default_level)
                 logger.info(
                     "[ADAPT-NEUT] Low Sharpe %.2f → coarsening to %s",
-                    current_sharpe, coarser,
+                    current_sharpe,
+                    coarser,
                 )
                 return coarser, confidence * 0.7
 
@@ -341,7 +349,13 @@ class EhsaniConditionEvaluator:
 
     @staticmethod
     def _coarsen(level: str) -> str:
-        order = {"triple": "double", "double": "subindustry", "subindustry": "industry", "industry": "none", "none": "none"}
+        order = {
+            "triple": "double",
+            "double": "subindustry",
+            "subindustry": "industry",
+            "industry": "none",
+            "none": "none",
+        }
         return order.get(level, "none")
 
 
@@ -355,12 +369,12 @@ class AdaptiveNeutralizer:
         self._tracker.load_from_disk(self._experience_path)
 
     @algo_log()
-    def analyze_and_recommend(
-        self, expression: str, category: str, wq_metrics: dict
-    ) -> AdaptiveRecommendation:
+    def analyze_and_recommend(self, expression: str, category: str, wq_metrics: dict) -> AdaptiveRecommendation:
         eid = None
         try:
-            eid = self._tel.record_enter_sync("AdaptiveNeutralizer", cycle_id="unknown", expr_id=hash(expression) % 10000)
+            eid = self._tel.record_enter_sync(
+                "AdaptiveNeutralizer", cycle_id="unknown", expr_id=hash(expression) % 10000
+            )
             t0 = time.perf_counter()
             expr_hash = hashlib.md5(expression.encode()).hexdigest()[:12]
             sharpe_raw = wq_metrics.get("sharpe_raw", wq_metrics.get("sharpe", 1.0))
@@ -369,12 +383,14 @@ class AdaptiveNeutralizer:
 
             cat_defaults = self._config.get("category_defaults", {})
             default_info = cat_defaults.get(category, {"default_level": "industry", "max_level": "subindustry"})
-            default_level = default_info.get("default_level", "industry")
+            default_info.get("default_level", "industry")
             max_level = default_info.get("max_level", "subindustry")
 
             apply_ehsani = self._evaluator.evaluate(sharpe_raw, sharpe_neut, correlation)
             rec_level, base_confidence = self._evaluator.recommend_level(
-                category, sharpe_neut, self._tracker,
+                category,
+                sharpe_neut,
+                self._tracker,
             )
 
             is_forced = False
@@ -388,7 +404,8 @@ class AdaptiveNeutralizer:
                 )
                 logger.warning(
                     "[ADAPT-NEUT] [DEFENSIVE_LOG] Overriding %s→%s for momentum factor",
-                    "double" if rec_level == "double" else "triple", rec_level,
+                    "double" if rec_level == "double" else "triple",
+                    rec_level,
                 )
 
             if _LEVEL_ORDER.get(rec_level, 0) > _LEVEL_ORDER.get(max_level, 2):
@@ -399,16 +416,12 @@ class AdaptiveNeutralizer:
             if sharpe_neut < 0.8:
                 rec_level = self._evaluator._coarsen(rec_level)
                 is_forced = True
-                reasoning_parts.append(
-                    f"[DEFENSIVE_LOG] Sharpe {sharpe_neut:.2f} < 0.8 → downgraded to {rec_level}"
-                )
+                reasoning_parts.append(f"[DEFENSIVE_LOG] Sharpe {sharpe_neut:.2f} < 0.8 → downgraded to {rec_level}")
 
             key = (category, rec_level)
             if key in _FORBIDDEN_PAIRS:
                 fallback = self._find_safe_fallback(category)
-                reasoning_parts.append(
-                    f"[DEFENSIVE_LOG] ({category}, {rec_level}) is FORBIDDEN → fallback {fallback}"
-                )
+                reasoning_parts.append(f"[DEFENSIVE_LOG] ({category}, {rec_level}) is FORBIDDEN → fallback {fallback}")
                 rec_level = fallback
                 is_forced = True
 
@@ -419,9 +432,7 @@ class AdaptiveNeutralizer:
                 if best_mab != rec_level and weights.get(best_mab, 0) > weights.get(rec_level, 0) * 1.5:
                     rec_level = best_mab
                     mab_adjusted = True
-                    reasoning_parts.append(
-                        f"MAB override: {best_mab} (weight={weights[best_mab]:.3f}) beats baseline"
-                    )
+                    reasoning_parts.append(f"MAB override: {best_mab} (weight={weights[best_mab]:.3f}) beats baseline")
 
             if not reasoning_parts:
                 if apply_ehsani:
@@ -430,7 +441,7 @@ class AdaptiveNeutralizer:
                     )
                 else:
                     reasoning_parts.append(
-                        f"Ehsani: SR_ratio ≥ ρ ({sharpe_neut / sharpe_raw:.3f} ≥ {correlation:.2f}) → minimal neutralization"
+                        f"Ehsani: SR_ratio ≥ ρ ({sharpe_neut / sharpe_raw:.3f} ≥ {correlation:.2f}) → minimal neutralization"  # noqa: E501
                     )
                 reasoning_parts.append(f"Experience-based: {base_confidence:.1%} confidence")
 
@@ -450,21 +461,27 @@ class AdaptiveNeutralizer:
 
             logger.info(
                 "[ADAPT-NEUT] Recommend: expr=%s cat=%s level=%s conf=%.2f forced=%s mab=%s | %s",
-                expr_hash[:8], category, rec_level, result.confidence,
-                is_forced, mab_adjusted, result.reasoning,
+                expr_hash[:8],
+                category,
+                rec_level,
+                result.confidence,
+                is_forced,
+                mab_adjusted,
+                result.reasoning,
             )
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                self._tel.record_exit_sync("AdaptiveNeutralizer", eid, metrics={"recommended_level": rec_level, "confidence": result.confidence, "is_forced": is_forced}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                self._tel.record_exit_sync(
+                    "AdaptiveNeutralizer",
+                    eid,
+                    metrics={"recommended_level": rec_level, "confidence": result.confidence, "is_forced": is_forced},
+                    duration_ms=ms,
+                )
             return result
         except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError) as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._tel.record_error_sync("AdaptiveNeutralizer", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             logger.warning("[ADAPT-NEUT] analyze_and_recommend failed, returning safe fallback: %s", e)
             return AdaptiveRecommendation(
                 recommended_level="industry",
@@ -483,7 +500,9 @@ class AdaptiveNeutralizer:
     ) -> None:
         eid = None
         try:
-            eid = self._tel.record_enter_sync("AdaptiveNeutralizer", cycle_id="unknown", expr_id=hash(expression) % 10000)
+            eid = self._tel.record_enter_sync(
+                "AdaptiveNeutralizer", cycle_id="unknown", expr_id=hash(expression) % 10000
+            )
             t0 = time.perf_counter()
             expr_hash = hashlib.md5(expression.encode()).hexdigest()[:12]
             sharpe_before = result_metrics.get("sharpe_before", 0.0)
@@ -512,20 +531,20 @@ class AdaptiveNeutralizer:
 
             logger.info(
                 "[ADAPT-NEUT] Outcome recorded: expr=%s cat=%s lvl=%s → %s (Δsharpe=%.3f Δfitness=%.3f)",
-                expr_hash[:8], category, level, outcome,
-                sharpe_after - sharpe_before, fitness_delta,
+                expr_hash[:8],
+                category,
+                level,
+                outcome,
+                sharpe_after - sharpe_before,
+                fitness_delta,
             )
             ms = (time.perf_counter() - t0) * 1000
-            try:
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
                 self._tel.record_exit_sync("AdaptiveNeutralizer", eid, metrics={"outcome": outcome}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._tel.record_error_sync("AdaptiveNeutralizer", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     @algo_log()
@@ -562,31 +581,26 @@ class AdaptiveNeutralizer:
 
             logger.debug(
                 "[ADAPT-NEUT] Sampling weights for %s: %s",
-                category, {k: round(v, 3) for k, v in weights.items()},
+                category,
+                {k: round(v, 3) for k, v in weights.items()},
             )
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                self._tel.record_exit_sync("AdaptiveNeutralizer", eid, metrics={"weights_count": len(weights)}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                self._tel.record_exit_sync(
+                    "AdaptiveNeutralizer", eid, metrics={"weights_count": len(weights)}, duration_ms=ms
+                )
             return weights
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._tel.record_error_sync("AdaptiveNeutralizer", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     @algo_log()
-    def should_upgrade_neutralization(
-        self, category: str, current_level: str, sharpe: float
-    ) -> bool:
+    def should_upgrade_neutralization(self, category: str, current_level: str, sharpe: float) -> bool:
         try:
             if category == "momentum" and current_level in ("subindustry", "double"):
-                logger.info(
-                    "[ADAPT-NEUT] Upgrade blocked for momentum at %s", current_level
-                )
+                logger.info("[ADAPT-NEUT] Upgrade blocked for momentum at %s", current_level)
                 return False
 
             cat_defaults = self._config.get("category_defaults", {})
@@ -595,16 +609,13 @@ class AdaptiveNeutralizer:
             if _LEVEL_ORDER.get(current_level, 0) >= _LEVEL_ORDER.get(max_level, 2):
                 return False
 
-            key = (category, current_level)
             next_level = self._next_finer(current_level)
             if next_level is None:
                 return False
 
             next_key = (category, next_level)
             if next_key in _FORBIDDEN_PAIRS:
-                logger.info(
-                    "[ADAPT-NEUT] Upgrade to %s blocked (FORBIDDEN)", next_level
-                )
+                logger.info("[ADAPT-NEUT] Upgrade to %s blocked (FORBIDDEN)", next_level)
                 return False
 
             exp = self._tracker.get_experience(category, current_level)
@@ -614,7 +625,11 @@ class AdaptiveNeutralizer:
                 if sharpe >= 1.0:
                     logger.info(
                         "[ADAPT-NEUT] Upgrade recommended: %s %s→%s (sr=%.2f sharpe=%.2f)",
-                        category, current_level, next_level, exp.success_rate, sharpe,
+                        category,
+                        current_level,
+                        next_level,
+                        exp.success_rate,
+                        sharpe,
                     )
                     return True
 
@@ -644,8 +659,6 @@ class AdaptiveNeutralizer:
         return finer_map.get(current)
 
 
-def create_adaptive_neutralizer(
-    experience_path: Path, config: dict | None = None
-) -> AdaptiveNeutralizer:
+def create_adaptive_neutralizer(experience_path: Path, config: dict | None = None) -> AdaptiveNeutralizer:
     """Factory function for creating an AdaptiveNeutralizer instance."""
     return AdaptiveNeutralizer(experience_path=experience_path, config=config)

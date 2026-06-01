@@ -10,10 +10,12 @@ Usage:
     openalpha sessions
     openalpha interactive
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import queue
@@ -22,6 +24,8 @@ import time
 import traceback
 from datetime import datetime
 from typing import Any
+
+import aiohttp
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -32,6 +36,7 @@ logger = logging.getLogger("alpha_cli")
 
 for _n in ["httpx", "httpcore", "asyncio"]:
     logging.getLogger(_n).setLevel(logging.CRITICAL)
+
 
 # ── ANSI Colors ──────────────────────────────────────────────────────────────
 class C:
@@ -45,6 +50,7 @@ class C:
     MAGENTA = "\033[35m"
     CYAN = "\033[36m"
     WHITE = "\033[37m"
+
 
 def _c(text: str, color: str = C.RESET) -> str:
     return f"{color}{text}{C.RESET}"
@@ -88,6 +94,7 @@ class AlphaCLI:
             EVENT_MINING_COMPLETE,
             get_event_bus,
         )
+
         self._bus = get_event_bus()
         self.EVENT_CYCLE_START = EVENT_CYCLE_START
         self.EVENT_ALPHA_GENERATED = EVENT_ALPHA_GENERATED
@@ -103,18 +110,22 @@ class AlphaCLI:
 
     def _banner(self) -> None:
         print(f"\n{C.BOLD}{C.CYAN}{'╔' + '═' * 72 + '╗'}{C.RESET}")
-        print(f"{C.CYAN}║{C.RESET}  {C.BOLD}OpenAlpha-Brain Controller v3.0{C.RESET}"
-              f"{' ' * 36}{C.CYAN}║{C.RESET}")
-        print(f"{C.CYAN}║{C.RESET}  {C.DIM}Event-Driven │ Real-Time │ Non-Blocking{C.RESET}"
-              f"{' ' * 27}{C.CYAN}║{C.RESET}")
+        print(f"{C.CYAN}║{C.RESET}  {C.BOLD}OpenAlpha-Brain Controller v3.0{C.RESET}{' ' * 36}{C.CYAN}║{C.RESET}")
+        print(
+            f"{C.CYAN}║{C.RESET}  {C.DIM}Event-Driven │ Real-Time │ Non-Blocking{C.RESET}{' ' * 27}{C.CYAN}║{C.RESET}"
+        )
         print(f"{C.CYAN}{'╚' + '═' * 72 + '╝'}{C.RESET}\n")
 
     def _status_bar(self) -> str:
         state_color = {
-            "IDLE": C.DIM, "RUNNING": C.GREEN, "PAUSED": C.YELLOW,
-            "STOPPING": C.RED, "COMPLETED": C.BLUE, "ERROR": C.RED,
+            "IDLE": C.DIM,
+            "RUNNING": C.GREEN,
+            "PAUSED": C.YELLOW,
+            "STOPPING": C.RED,
+            "COMPLETED": C.BLUE,
+            "ERROR": C.RED,
         }.get(self.state, C.RESET)
-        sid = (self.session_id or "?")[:12]
+        (self.session_id or "?")[:12]
         elapsed = time.time() - self._start_time if self._start_time else 0
         m, s = divmod(int(elapsed), 60)
         return (
@@ -129,6 +140,7 @@ class AlphaCLI:
 
     def _on_event(self, event) -> None:
         from openalpha_brain.core.events import AlphaEvent
+
         if not isinstance(event, AlphaEvent):
             return
         self._event_count += 1
@@ -142,9 +154,11 @@ class AlphaCLI:
             cyc = d.get("cycle", "?")
             total = d.get("max_cycles", "?")
             mode = d.get("mode", "seq")
-            print(f"\n  {C.BOLD}{C.WHITE}┌─ Cycle {cyc}/{total}{C.RESET}"
-                  f" {'[PIPELINE]' if mode == 'pipeline' else '[SEQUENTIAL]'}"
-                  f" {C.DIM}@{time.strftime('%H:%M:%S')}{C.RESET}")
+            print(
+                f"\n  {C.BOLD}{C.WHITE}┌─ Cycle {cyc}/{total}{C.RESET}"
+                f" {'[PIPELINE]' if mode == 'pipeline' else '[SEQUENTIAL]'}"
+                f" {C.DIM}@{time.strftime('%H:%M:%S')}{C.RESET}"
+            )
 
         elif et == self.EVENT_ALPHA_GENERATED:
             expr = d.get("expression", "?")[:70]
@@ -158,8 +172,7 @@ class AlphaCLI:
             expr = d.get("expression", "?")[:65]
             direction = d.get("direction", "?")
             family = d.get("family", "?")
-            print(f"  {C.GREEN}├─ ✅ PASS{C.RESET} {aid} dir={_c(direction, C.CYAN)}"
-                  f" family={family}")
+            print(f"  {C.GREEN}├─ ✅ PASS{C.RESET} {aid} dir={_c(direction, C.CYAN)} family={family}")
             print(f"  │  {C.DIM}{expr}{C.RESET}")
 
         elif et == self.EVENT_ALPHA_REJECTED:
@@ -198,17 +211,19 @@ class AlphaCLI:
                 extra += f" DD={dd_s}"
             print(f"  {sc}├─ 📊 BRAIN Result{C.RESET} {aid} → {_c(status, sc)}{extra}")
 
-            self._live_alphas.append({
-                "alpha_id": aid,
-                "expression": d.get("expression", ""),
-                "status": status,
-                "sharpe": sharpe,
-                "fitness": fitness,
-                "turnover": turnover,
-                "drawdown": drawdown,
-                "direction": d.get("direction", ""),
-                "timestamp": ts,
-            })
+            self._live_alphas.append(
+                {
+                    "alpha_id": aid,
+                    "expression": d.get("expression", ""),
+                    "status": status,
+                    "sharpe": sharpe,
+                    "fitness": fitness,
+                    "turnover": turnover,
+                    "drawdown": drawdown,
+                    "direction": d.get("direction", ""),
+                    "timestamp": ts,
+                }
+            )
 
         elif et == self.EVENT_MAB_FEEDBACK:
             direction = d.get("direction", "?")
@@ -243,16 +258,26 @@ class AlphaCLI:
         t0 = time.perf_counter()
         try:
             from openalpha_brain.services.llm_client import generate
+
             reply = await generate(system_prompt="Reply with exactly: OK", history=[], user_msg="ping")
-            checks["llm"] = {"status": "OK", "response": reply.strip()[:50], "latency_ms": round((time.perf_counter() - t0) * 1000)}
+            checks["llm"] = {
+                "status": "OK",
+                "response": reply.strip()[:50],
+                "latency_ms": round((time.perf_counter() - t0) * 1000),
+            }
         except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             checks["llm"] = {"status": "FAIL", "error": str(e)[:80]}
 
         t0 = time.perf_counter()
         try:
             from openalpha_brain.services.llm_client import embed
+
             vec = await embed("test")
-            checks["embedding"] = {"status": "OK", "dim": len(vec), "latency_ms": round((time.perf_counter() - t0) * 1000)}
+            checks["embedding"] = {
+                "status": "OK",
+                "dim": len(vec),
+                "latency_ms": round((time.perf_counter() - t0) * 1000),
+            }
         except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError) as e:
             checks["embedding"] = {"status": "FAIL", "error": str(e)[:80]}
 
@@ -274,21 +299,31 @@ class AlphaCLI:
             ("openalpha_brain.core.pipeline", "pipeline"),
         ]:
             try:
-                __import__(m); modules_ok.append(display_name)
+                __import__(m)
+                modules_ok.append(display_name)
             except (ImportError, AttributeError, OSError) as ex:
                 modules_fail.append((m, str(ex)))
-        checks["modules"] = {"status": "OK" if not modules_fail else "PARTIAL",
-                              "ok_count": len(modules_ok), "fail_modules": [m for m, _ in modules_fail]}
+        checks["modules"] = {
+            "status": "OK" if not modules_fail else "PARTIAL",
+            "ok_count": len(modules_ok),
+            "fail_modules": [m for m, _ in modules_fail],
+        }
 
         if self.brain_submit_enabled:
             t0 = time.perf_counter()
             try:
                 from openalpha_brain.config.config import settings
-                email, pwd = getattr(settings, 'BRAIN_EMAIL', ''), getattr(settings, 'BRAIN_PASSWORD', '')
+
+                email, pwd = getattr(settings, "BRAIN_EMAIL", ""), getattr(settings, "BRAIN_PASSWORD", "")
                 if email and pwd:
                     from openalpha_brain.services.brain_client import authenticate
+
                     cookies = await authenticate(email, pwd)
-                    checks["brain_auth"] = {"status": "OK", "has_cookies": bool(cookies), "latency_ms": round((time.perf_counter() - t0) * 1000)}
+                    checks["brain_auth"] = {
+                        "status": "OK",
+                        "has_cookies": bool(cookies),
+                        "latency_ms": round((time.perf_counter() - t0) * 1000),
+                    }
                 else:
                     checks["brain_auth"] = {"status": "SKIP", "reason": "No credentials"}
             except (TimeoutError, aiohttp.ClientError, ConnectionError, OSError, ValueError) as e:
@@ -297,9 +332,11 @@ class AlphaCLI:
             checks["brain_auth"] = {"status": "DISABLED"}
 
         from openalpha_brain.core import loop_state as _ls
+
         comps = {}
         for name, obj in [
-            ("MAB", "_mab"), ("RAG Engine", "_rag_engine"),
+            ("MAB", "_mab"),
+            ("RAG Engine", "_rag_engine"),
             ("StrategyClassifier", "_strategy_classifier"),
             ("SemanticMutator", "_semantic_mutator"),
             ("ExperienceDistiller", "_experience_distiller"),
@@ -320,13 +357,18 @@ class AlphaCLI:
         for name, info in ch.items():
             if isinstance(info, dict) and "status" in info:
                 st = info["status"]
-                icon = {"OK": f"{C.GREEN}✅", "FAIL": f"{C.RED}❌",
-                        "SKIP": f"{C.YELLOW}⏭️", "DISABLED": f"{C.DIM}○",
-                        "PARTIAL": f"{C.YELLOW}⚠️"}.get(st, "?")
+                icon = {
+                    "OK": f"{C.GREEN}✅",
+                    "FAIL": f"{C.RED}❌",
+                    "SKIP": f"{C.YELLOW}⏭️",
+                    "DISABLED": f"{C.DIM}○",
+                    "PARTIAL": f"{C.YELLOW}⚠️",
+                }.get(st, "?")
                 print(f"  {icon}{C.RESET} {name:<20s} {st}")
                 if st == "FAIL":
                     err = info.get("error", "")
-                    if err: print(f"       {C.DIM}{err}{C.RESET}")
+                    if err:
+                        print(f"       {C.DIM}{err}{C.RESET}")
                 elif name == "llm":
                     print(f"       Response: {info.get('response', '?')} ({info.get('latency_ms', '?')}ms)")
                 elif name == "embedding":
@@ -335,64 +377,91 @@ class AlphaCLI:
                     print(f"       Latency: {info.get('latency_ms', '?')}ms")
                 elif name == "components":
                     for cn, cs in info.items():
-                        if isinstance(cs, str): print(f"         {cn:<24s} {cs}")
+                        if isinstance(cs, str):
+                            print(f"         {cn:<24s} {cs}")
 
     # ── MAB / Session helpers ────────────────────────────────────────────
 
     async def get_mab_status(self) -> dict | None:
         from openalpha_brain.core import loop_state as _ls
-        mab = getattr(_ls, '_mab', None)
-        if not mab: return None
+
+        mab = getattr(_ls, "_mab", None)
+        if not mab:
+            return None
         try:
             sel = mab.select(top_k_ops=3, top_k_fields=5, focus_area=self.focus_area)
-            return {"direction": sel.get("direction", "?"), "top_ops": sel.get("operators", [])[:5],
-                    "top_fields": sel.get("fields", [])[:8], "focus_area": self.focus_area}
+            return {
+                "direction": sel.get("direction", "?"),
+                "top_ops": sel.get("operators", [])[:5],
+                "top_fields": sel.get("fields", [])[:8],
+                "focus_area": self.focus_area,
+            }
         except (ValueError, KeyError, AttributeError, RuntimeError) as e:
             return {"error": str(e)}
 
     async def list_sessions(self) -> list[dict]:
         from openalpha_brain.cli import session_manager as sm
+
         sessions = []
         for sid in (await sm.list_sessions())[:10]:
             sess = await sm.load_session(sid)
-            if not sess: continue
-            sessions.append({
-                "id": sid[:16], "status": getattr(sess.status, 'value', '?') if hasattr(sess.status, 'value') else str(sess.status),
-                "cycles": getattr(sess, 'cycle', 0),
-                "passed": len(getattr(sess, 'passed_alphas', [])),
-                "rejected": len(getattr(sess, 'rejected_alphas', [])),
-                "generated": len(getattr(sess, 'alpha_results', [])),
-                "focus": getattr(sess, 'focus_area', '?'),
-            })
+            if not sess:
+                continue
+            sessions.append(
+                {
+                    "id": sid[:16],
+                    "status": getattr(sess.status, "value", "?") if hasattr(sess.status, "value") else str(sess.status),
+                    "cycles": getattr(sess, "cycle", 0),
+                    "passed": len(getattr(sess, "passed_alphas", [])),
+                    "rejected": len(getattr(sess, "rejected_alphas", [])),
+                    "generated": len(getattr(sess, "alpha_results", [])),
+                    "focus": getattr(sess, "focus_area", "?"),
+                }
+            )
         return sessions
 
     async def get_session_detail(self, session_id: str) -> dict:
         from openalpha_brain.cli import session_manager as sm
+
         sess = await sm.load_session(session_id)
-        if not sess: return {"error": "session not found"}
+        if not sess:
+            return {"error": "session not found"}
         alphas = []
-        for a in getattr(sess, 'passed_alphas', []):
-            ad = {"expr": getattr(a, 'expression', '?')[:100],
-                   "direction": getattr(a, 'exploration_direction', '?'),
-                   "decision": getattr(a, 'decision', '?')}
-            brain = getattr(a, 'brain', None)
+        for a in getattr(sess, "passed_alphas", []):
+            ad = {
+                "expr": getattr(a, "expression", "?")[:100],
+                "direction": getattr(a, "exploration_direction", "?"),
+                "decision": getattr(a, "decision", "?"),
+            }
+            brain = getattr(a, "brain", None)
             if brain:
-                ad.update({"sharpe": getattr(brain, 'real_sharpe', None),
-                           "fitness": getattr(brain, 'real_fitness', None),
-                           "turnover": getattr(brain, 'real_turnover', None),
-                           "returns": getattr(brain, 'real_returns', None),
-                           "drawdown": getattr(brain, 'real_drawdown', None),
-                           "brain_status": getattr(brain, 'simulation_status',
-                               lambda: getattr(brain, 'status', '?'))() if callable(getattr(brain, 'simulation_status', None)) else getattr(brain, 'status', '?')})
+                ad.update(
+                    {
+                        "sharpe": getattr(brain, "real_sharpe", None),
+                        "fitness": getattr(brain, "real_fitness", None),
+                        "turnover": getattr(brain, "real_turnover", None),
+                        "returns": getattr(brain, "real_returns", None),
+                        "drawdown": getattr(brain, "real_drawdown", None),
+                        "brain_status": getattr(brain, "simulation_status", lambda: getattr(brain, "status", "?"))()
+                        if callable(getattr(brain, "simulation_status", None))
+                        else getattr(brain, "status", "?"),
+                    }
+                )
             alphas.append(ad)
-        return {"id": sess.id, "status": sess.status.value if hasattr(sess.status, 'value') else str(sess.status),
-                "cycles": getattr(sess, 'cycle', 0), "focus_area": getattr(sess, 'focus_area', '?'),
-                "passed_count": len(alphas), "alphas": alphas}
+        return {
+            "id": sess.id,
+            "status": sess.status.value if hasattr(sess.status, "value") else str(sess.status),
+            "cycles": getattr(sess, "cycle", 0),
+            "focus_area": getattr(sess, "focus_area", "?"),
+            "passed_count": len(alphas),
+            "alphas": alphas,
+        }
 
     # ── Mining Control ────────────────────────────────────────────────────
 
-    async def start_mining(self, focus: str = "momentum", cycles: int = 5,
-                           brain_submit: bool = True, auto_confirm: bool = False) -> None:
+    async def start_mining(
+        self, focus: str = "momentum", cycles: int = 5, brain_submit: bool = True, auto_confirm: bool = False
+    ) -> None:
         if self.state == "RUNNING":
             print(f"  {C.YELLOW}Already running! Use 'stop' first.{C.RESET}")
             return
@@ -425,6 +494,7 @@ class AlphaCLI:
 
         self._bus.subscribe(self._on_event)
         from openalpha_brain.core import loop_state as _ls_mod
+
         _ls_mod._console_stop_event = self._stop_event
         _ls_mod._console_pause_event = self._pause_event
 
@@ -438,6 +508,7 @@ class AlphaCLI:
 
         try:
             from openalpha_brain.core import loop_engine
+
             await loop_engine.run_loop_pipeline(self.session_id)
         except asyncio.CancelledError:
             print(f"\n  {C.YELLOW}■ Mining cancelled by user{C.RESET}")
@@ -456,25 +527,32 @@ class AlphaCLI:
 
     async def stop_mining(self) -> None:
         if self.state not in ("RUNNING", "PAUSED"):
-            print(f"  Not running (state={self.state})"); return
+            print(f"  Not running (state={self.state})")
+            return
         self.state = "STOPPING"
         self._stop_event.set()
         self._pause_event.set()
         if self._task and not self._task.done():
             self._task.cancel()
-            try: await self._task
-            except asyncio.CancelledError: pass
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
         self.state = "IDLE"
         print(f"  {C.YELLOW}■ STOPPED{C.RESET}")
 
     async def pause_mining(self) -> None:
-        if self.state != "RUNNING": print("  Not running"); return
-        self.state = "PAUSED"; self._pause_event.clear()
+        if self.state != "RUNNING":
+            print("  Not running")
+            return
+        self.state = "PAUSED"
+        self._pause_event.clear()
         print(f"  {C.YELLOW}‖ PAUSED{C.RESET}")
 
     async def resume_mining(self) -> None:
-        if self.state != "PAUSED": print("  Not paused"); return
-        self.state = "RUNNING"; self._pause_event.set()
+        if self.state != "PAUSED":
+            print("  Not paused")
+            return
+        self.state = "RUNNING"
+        self._pause_event.set()
         print(f"  {C.GREEN}▶ RESUMED{C.RESET}")
 
     # ── Summary Output ────────────────────────────────────────────────────
@@ -482,38 +560,47 @@ class AlphaCLI:
     def _print_final_summary(self, detail: dict) -> None:
         alphas = detail.get("alphas", [])
         merged = list(self._live_alphas)
-        seen_ids = {a["alpha_id"] for a in merged}
+        {a["alpha_id"] for a in merged}
         for a in alphas:
             if a.get("expr", "?")[:8] not in [x.get("expression", "")[:8] for x in merged]:
-                merged.append({
-                    "alpha_id": "?", "expression": a.get("expr", ""),
-                    "status": a.get("brain_status", "?"), "sharpe": a.get("sharpe"),
-                    "fitness": a.get("fitness"), "turnover": a.get("turnover"),
-                    "drawdown": a.get("drawdown"), "direction": a.get("direction", ""),
-                })
+                merged.append(
+                    {
+                        "alpha_id": "?",
+                        "expression": a.get("expr", ""),
+                        "status": a.get("brain_status", "?"),
+                        "sharpe": a.get("sharpe"),
+                        "fitness": a.get("fitness"),
+                        "turnover": a.get("turnover"),
+                        "drawdown": a.get("drawdown"),
+                        "direction": a.get("direction", ""),
+                    }
+                )
 
         print(f"\n  {C.BOLD}{'═══ FINAL SUMMARY ═══':═^68}{C.RESET}")
         print(f"  Session  : {detail.get('id', '?')}")
         print(f"  Status   : {detail.get('status', '?')}")
         print(f"  Cycles   : {detail.get('cycles', 0)}")
         print(f"  Focus    : {detail.get('focus_area', '?')}")
-        print(f"  Alphas   : {len(merged)} total | {self._alpha_count} passed | {self._reject_count} rejected | {self._brain_count} BRAIN results\n")
+        print(
+            f"  Alphas   : {len(merged)} total | {self._alpha_count} passed | {self._reject_count} rejected | {self._brain_count} BRAIN results\n"  # noqa: E501
+        )
 
         if not merged:
-            print(f"  {C.YELLOW}No alphas generated.{C.RESET}"); return
+            print(f"  {C.YELLOW}No alphas generated.{C.RESET}")
+            return
 
         print(f"  {C.BOLD}{'#':<4s} {'Expression':<52s} {'Sharpe':>7s} {'Fit':>6s} {'TO':>6s} {'Gate':>6s}{C.RESET}")
         print(f"  {'─' * 86}")
         for i, a in enumerate(merged, 1):
-            sh, fit, to, bs = a.get('sharpe'), a.get('fitness'), a.get('turnover'), a.get('status', '?')
+            sh, fit, to, bs = a.get("sharpe"), a.get("fitness"), a.get("turnover"), a.get("status", "?")
             sh_s = f"{sh:>7.2f}" if sh is not None else "     N/A"
             fit_s = f"{fit:>6.2f}" if fit is not None else "   N/A"
             to_s = f"{to:>5.1f}%" if to is not None else "  N/A"
             sc = C.GREEN if bs == "PASS" else (C.RED if bs == "FAIL" else C.YELLOW)
-            expr = (a.get('expression', '') or '?')[:51]
+            expr = (a.get("expression", "") or "?")[:51]
             print(f"  {i:<4d} {expr:<52s} {sh_s} {fit_s} {to_s} {_c(bs, sc):>6s}")
 
-        sharpes = [a['sharpe'] for a in merged if a.get('sharpe') is not None]
+        sharpes = [a["sharpe"] for a in merged if a.get("sharpe") is not None]
         if sharpes:
             avg, best = sum(sharpes) / len(sharpes), max(sharpes)
             above_1 = sum(1 for s in sharpes if s >= 1.0)
@@ -581,19 +668,22 @@ async def repl(cli: AlphaCLI) -> None:
             print(f"\n  {C.DIM}Goodbye! 🧠{C.RESET}\n")
             break
 
-        if cmd in ("help", "?"): print(_HELP_TEXT)
+        if cmd in ("help", "?"):
+            print(_HELP_TEXT)
 
         elif cmd == "health":
-            h = await cli.check_health(); cli.print_health(h)
+            h = await cli.check_health()
+            cli.print_health(h)
 
         elif cmd == "status":
             print(cli._status_bar())
             if cli._live_alphas:
                 print(f"\n  {C.BOLD}{'Live BRAIN Results':─^64}{C.RESET}")
                 for i, a in enumerate(cli._live_alphas[-10:], 1):
-                    sh = a.get('sharpe'); st = a.get('status', '?')
+                    sh = a.get("sharpe")
+                    st = a.get("status", "?")
                     sc = C.GREEN if st == "PASS" else C.RED
-                    expr = (a.get('expression', '') or '?')[:55]
+                    expr = (a.get("expression", "") or "?")[:55]
                     sh_s = f"{sh:>6.2f}" if sh is not None else "    N/A"
                     print(f"  {i:<3d} {expr:<56s} {sh_s} {_c(st, sc)}")
             if cli.session_id:
@@ -607,52 +697,88 @@ async def repl(cli: AlphaCLI) -> None:
                 print(f"  Focus    : {mab.get('focus_area', '?')}")
                 print(f"  Top Ops  : {', '.join(mab.get('top_ops', []))}")
                 print(f"  Top Fields: {', '.join(mab.get('top_fields', []))}")
-            else: print(f"  {C.RED}MAB not available{C.RESET}")
+            else:
+                print(f"  {C.RED}MAB not available{C.RESET}")
 
         elif cmd == "sessions":
             sessions = await cli.list_sessions()
             print(f"\n  {C.BOLD}{'── SESSIONS ──':─^64}{C.RESET}")
-            if not sessions: print(f"  {C.DIM}No sessions found.{C.RESET}")
+            if not sessions:
+                print(f"  {C.DIM}No sessions found.{C.RESET}")
             else:
                 print(f"  {'ID':<18s} {'Status':<10s} {'Cyc':>4s} {'Pass':>4s} {'Rej':>4s} {'Gen':>4s} {'Focus':<12s}")
                 print(f"  {'─' * 66}")
                 for s in sessions:
-                    print(f"  {s['id']:<18s} {s['status']:<10s} {s['cycles']:>4d} {s['passed']:>4d} {s['rejected']:>4d} {s['generated']:>4d} {s['focus']:<12s}")
+                    print(
+                        f"  {s['id']:<18s} {s['status']:<10s} {s['cycles']:>4d} {s['passed']:>4d} {s['rejected']:>4d} {s['generated']:>4d} {s['focus']:<12s}"  # noqa: E501
+                    )
 
         elif cmd == "session":
             sid = args[0] if args else cli.session_id
-            if not sid: print("  No active session."); continue
+            if not sid:
+                print("  No active session.")
+                continue
             detail = await cli.get_session_detail(sid)
-            if "error" in detail: print(f"  {C.RED}Error: {detail['error']}{C.RESET}")
-            else: cli._print_final_summary(detail)
+            if "error" in detail:
+                print(f"  {C.RED}Error: {detail['error']}{C.RESET}")
+            else:
+                cli._print_final_summary(detail)
 
         elif cmd == "brain":
             sid = args[0] if args else cli.session_id
-            if not sid: print("  No active session."); continue
+            if not sid:
+                print("  No active session.")
+                continue
             detail = await cli.get_session_detail(sid)
-            if "error" in detail: print(f"  {C.RED}Error: {detail['error']}{C.RESET}")
-            elif not detail.get("alphas"): print(f"  {C.DIM}No BRAIN submissions yet.{C.RESET}")
+            if "error" in detail:
+                print(f"  {C.RED}Error: {detail['error']}{C.RESET}")
+            elif not detail.get("alphas"):
+                print(f"  {C.DIM}No BRAIN submissions yet.{C.RESET}")
             else:
                 print(f"\n  {C.BOLD}{'── BRAIN RESULTS ──':─^64}{C.RESET}")
                 for i, a in enumerate(detail["alphas"], 1):
-                    has_brain = any(v is not None for k, v in a.items() if k in ("sharpe","fitness","turnover","returns","drawdown","brain_status"))
+                    has_brain = any(
+                        v is not None
+                        for k, v in a.items()
+                        if k in ("sharpe", "fitness", "turnover", "returns", "drawdown", "brain_status")
+                    )
                     if not has_brain:
-                        print(f"  [{i}] {a.get('expr', '?')[:60]} → {C.DIM}(not submitted){C.RESET}"); continue
+                        print(f"  [{i}] {a.get('expr', '?')[:60]} → {C.DIM}(not submitted){C.RESET}")
+                        continue
                     print(f"\n  [{i}] {C.BOLD}{a.get('expr', '?')[:70]}{C.RESET}")
-                    for key, label in [("brain_status","Gate"),("sharpe","Sharpe"),("fitness","Fitness"),("turnover","Turnover"),("returns","Returns"),("drawdown","Drawdown")]:
+                    for key, label in [
+                        ("brain_status", "Gate"),
+                        ("sharpe", "Sharpe"),
+                        ("fitness", "Fitness"),
+                        ("turnover", "Turnover"),
+                        ("returns", "Returns"),
+                        ("drawdown", "Drawdown"),
+                    ]:
                         val = a.get(key)
                         if val is not None:
-                            if label in ("Turnover","Returns"): print(f"       {label:<10s}: {val}%")
-                            else: print(f"       {label:<10s}: {val}")
+                            if label in ("Turnover", "Returns"):
+                                print(f"       {label:<10s}: {val}%")
+                            else:
+                                print(f"       {label:<10s}: {val}")
 
         elif cmd == "config":
             from openalpha_brain.config.config import settings
+
             print(f"\n  {C.BOLD}{'── CONFIGURATION ──':─^64}{C.RESET}")
-            for attr in ["LLM_MODEL", "LLM_PROVIDER", "LMSTUDIO_API_BASE",
-                         "BRAIN_SUBMIT_ENABLED", "MAX_CYCLES", "PIPELINE_MODE",
-                         "RAG_ENABLED", "MAB_ENABLED", "RAG_TOP_K_OPS",
-                         "RAG_TOP_K_FIELDS", "BRAIN_POLL_TIMEOUT",
-                         "DEFAULT_EXPLORATION_DIRECTION"]:
+            for attr in [
+                "LLM_MODEL",
+                "LLM_PROVIDER",
+                "LMSTUDIO_API_BASE",
+                "BRAIN_SUBMIT_ENABLED",
+                "MAX_CYCLES",
+                "PIPELINE_MODE",
+                "RAG_ENABLED",
+                "MAB_ENABLED",
+                "RAG_TOP_K_OPS",
+                "RAG_TOP_K_FIELDS",
+                "BRAIN_POLL_TIMEOUT",
+                "DEFAULT_EXPLORATION_DIRECTION",
+            ]:
                 val = getattr(settings, attr, "(not set)")
                 print(f"  {attr:<30s}: {val}")
             print("\n  CLI State:")
@@ -665,35 +791,50 @@ async def repl(cli: AlphaCLI) -> None:
         elif cmd == "set":
             if len(args) >= 2:
                 key, val = args[0], args[1]
-                if key == "focus": cli.focus_area = val
-                elif key == "cycles": cli.max_cycles = int(val)
-                elif key == "brain": cli.brain_submit_enabled = val.lower() in ("on","true","1","yes")
-                elif key == "auto": cli.auto_confirm = val.lower() in ("on","true","1","yes")
-                else: print(f"  Unknown key: {key}. Try: focus, cycles, brain, auto"); continue
+                if key == "focus":
+                    cli.focus_area = val
+                elif key == "cycles":
+                    cli.max_cycles = int(val)
+                elif key == "brain":
+                    cli.brain_submit_enabled = val.lower() in ("on", "true", "1", "yes")
+                elif key == "auto":
+                    cli.auto_confirm = val.lower() in ("on", "true", "1", "yes")
+                else:
+                    print(f"  Unknown key: {key}. Try: focus, cycles, brain, auto")
+                    continue
                 print(f"  ✓ Set {key} = {val}")
-            else: print("  Usage: set <key> <value>\n  Keys: focus, cycles, brain(on/off), auto(on/off)")
+            else:
+                print("  Usage: set <key> <value>\n  Keys: focus, cycles, brain(on/off), auto(on/off)")
 
         elif cmd == "start":
             focus, cycles, brain, auto = cli.focus_area, cli.max_cycles, cli.brain_submit_enabled, cli.auto_confirm
             i = 0
             while i < len(args):
                 a = args[i]
-                if a in ("--no-brain", "--nobrain"): brain = False
-                elif a == "--auto": auto = True
-                elif a == "--manual": auto = False
-                elif not a.startswith("-") and i == 0: focus = a
+                if a in ("--no-brain", "--nobrain"):
+                    brain = False
+                elif a == "--auto":
+                    auto = True
+                elif a == "--manual":
+                    auto = False
+                elif not a.startswith("-") and i == 0:
+                    focus = a
                 elif not a.startswith("-"):
-                    try: cycles = int(a)
-                    except ValueError: pass
+                    with contextlib.suppress(ValueError):
+                        cycles = int(a)
                 i += 1
             cli._task = asyncio.create_task(
                 cli.start_mining(focus=focus, cycles=cycles, brain_submit=brain, auto_confirm=auto),
             )
 
-        elif cmd == "stop": await cli.stop_mining()
-        elif cmd == "pause": await cli.pause_mining()
-        elif cmd == "resume": await cli.resume_mining()
-        else: print(f"  Unknown command: {_c(cmd, C.RED)}. Type {_c('help', C.YELLOW)}.")
+        elif cmd == "stop":
+            await cli.stop_mining()
+        elif cmd == "pause":
+            await cli.pause_mining()
+        elif cmd == "resume":
+            await cli.resume_mining()
+        else:
+            print(f"  Unknown command: {_c(cmd, C.RED)}. Type {_c('help', C.YELLOW)}.")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -730,11 +871,13 @@ def main():
 
     if args.command == "run":
         cli._banner()
-        asyncio.run(cli.start_mining(
-            focus=args.focus,
-            cycles=args.cycles,
-            brain_submit=not args.no_brain,
-        ))
+        asyncio.run(
+            cli.start_mining(
+                focus=args.focus,
+                cycles=args.cycles,
+                brain_submit=not args.no_brain,
+            )
+        )
     elif args.command == "status":
         cli._banner()
         asyncio.run(_monitor_mode(cli))
@@ -755,7 +898,9 @@ async def _list_sessions(cli: AlphaCLI) -> None:
     if sessions:
         print(f"\n  {'── SESSIONS ──':─^64}")
         for s in sessions[:20]:
-            print(f"  {s['id']:<18s} {s['status']:<10s} cyc={s['cycles']} pass={s['passed']} rej={s['rejected']} gen={s['generated']}")
+            print(
+                f"  {s['id']:<18s} {s['status']:<10s} cyc={s['cycles']} pass={s['passed']} rej={s['rejected']} gen={s['generated']}"  # noqa: E501
+            )
     else:
         print("\n  No sessions found.")
 
@@ -777,7 +922,9 @@ async def _monitor_mode(cli: AlphaCLI) -> None:
     if sessions:
         print(f"\n  {C.BOLD}{'── LATEST SESSIONS ──':─^64}{C.RESET}")
         for s in sessions[:5]:
-            print(f"  {s['id']:<18s} {s['status']:<10s} cyc={s['cycles']} pass={s['passed']} rej={s['rejected']} gen={s['generated']}")
+            print(
+                f"  {s['id']:<18s} {s['status']:<10s} cyc={s['cycles']} pass={s['passed']} rej={s['rejected']} gen={s['generated']}"  # noqa: E501
+            )
     mab = await cli.get_mab_status()
     if mab:
         print(f"\n  MAB Direction: {_c(mab.get('direction', '?'), C.GREEN)}")

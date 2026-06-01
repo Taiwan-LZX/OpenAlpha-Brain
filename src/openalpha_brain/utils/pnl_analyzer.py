@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class YearlyConsistency:
     year_sharpes: dict[int, float] = field(default_factory=dict)
@@ -15,12 +16,14 @@ class YearlyConsistency:
     best_year: int = 0
     best_year_sharpe: float = 0.0
 
+
 @dataclass
 class DrawdownAnalysis:
     max_drawdown_pct: float = 0.0
     max_drawdown_duration_days: int = 0
     current_drawdown_pct: float = 0.0
     is_acceptable: bool = True
+
 
 @dataclass
 class PnLStabilityReport:
@@ -29,6 +32,7 @@ class PnLStabilityReport:
     stability_score: float = 1.0
     reward_adjustment: float = 0.0
     warnings: list[str] = field(default_factory=list)
+
 
 class PnLAnalyzer:
     SHARPE_STD_THRESHOLD = 1.0
@@ -109,10 +113,7 @@ class PnLAnalyzer:
                     max_dd_duration = max(max_dd_duration, duration)
                     in_drawdown = False
             elif val < peak:
-                if peak > 0:
-                    dd = (peak - val) / peak * 100
-                else:
-                    dd = 100.0
+                dd = (peak - val) / peak * 100 if peak > 0 else 100.0
                 max_dd = max(max_dd, dd)
                 if not in_drawdown:
                     in_drawdown = True
@@ -147,11 +148,15 @@ class PnLAnalyzer:
         score = 0.5
 
         if yearly_data:
-            sharpes = [yd.get("sharpe", 0.0) for yd in yearly_data if isinstance(yd.get("sharpe"), (int, float)) and math.isfinite(yd.get("sharpe", 0.0))]
+            sharpes = [
+                yd.get("sharpe", 0.0)
+                for yd in yearly_data
+                if isinstance(yd.get("sharpe"), (int, float)) and math.isfinite(yd.get("sharpe", 0.0))
+            ]
             if len(sharpes) >= 2:
                 mean_s = sum(sharpes) / len(sharpes)
                 if mean_s > 0:
-                    std_s = math.sqrt(sum((s - mean_s)**2 for s in sharpes) / len(sharpes))
+                    std_s = math.sqrt(sum((s - mean_s) ** 2 for s in sharpes) / len(sharpes))
                     cv = std_s / mean_s
                     if cv < 0.3:
                         score += 0.2
@@ -185,7 +190,7 @@ class PnLAnalyzer:
             if len(sq_res) > 2:
                 mean_sq = sum(sq_res) / len(sq_res)
                 if mean_sq > 0:
-                    cov = sum(sq_res[i] * sq_res[i-1] for i in range(1, len(sq_res))) / (len(sq_res) - 1)
+                    cov = sum(sq_res[i] * sq_res[i - 1] for i in range(1, len(sq_res))) / (len(sq_res) - 1)
                     autocorr = cov / mean_sq if mean_sq > 0 else 0
                     if autocorr > 0.3:
                         score -= 0.1

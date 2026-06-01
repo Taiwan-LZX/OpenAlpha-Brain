@@ -11,9 +11,12 @@ Integration:
 - Auto-triggered by FeedbackOrchestrator when NEAR_PASS decision is made
 - Submits improved expressions with HIGH/EMERGENCY priority to SlotManager
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import logging
 import re
 import time
@@ -21,6 +24,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+import aiohttp
 
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 from openalpha_brain.utils.algo_logger import algo_log
@@ -90,11 +95,14 @@ class NearPassImprover:
     def set_llm_generate_fn(self, fn: Callable[..., Awaitable]) -> None:
         self._llm_generate_fn = fn
 
-    def analyze(self, sharpe: float, fitness: float, turnover: float | None = None,
-                checks: list | None = None) -> NearPassAnalysis:
+    def analyze(
+        self, sharpe: float, fitness: float, turnover: float | None = None, checks: list | None = None
+    ) -> NearPassAnalysis:
         eid = None
         try:
-            eid = self._tel.record_enter_sync("NearPassImprover", cycle_id="unknown", expr_id=hash(str(sharpe) + str(fitness)) % 10000)
+            eid = self._tel.record_enter_sync(
+                "NearPassImprover", cycle_id="unknown", expr_id=hash(str(sharpe) + str(fitness)) % 10000
+            )
             t0 = time.perf_counter()
             analysis = NearPassAnalysis()
             analysis.sharpe_gap = max(0, GATE_SHARPE_MIN - sharpe)
@@ -157,21 +165,29 @@ class NearPassImprover:
 
             logger.info(
                 "[NEAR-PASS] Analysis: category=%s sharpe=%.2f(gap=%.2f) fitness=%.2f(gap=%.2f) target=%s",
-                analysis.category.value, sharpe, analysis.sharpe_gap,
-                fitness, analysis.fitness_gap, analysis.primary_fix_target,
+                analysis.category.value,
+                sharpe,
+                analysis.sharpe_gap,
+                fitness,
+                analysis.fitness_gap,
+                analysis.primary_fix_target,
             )
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                self._tel.record_exit_sync("NearPassImprover", eid, metrics={"nearpass_category": analysis.category.value, "gaps_found": int(analysis.sharpe_gap > 0) + int(analysis.fitness_gap > 0)}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                self._tel.record_exit_sync(
+                    "NearPassImprover",
+                    eid,
+                    metrics={
+                        "nearpass_category": analysis.category.value,
+                        "gaps_found": int(analysis.sharpe_gap > 0) + int(analysis.fitness_gap > 0),
+                    },
+                    duration_ms=ms,
+                )
             return analysis
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._tel.record_error_sync("NearPassImprover", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     @algo_log(label="[NEAR-PASS-LLM].llm_pre_analyze")
@@ -184,10 +200,10 @@ class NearPassImprover:
             if self._llm_generate_fn is None:
                 logger.info("[NEAR-PASS-LLM] No LLM available, returning original priority order")
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("NearPassImprover", eid, metrics={"priority_reordered": False}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "NearPassImprover", eid, metrics={"priority_reordered": False}, duration_ms=ms
+                    )
                 return analysis
 
             expr_truncated = expression[:300] + ("..." if len(expression) > 300 else "")
@@ -195,8 +211,8 @@ class NearPassImprover:
 
             has_decay = "ts_decay_linear" in expression or "ts_decay_exp_window" in expression
             has_signed_power = "signed_power" in expression
-            has_rank = re.search(r'\brank\s*\(', expression) is not None
-            has_zscore = re.search(r'\bzscore\s*\(', expression) is not None
+            has_rank = re.search(r"\brank\s*\(", expression) is not None
+            has_zscore = re.search(r"\bzscore\s*\(", expression) is not None
             has_neutralize = "group_neutralize" in expression or "group_zscore" in expression
 
             prompt = (
@@ -213,7 +229,7 @@ class NearPassImprover:
                 f"  - Uses zscore(): {has_zscore}\n"
                 f"  - Has neutralization: {has_neutralize}\n\n"
                 "Task: Reorder strategies by likelihood of success (most likely FIRST).\n"
-                "Return JSON only: {\"reordered\": [\"strategy1\", \"strategy2\", ...], \"reasoning\": \"<brief>\"}\n"
+                'Return JSON only: {"reordered": ["strategy1", "strategy2", ...], "reasoning": "<brief>"}\n'
                 "Use ONLY strategies from the current_priority list above."
             )
 
@@ -223,6 +239,7 @@ class NearPassImprover:
                     timeout=10.0,
                 )
                 import json as _json
+
                 parsed = _json.loads(response.strip()) if isinstance(response, str) else response
                 reordered = parsed.get("reordered", current_priority)
                 reasoning = parsed.get("reasoning", "")
@@ -243,36 +260,36 @@ class NearPassImprover:
 
                 logger.info(
                     "[NEAR-PASS-LLM] LLM reordered priority: %s → %s (reason=%s)",
-                    current_priority[:3], final_order[:3], reasoning,
+                    current_priority[:3],
+                    final_order[:3],
+                    reasoning,
                 )
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("NearPassImprover", eid, metrics={"priority_reordered": True}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "NearPassImprover", eid, metrics={"priority_reordered": True}, duration_ms=ms
+                    )
                 return result
             except TimeoutError:
                 logger.warning("[NEAR-PASS-LLM] LLM timed out after 10s, using original order")
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("NearPassImprover", eid, metrics={"priority_reordered": False}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "NearPassImprover", eid, metrics={"priority_reordered": False}, duration_ms=ms
+                    )
                 return analysis
             except (aiohttp.ClientError, ValueError, json.JSONDecodeError) as e:
                 logger.warning("[NEAR-PASS-LLM] LLM call failed: %s, using original order", e)
                 ms = (time.perf_counter() - t0) * 1000
-                try:
-                    await self._tel.record_exit("NearPassImprover", eid, metrics={"priority_reordered": False}, duration_ms=ms)
-                except (OSError, ValueError, RuntimeError):
-                    pass
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                    await self._tel.record_exit(
+                        "NearPassImprover", eid, metrics={"priority_reordered": False}, duration_ms=ms
+                    )
                 return analysis
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     await self._tel.record_error("NearPassImprover", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     def generate_deterministic_variants(
@@ -305,20 +322,19 @@ class NearPassImprover:
 
             logger.info(
                 "[NEAR-PASS] Generated %d deterministic variants for target=%s",
-                len(variants), analysis.primary_fix_target,
+                len(variants),
+                analysis.primary_fix_target,
             )
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                self._tel.record_exit_sync("NearPassImprover", eid, metrics={"variants_count": len(variants)}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                self._tel.record_exit_sync(
+                    "NearPassImprover", eid, metrics={"variants_count": len(variants)}, duration_ms=ms
+                )
             return variants
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._tel.record_error_sync("NearPassImprover", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     def _mutate_increase_decay_window(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -332,13 +348,15 @@ class NearPassImprover:
                 expr,
             )
             if new_expr != expr:
-                variants.append(ImprovedVariant(
-                    expression=new_expr,
-                    mutation_type="decay_window",
-                    mutation_description=f"decay window → {window}",
-                    expected_effect=f"reduce turnover (~{100//window}%)",
-                    priority=1,
-                ))
+                variants.append(
+                    ImprovedVariant(
+                        expression=new_expr,
+                        mutation_type="decay_window",
+                        mutation_description=f"decay window → {window}",
+                        expected_effect=f"reduce turnover (~{100 // window}%)",
+                        priority=1,
+                    )
+                )
         return variants
 
     def _mutate_add_double_decay(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -349,13 +367,15 @@ class NearPassImprover:
             if existing_count >= 2:
                 continue
             new_expr = f"ts_decay_linear({expr}, {w})"
-            variants.append(ImprovedVariant(
-                expression=new_expr,
-                mutation_type="double_decay",
-                mutation_description=f"wrap with ts_decay_linear(..., {w})",
-                expected_effect="double smoothing, significant TO reduction",
-                priority=2,
-            ))
+            variants.append(
+                ImprovedVariant(
+                    expression=new_expr,
+                    mutation_type="double_decay",
+                    mutation_description=f"wrap with ts_decay_linear(..., {w})",
+                    expected_effect="double smoothing, significant TO reduction",
+                    priority=2,
+                )
+            )
         return variants
 
     def _mutate_replace_rank_with_zscore(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -366,13 +386,15 @@ class NearPassImprover:
                 pattern = rf"\b{old_op}\b"
                 new_expr = re.sub(pattern, new_op, expr, count=1)
                 if new_expr != expr:
-                    variants.append(ImprovedVariant(
-                        expression=new_expr,
-                        mutation_type="operator_replace",
-                        mutation_description=f"{old_op} → {new_op}",
-                        expected_effect="change normalization, may improve stability",
-                        priority=3,
-                    ))
+                    variants.append(
+                        ImprovedVariant(
+                            expression=new_expr,
+                            mutation_type="operator_replace",
+                            mutation_description=f"{old_op} → {new_op}",
+                            expected_effect="change normalization, may improve stability",
+                            priority=3,
+                        )
+                    )
         return variants
 
     def _mutate_remove_nonlinear_transform(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -380,13 +402,15 @@ class NearPassImprover:
         if "signed_power" in expr:
             new_expr = re.sub(r"signed_power\(([^,]+),\s*[\d.]+\)", r"\1", expr)
             if new_expr != expr:
-                variants.append(ImprovedVariant(
-                    expression=new_expr,
-                    mutation_type="remove_nonlinear",
-                    mutation_description="remove signed_power wrapper",
-                    expected_effect="simplify signal, reduce extreme values → lower TO",
-                    priority=2,
-                ))
+                variants.append(
+                    ImprovedVariant(
+                        expression=new_expr,
+                        mutation_type="remove_nonlinear",
+                        mutation_description="remove signed_power wrapper",
+                        expected_effect="simplify signal, reduce extreme values → lower TO",
+                        priority=2,
+                    )
+                )
         return variants
 
     def _mutate_upgrade_neutralization(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -399,36 +423,42 @@ class NearPassImprover:
 
         if current_group:
             idx = self.NEUTRALIZE_GROUPS.index(current_group)
-            for g in self.NEUTRALIZE_GROUPS[idx + 1:idx + 3]:
+            for g in self.NEUTRALIZE_GROUPS[idx + 1 : idx + 3]:
                 new_expr = expr.replace(f", {current_group})", f", {g})")
                 if new_expr != expr:
-                    variants.append(ImprovedVariant(
-                        expression=new_expr,
-                        mutation_type="neutralization_upgrade",
-                        mutation_description=f"{current_group} → {g}",
-                        expected_effect="finer neutralization → potentially better Fitness",
-                        priority=4,
-                    ))
+                    variants.append(
+                        ImprovedVariant(
+                            expression=new_expr,
+                            mutation_type="neutralization_upgrade",
+                            mutation_description=f"{current_group} → {g}",
+                            expected_effect="finer neutralization → potentially better Fitness",
+                            priority=4,
+                        )
+                    )
         return variants
 
     def _mutate_change_signal_direction(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
         variants = []
         if expr.startswith("-"):
-            variants.append(ImprovedVariant(
-                expression=expr[1:],
-                mutation_type="signal_direction",
-                mutation_description="remove leading negation",
-                expected_effect="flip signal direction (may fix negative Sharpe)",
-                priority=1,
-            ))
+            variants.append(
+                ImprovedVariant(
+                    expression=expr[1:],
+                    mutation_type="signal_direction",
+                    mutation_description="remove leading negation",
+                    expected_effect="flip signal direction (may fix negative Sharpe)",
+                    priority=1,
+                )
+            )
         else:
-            variants.append(ImprovedVariant(
-                expression=f"-({expr})",
-                mutation_type="signal_direction",
-                mutation_description="add negation wrapper",
-                expected_effect="flip signal direction",
-                priority=1,
-            ))
+            variants.append(
+                ImprovedVariant(
+                    expression=f"-({expr})",
+                    mutation_type="signal_direction",
+                    mutation_description="add negation wrapper",
+                    expected_effect="flip signal direction",
+                    priority=1,
+                )
+            )
         return variants
 
     def _mutate_swap_field_family(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -442,13 +472,15 @@ class NearPassImprover:
                 if re.search(pattern, expr):
                     new_expr = re.sub(pattern, f", {new_w})", expr)
                     if new_expr != expr:
-                        variants.append(ImprovedVariant(
-                            expression=new_expr,
-                            mutation_type="lookback_tune",
-                            mutation_description=f"lookback {old_w} → {new_w}",
-                            expected_effect="adjust signal timing",
-                            priority=5,
-                        ))
+                        variants.append(
+                            ImprovedVariant(
+                                expression=new_expr,
+                                mutation_type="lookback_tune",
+                                mutation_description=f"lookback {old_w} → {new_w}",
+                                expected_effect="adjust signal timing",
+                                priority=5,
+                            )
+                        )
         return variants
 
     def _mutate_add_momentum_term(self, expr: str, analysis: NearPassAnalysis) -> list[ImprovedVariant]:
@@ -463,14 +495,16 @@ class NearPassImprover:
             old_power = float(match.group(2))
             for new_p in [1.5, 2.5, 3.0]:
                 if abs(new_p - old_power) > 0.1:
-                    new_expr = expr[:match.start()] + f"signed_power({base}, {new_p})" + expr[match.end():]
-                    variants.append(ImprovedVariant(
-                        expression=new_expr,
-                        mutation_type="power_tune",
-                        mutation_description=f"power {old_power} → {new_p}",
-                        expected_effect="adjust nonlinearity strength",
-                        priority=4,
-                    ))
+                    new_expr = expr[: match.start()] + f"signed_power({base}, {new_p})" + expr[match.end() :]
+                    variants.append(
+                        ImprovedVariant(
+                            expression=new_expr,
+                            mutation_type="power_tune",
+                            mutation_description=f"power {old_power} → {new_p}",
+                            expected_effect="adjust nonlinearity strength",
+                            priority=4,
+                        )
+                    )
 
         zscore_pattern = r"ts_zscore\(([^,]+),\s*(\d+)\)"
         match = re.search(zscore_pattern, expr)
@@ -479,14 +513,16 @@ class NearPassImprover:
             old_w = int(match.group(2))
             for new_w in [10, 30, 60]:
                 if new_w != old_w:
-                    new_expr = expr[:match.start()] + f"ts_zscore({base}, {new_w})" + expr[match.end():]
-                    variants.append(ImprovedVariant(
-                        expression=new_expr,
-                        mutation_type="zscore_window_tune",
-                        mutation_description=f"zscore window {old_w} → {new_w}",
-                        expected_effect="adjust normalization period",
-                        priority=4,
-                    ))
+                    new_expr = expr[: match.start()] + f"ts_zscore({base}, {new_w})" + expr[match.end() :]
+                    variants.append(
+                        ImprovedVariant(
+                            expression=new_expr,
+                            mutation_type="zscore_window_tune",
+                            mutation_description=f"zscore window {old_w} → {new_w}",
+                            expected_effect="adjust normalization period",
+                            priority=4,
+                        )
+                    )
         return variants
 
 

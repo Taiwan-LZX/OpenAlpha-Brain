@@ -6,6 +6,7 @@ v3 模板约束范式转移的核心基础设施。三层标注: L1语义类别 
 策略: BRAIN 原生 category/subcategory/dataset 直接映射 + 关键词语义拆分 +
 冷字段(coverage<0.3)标记，不需要 LLM 逐个标注 7000+ 字段。
 """
+
 from __future__ import annotations
 
 import json
@@ -102,7 +103,13 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
         l1_category="price",
         description="价格趋势、动量、回报率信号：close/open/high/low/vwap/returns",
         typical_keywords=["close", "open", "high", "low", "vwap", "return", "price", "trend", "momentum_factor"],
-        applicable_templates=["momentum_short_term_reversal", "momentum_medium_term_continuation", "momentum_long_term_reversal", "mean_reversion_zscore", "mean_reversion_bollinger"],
+        applicable_templates=[
+            "momentum_short_term_reversal",
+            "momentum_medium_term_continuation",
+            "momentum_long_term_reversal",
+            "mean_reversion_zscore",
+            "mean_reversion_bollinger",
+        ],
         data_freshness="daily",
     ),
     "volume_liquidity": FieldFamily(
@@ -119,7 +126,12 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
         l1_category="price",
         description="波动率、标准差、价格范围等离散度指标",
         typical_keywords=["volatility", "std_dev", "variance", "range", "beta", "dispersion", "cv"],
-        applicable_templates=["volatility_low_vol_anomaly", "volatility_change_signal", "volatility_clustering", "mean_reversion_bollinger"],
+        applicable_templates=[
+            "volatility_low_vol_anomaly",
+            "volatility_change_signal",
+            "volatility_clustering",
+            "mean_reversion_bollinger",
+        ],
         data_freshness="daily",
     ),
     # ── fundamental ──
@@ -155,7 +167,16 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
         family_name="资产负债",
         l1_category="fundamental",
         description="资产/负债/权益/杠杆比率",
-        typical_keywords=["asset", "liability", "equity", "debt", "leverage", "tangible", "current_ratio", "quick_ratio"],
+        typical_keywords=[
+            "asset",
+            "liability",
+            "equity",
+            "debt",
+            "leverage",
+            "tangible",
+            "current_ratio",
+            "quick_ratio",
+        ],
         applicable_templates=["quality_asset_turnover", "size_small_cap_premium"],
         data_freshness="quarterly",
     ),
@@ -185,7 +206,12 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
         l1_category="sentiment",
         description="分析师EPS预测/评级/目标价/修正方向",
         typical_keywords=["analyst", "estimate", "consensus", "fy1", "fy2", "revision", "recommendation", "target"],
-        applicable_templates=["lead_lag_price_volume", "lead_lag_cross_field", "lead_lag_industry_rotation", "momentum_short_term_reversal"],
+        applicable_templates=[
+            "lead_lag_price_volume",
+            "lead_lag_cross_field",
+            "lead_lag_industry_rotation",
+            "momentum_short_term_reversal",
+        ],
         data_freshness="daily",
     ),
     "earnings_surprise": FieldFamily(
@@ -232,8 +258,21 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
         family_name="动量模型因子",
         l1_category="derived_factor",
         description="Technical Models中的价格动量/反转因子: pricemomentumfactor, return/trend",
-        typical_keywords=["pricemomentumfactor", "return", "trend", "w", "week_return", "month_return", "active_return"],
-        applicable_templates=["momentum_short_term_reversal", "momentum_medium_term_continuation", "momentum_long_term_reversal", "mean_reversion_zscore"],
+        typical_keywords=[
+            "pricemomentumfactor",
+            "return",
+            "trend",
+            "w",
+            "week_return",
+            "month_return",
+            "active_return",
+        ],
+        applicable_templates=[
+            "momentum_short_term_reversal",
+            "momentum_medium_term_continuation",
+            "momentum_long_term_reversal",
+            "mean_reversion_zscore",
+        ],
     ),
     "earnings_momentum_model": FieldFamily(
         family_id="earnings_momentum_model",
@@ -289,7 +328,18 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
         family_name="期权隐含信息",
         l1_category="microstructure",
         description="期权隐含波动率/看跌看涨比/Greeks",
-        typical_keywords=["option", "implied", "volatility", "put", "call", "skew", "delta", "gamma", "vega", "open_interest"],
+        typical_keywords=[
+            "option",
+            "implied",
+            "volatility",
+            "put",
+            "call",
+            "skew",
+            "delta",
+            "gamma",
+            "vega",
+            "open_interest",
+        ],
         applicable_templates=["volatility_low_vol_anomaly", "lead_lag_price_volume"],
         data_freshness="daily",
     ),
@@ -366,6 +416,7 @@ FIELD_FAMILIES: dict[str, FieldFamily] = {
 
 
 # ── BRAIN subcategory/category → field family 映射规则 ────────────────────────
+
 
 def _subcategory_to_family(subcat_name: str) -> str | None:
     return {
@@ -531,8 +582,12 @@ class FieldProxyMap:
         if PROXY_MAP_PATH.exists() and not force_rebuild:
             try:
                 self._load_from_cache()
-                logger.info("FieldProxyMap loaded from cache: %d fields, %d families, %d cold",
-                            len(self._fields), len(self._family_map), len(self._cold_fields))
+                logger.info(
+                    "FieldProxyMap loaded from cache: %d fields, %d families, %d cold",
+                    len(self._fields),
+                    len(self._family_map),
+                    len(self._cold_fields),
+                )
                 self._loaded = True
                 return
             except OSError:
@@ -608,8 +663,13 @@ class FieldProxyMap:
 
         total = len(self._fields)
         cold_count = len(self._cold_fields)
-        logger.info("FieldProxyMap built: %d fields, %d families, %d cold (%.1f%%)",
-                    total, len(self._family_map), cold_count, cold_count / max(total, 1) * 100)
+        logger.info(
+            "FieldProxyMap built: %d fields, %d families, %d cold (%.1f%%)",
+            total,
+            len(self._family_map),
+            cold_count,
+            cold_count / max(total, 1) * 100,
+        )
 
     def _resolve_family(
         self,

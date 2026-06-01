@@ -48,7 +48,7 @@ class AlphaCachePool:
 
     def _ucb_score(self, direction: str, avg_sharpe: float, n: int) -> float:
         if n == 0:
-            return float('inf')
+            return float("inf")
         total_n = sum(s.get("n", 0) for s in self._direction_stats.values())
         total_n = max(total_n, 1)
         c = self._get_ucb_c_value()
@@ -86,13 +86,27 @@ class AlphaCachePool:
                 self._alpha_source_queue[alpha_id] = "normal"
             pool_len = len(self)
             if pool_len >= 30:
-                logger.warning("pipeline: BACKPRESSURE CRITICAL — pool_size=%d (queued=%d active=%d)",
-                               pool_len, len(self._high_queue) + len(self._normal_queue), len(self._active_slots))
+                logger.warning(
+                    "pipeline: BACKPRESSURE CRITICAL — pool_size=%d (queued=%d active=%d)",
+                    pool_len,
+                    len(self._high_queue) + len(self._normal_queue),
+                    len(self._active_slots),
+                )
             elif pool_len >= 15:
-                logger.warning("pipeline: BACKPRESSURE HIGH — pool_size=%d (queued=%d active=%d)",
-                               pool_len, len(self._high_queue) + len(self._normal_queue), len(self._active_slots))
+                logger.warning(
+                    "pipeline: BACKPRESSURE HIGH — pool_size=%d (queued=%d active=%d)",
+                    pool_len,
+                    len(self._high_queue) + len(self._normal_queue),
+                    len(self._active_slots),
+                )
             else:
-                logger.info("pipeline: enqueued alpha %s (priority=%s, dir=%s, pool_size=%d)", alpha_id, priority, direction or "?", pool_len)
+                logger.info(
+                    "pipeline: enqueued alpha %s (priority=%s, dir=%s, pool_size=%d)",
+                    alpha_id,
+                    priority,
+                    direction or "?",
+                    pool_len,
+                )
         self._update_green_light()
 
     @property
@@ -118,7 +132,13 @@ class AlphaCachePool:
                     break
             if to_remove:
                 del self._active_slots[to_remove]
-                logger.info("pipeline: released %s for alpha %s (active=%d/%d)", to_remove, alpha_id, len(self._active_slots), self._max_slots)
+                logger.info(
+                    "pipeline: released %s for alpha %s (active=%d/%d)",
+                    to_remove,
+                    alpha_id,
+                    len(self._active_slots),
+                    self._max_slots,
+                )
         self._slot_released.set()
         self._update_green_light()
 
@@ -169,7 +189,8 @@ class AlphaCachePool:
                             continue
                     logger.info(
                         "pipeline: UCB sorted selection: alpha %s dir=%s score=%.4f (queue_size=%d)",
-                        alpha_id, self._alpha_direction.get(alpha_id, "?"),
+                        alpha_id,
+                        self._alpha_direction.get(alpha_id, "?"),
                         ucb_scores.get(self._alpha_direction.get(alpha_id, ""), 0.0),
                         len(all_ids),
                     )
@@ -191,5 +212,11 @@ class AlphaCachePool:
                 return None
             slot_id = f"slot_{next(_slot_counter)}"
             self._active_slots[slot_id] = alpha_id
-            logger.info("pipeline: alpha %s assigned to %s (active=%d/%d)", alpha_id, slot_id, len(self._active_slots), self._max_slots)
+            logger.info(
+                "pipeline: alpha %s assigned to %s (active=%d/%d)",
+                alpha_id,
+                slot_id,
+                len(self._active_slots),
+                self._max_slots,
+            )
             return alpha_id

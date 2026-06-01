@@ -3,6 +3,7 @@ OpenAlpha-Brain — Shared httpx AsyncClient Pool
 Provides a lazily-initialized, long-lived httpx.AsyncClient for reuse
 across LLM and BRAIN API calls. Managed via FastAPI lifespan.
 """
+
 from __future__ import annotations
 
 import httpx

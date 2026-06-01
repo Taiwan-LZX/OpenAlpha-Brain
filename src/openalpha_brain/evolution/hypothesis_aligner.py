@@ -16,14 +16,19 @@ R² Hypothesis Alignment Scorer for AlphaAgent (KDD'25)
     result = aligner.align(expression, "momentum_long")
     print(result["r2_score"], result["alignment_level"])
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+import aiohttp
 
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
@@ -60,19 +65,44 @@ class HypothesisAligner:
 
     _PRICE_FIELDS: set[str] = {"close", "open", "high", "low", "vwap", "returns"}
     _VOLUME_FIELDS: set[str] = {"volume", "adv20"}
-    _FUNDAMENTAL_FIELDS: set[str] = {"cap", "sales", "assets", "equity", "revenue", "earnings", "sharesout", "liabilities", "debt"}
+    _FUNDAMENTAL_FIELDS: set[str] = {
+        "cap",
+        "sales",
+        "assets",
+        "equity",
+        "revenue",
+        "earnings",
+        "sharesout",
+        "liabilities",
+        "debt",
+    }
     _TECHNICAL_OPS: set[str] = {
-        "ts_delta", "ts_decay_linear", "ts_rank", "ts_regression",
-        "ts_corr", "ts_covariance",
+        "ts_delta",
+        "ts_decay_linear",
+        "ts_rank",
+        "ts_regression",
+        "ts_corr",
+        "ts_covariance",
     }
     _FUNDAMENTAL_OPS: set[str] = {
-        "ts_mean", "ts_std_dev", "ts_zscore", "ts_sum", "ts_product",
-        "ts_av_diff", "ts_skewness", "ts_kurtosis",
+        "ts_mean",
+        "ts_std_dev",
+        "ts_zscore",
+        "ts_sum",
+        "ts_product",
+        "ts_av_diff",
+        "ts_skewness",
+        "ts_kurtosis",
     }
 
-    _OPERATOR_RE = re.compile(r'\b(ts_\w+|rank|group_neutralize|group_rank|zscore|group_zscore|scale|signed_power|abs|log|sign|delta|correlation|covariance|ts_product|ts_sum|ts_min|ts_max|ts_argmax|ts_argmin|ts_skewness|ts_kurtosis|ts_av_diff|ts_std_dev|regression)\b')
-    _FIELD_RE = re.compile(r'\b(close|open|high|low|vwap|volume|adv\d+|returns|cap|sales|assets|equity|revenue|earnings|sharesout|vwap\d+)\b', re.IGNORECASE)
-    _NUMBER_RE = re.compile(r'\b(\d+)\b')
+    _OPERATOR_RE = re.compile(
+        r"\b(ts_\w+|rank|group_neutralize|group_rank|zscore|group_zscore|scale|signed_power|abs|log|sign|delta|correlation|covariance|ts_product|ts_sum|ts_min|ts_max|ts_argmax|ts_argmin|ts_skewness|ts_kurtosis|ts_av_diff|ts_std_dev|regression)\b"
+    )
+    _FIELD_RE = re.compile(
+        r"\b(close|open|high|low|vwap|volume|adv\d+|returns|cap|sales|assets|equity|revenue|earnings|sharesout|vwap\d+)\b",
+        re.IGNORECASE,
+    )
+    _NUMBER_RE = re.compile(r"\b(\d+)\b")
 
     def __init__(self) -> None:
         self._templates: dict[str, HypothesisTemplate] = self._build_template_library()
@@ -275,21 +305,33 @@ class HypothesisAligner:
                 is_fallback = template is None
 
                 if is_fallback:
-                    logger.warning("HypothesisAligner: unknown hypothesis '%s', using multi-signal fallback scoring", hypothesis)
+                    logger.warning(
+                        "HypothesisAligner: unknown hypothesis '%s', using multi-signal fallback scoring", hypothesis
+                    )
                     result = self._fallback_scoring(expression, hypothesis)
                     result["calibrated_score"] = self._calibrate_score(result["r2_score"], "unknown")
                     result["fallback_triggered"] = True
                     log_call(
                         "align_fallback",
                         input={"expression": expr_summary, "hypothesis": hypothesis, "template_key": template_key},
-                        output={k: result[k] for k in ["r2_score", "calibrated_score", "alignment_level", "fallback_signal_details"] if k in result},
+                        output={
+                            k: result[k]
+                            for k in ["r2_score", "calibrated_score", "alignment_level", "fallback_signal_details"]
+                            if k in result
+                        },
                         extra={"fallback_reason": f"unknown_template:{hypothesis}"},
                     )
                     ms = (time.perf_counter() - t0) * 1000
-                    try:
-                        self._tel.record_exit_sync("HypothesisAligner", eid, metrics={"r2_score": round(result.get("r2_score", 0), 4), "alignment_level": result.get("alignment_level", "unknown")}, duration_ms=ms)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
+                        self._tel.record_exit_sync(
+                            "HypothesisAligner",
+                            eid,
+                            metrics={
+                                "r2_score": round(result.get("r2_score", 0), 4),
+                                "alignment_level": result.get("alignment_level", "unknown"),
+                            },
+                            duration_ms=ms,
+                        )
                     return result
 
                 expr_ops = self._extract_operators(expression)
@@ -306,10 +348,15 @@ class HypothesisAligner:
 
             alignment_level = self._classify_alignment_level(r2_score)
             diagnosis = self._build_diagnosis(op_match, field_match, dir_consistency, structural_fit, template)
-            suggestions = self._build_suggestions(op_match, field_match, dir_consistency, structural_fit, template, expression)
+            suggestions = self._build_suggestions(
+                op_match, field_match, dir_consistency, structural_fit, template, expression
+            )
 
             economy = self._check_categorical_consistency(
-                template_key, expr_ops, expr_fields, expression,
+                template_key,
+                expr_ops,
+                expr_fields,
+                expression,
             )
 
             result = {
@@ -344,17 +391,18 @@ class HypothesisAligner:
                 extra={"is_fallback": False, "template_matched": True},
             )
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                self._tel.record_exit_sync("HypothesisAligner", eid, metrics={"r2_score": r2_score, "alignment_level": alignment_level}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                self._tel.record_exit_sync(
+                    "HypothesisAligner",
+                    eid,
+                    metrics={"r2_score": r2_score, "alignment_level": alignment_level},
+                    duration_ms=ms,
+                )
             return result
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     self._tel.record_error_sync("HypothesisAligner", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     def detect_hypothesis_from_expression(self, expression: str) -> str:
@@ -372,7 +420,7 @@ class HypothesisAligner:
         best_key = "unknown"
         best_score = -1.0
 
-        for key, template in self._templates.items():
+        for key, _template in self._templates.items():
             partial = self.align(expression, key)
             if partial["r2_score"] > best_score:
                 best_score = partial["r2_score"]
@@ -466,11 +514,11 @@ class HypothesisAligner:
             return 0.3
 
         expected_list = template.expected_operators
-        avoid_set = set(o.lower() for o in template.avoid_operators)
-        expr_set = set(o.lower() for o in expr_ops)
+        avoid_set = {o.lower() for o in template.avoid_operators}
+        expr_set = {o.lower() for o in expr_ops}
 
-        core_expected = set(o.lower() for o in expected_list[:2])
-        full_expected = set(o.lower() for o in expected_list)
+        core_expected = {o.lower() for o in expected_list[:2]}
+        full_expected = {o.lower() for o in expected_list}
 
         core_hits = len(core_expected & expr_set)
         full_hits = len(full_expected & expr_set)
@@ -495,8 +543,8 @@ class HypothesisAligner:
         if not expr_fields:
             return 0.3
 
-        expected_set = set(f.lower() for f in template.expected_fields)
-        expr_set = set(f.lower() for f in expr_fields)
+        expected_set = {f.lower() for f in template.expected_fields}
+        expr_set = {f.lower() for f in expr_fields}
 
         if not expected_set:
             return 0.5
@@ -507,7 +555,17 @@ class HypothesisAligner:
         family_map: dict[str, set[str]] = {
             "price": {"close", "open", "high", "low", "vwap"},
             "volume": {"volume", "adv20"},
-            "fundamental": {"cap", "sales", "assets", "equity", "revenue", "earnings", "sharesout", "liabilities", "debt"},
+            "fundamental": {
+                "cap",
+                "sales",
+                "assets",
+                "equity",
+                "revenue",
+                "earnings",
+                "sharesout",
+                "liabilities",
+                "debt",
+            },
             "return": {"returns"},
         }
 
@@ -518,9 +576,8 @@ class HypothesisAligner:
                 if expr_f in members:
                     expr_family = family_name
                     break
-            if expr_family is not None:
-                if any(m in expected_set for m in family_map[expr_family]):
-                    family_bonus += 0.1
+            if expr_family is not None and any(m in expected_set for m in family_map[expr_family]):
+                family_bonus += 0.1
 
         precision = overlap / len(expected_set) if expected_set else 0.0
         raw = 0.5 * recall + 0.3 * precision + min(family_bonus, 0.2)
@@ -563,19 +620,19 @@ class HypothesisAligner:
 
     def _infer_expression_direction(self, expression: str) -> float:
         """推斷表達式的隱含方向偏置 (+1 多頭, -1 空頭, 0 中性)。"""
-        has_leading_neg = bool(re.match(r'^-\s*\w+', expression))
+        has_leading_neg = bool(re.match(r"^-\s*\w+", expression))
 
         neg_after_group_neutralize = False
-        gn_match = re.match(r'^group_neutralize\s*\(\s*-(.+)', expression)
+        gn_match = re.match(r"^group_neutralize\s*\(\s*-(.+)", expression)
         if gn_match:
             neg_after_group_neutralize = True
 
-        ts_delta_positives = len(re.findall(r'ts_delta\s*\([^,)]+\s*,\s*\d+\)', expression))
-        wrapped_neg_deltas = len(re.findall(r'-\s*ts_delta\s*\(', expression))
+        ts_delta_positives = len(re.findall(r"ts_delta\s*\([^,)]+\s*,\s*\d+\)", expression))
+        wrapped_neg_deltas = len(re.findall(r"-\s*ts_delta\s*\(", expression))
 
-        rank_inner_neg = bool(re.search(r'rank\s*\(\s*-', expression))
+        rank_inner_neg = bool(re.search(r"rank\s*\(\s*-", expression))
 
-        sign_op_count = len(re.findall(r'\bsign\s*\(', expression))
+        sign_op_count = len(re.findall(r"\bsign\s*\(", expression))
 
         if neg_after_group_neutralize or has_leading_neg:
             return -1.0
@@ -587,7 +644,7 @@ class HypothesisAligner:
             return 1.0
 
         inner_expr = expression
-        outer_match = re.match(r'^(?:group_neutralize|rank)\s*\(\s*(.+)\s*\)$', expression, re.DOTALL)
+        outer_match = re.match(r"^(?:group_neutralize|rank)\s*\(\s*(.+)\s*\)$", expression, re.DOTALL)
         if outer_match:
             inner_expr = outer_match.group(1).strip()
 
@@ -670,8 +727,8 @@ class HypothesisAligner:
         expr_fields: list[str],
         expression: str,
     ) -> dict[str, Any]:
-        op_set = set(o.lower() for o in expr_ops)
-        field_set = set(f.lower() for f in expr_fields)
+        op_set = {o.lower() for o in expr_ops}
+        field_set = {f.lower() for f in expr_fields}
         depth = self._compute_nesting_depth(expression)
 
         conflict_type: str | None = None
@@ -679,7 +736,7 @@ class HypothesisAligner:
         issues: list[str] = []
 
         has_price = bool(field_set & self._PRICE_FIELDS)
-        has_volume = bool(field_set & self._VOLUME_FIELDS)
+        bool(field_set & self._VOLUME_FIELDS)
         has_fundamental_field = bool(field_set & self._FUNDAMENTAL_FIELDS)
         has_technical_op = bool(op_set & self._TECHNICAL_OPS)
         has_fundamental_op = bool(op_set & self._FUNDAMENTAL_OPS)
@@ -693,9 +750,7 @@ class HypothesisAligner:
         if is_momentum and has_fundamental_field and not has_price:
             conflict_type = "field_mismatch"
             confidence -= 0.35
-            issues.append(
-                "動量策略通常使用價格/成交量欄位，但表達式使用了基本面欄位"
-            )
+            issues.append("動量策略通常使用價格/成交量欄位，但表達式使用了基本面欄位")
 
         if (is_value or is_quality) and not has_fundamental_field and has_price:
             conflict_type = "field_mismatch" if conflict_type is None else conflict_type
@@ -725,8 +780,7 @@ class HypothesisAligner:
         confidence = max(0.0, min(1.0, confidence))
         is_consistent = confidence >= 0.60 and conflict_type is None
         explanation = (
-            f"[CATEGORICAL] template='{template_key}' → "
-            f"consistent={is_consistent} (confidence={confidence:.2f})"
+            f"[CATEGORICAL] template='{template_key}' → consistent={is_consistent} (confidence={confidence:.2f})"
         )
         if issues:
             explanation += f" | Issues: {'; '.join(issues)}"
@@ -790,11 +844,19 @@ class HypothesisAligner:
         suggestions = []
 
         if op_match < 0.5:
-            missing = [op for op in template.expected_operators[:3] if op.lower() not in {o.lower() for o in self._extract_operators(expression)}]
+            missing = [
+                op
+                for op in template.expected_operators[:3]
+                if op.lower() not in {o.lower() for o in self._extract_operators(expression)}
+            ]
             if missing:
                 suggestions.append(f"考慮加入 {template.name} 策略的核心運算子：{', '.join(missing)}")
             if template.avoid_operators:
-                found_avoid = [op for op in template.avoid_operators if op.lower() in {o.lower() for o in self._extract_operators(expression)}]
+                found_avoid = [
+                    op
+                    for op in template.avoid_operators
+                    if op.lower() in {o.lower() for o in self._extract_operators(expression)}
+                ]
                 if found_avoid:
                     suggestions.append(f"避免使用與 {template.name} 衝突的運算子：{', '.join(found_avoid)}")
 
@@ -884,7 +946,7 @@ class HypothesisAligner:
         if not expr_fields:
             return 0.3
 
-        expr_set = set(f.lower() for f in expr_fields)
+        expr_set = {f.lower() for f in expr_fields}
         hypothesis_lower = hypothesis.lower()
 
         inferred_field_set: set[str] = set()
@@ -892,7 +954,26 @@ class HypothesisAligner:
             inferred_field_set |= self._PRICE_FIELDS
         if any(kw in hypothesis_lower for kw in ["volume", "量", "流動", "liquidity", "flow"]):
             inferred_field_set |= self._VOLUME_FIELDS
-        if any(kw in hypothesis_lower for kw in ["value", "價值", "quality", "品質", "fundamental", "基本面", "earnings", "盈利", "sales", "營收", "growth", "成長", "cap", "市值", "size"]):
+        if any(
+            kw in hypothesis_lower
+            for kw in [
+                "value",
+                "價值",
+                "quality",
+                "品質",
+                "fundamental",
+                "基本面",
+                "earnings",
+                "盈利",
+                "sales",
+                "營收",
+                "growth",
+                "成長",
+                "cap",
+                "市值",
+                "size",
+            ]
+        ):
             inferred_field_set |= self._FUNDAMENTAL_FIELDS
 
         if not inferred_field_set:
@@ -910,12 +991,12 @@ class HypothesisAligner:
         if not expr_ops:
             return 0.3
 
-        expr_set = set(o.lower() for o in expr_ops)
+        expr_set = {o.lower() for o in expr_ops}
         all_expected: set[str] = set()
         all_avoid: set[str] = set()
         for tmpl in self._templates.values():
-            all_expected |= set(o.lower() for o in tmpl.expected_operators)
-            all_avoid |= set(o.lower() for o in tmpl.avoid_operators)
+            all_expected |= {o.lower() for o in tmpl.expected_operators}
+            all_avoid |= {o.lower() for o in tmpl.avoid_operators}
 
         hits = len(expr_set & all_expected)
         penalties = len(expr_set & all_avoid)
@@ -926,7 +1007,7 @@ class HypothesisAligner:
     def _fallback_signal_structural_complexity(self, expression: str) -> float:
         """fallback 信號 3：結構複雜度差異 — 評估表達式複雜度是否落在合理區間 [2, 6]。"""
         depth = self._compute_nesting_depth(expression)
-        op_count = len(self._extract_operators(expression))
+        len(self._extract_operators(expression))
 
         if depth < 2:
             return 0.4 + (depth / 2) * 0.2
@@ -943,7 +1024,19 @@ class HypothesisAligner:
         inferred_dir = self._infer_expression_direction(expression)
 
         long_kws = ["long", "多頭", "buy", "positive", "bullish", "漲", "動量", "momentum", "trend", "趨勢"]
-        short_kws = ["short", "空頭", "sell", "negative", "bearish", "跌", "反轉", "reversal", "contrarian", "復歸", "revert"]
+        short_kws = [
+            "short",
+            "空頭",
+            "sell",
+            "negative",
+            "bearish",
+            "跌",
+            "反轉",
+            "reversal",
+            "contrarian",
+            "復歸",
+            "revert",
+        ]
 
         long_hits = sum(1 for kw in long_kws if kw in hypothesis_lower)
         short_hits = sum(1 for kw in short_kws if kw in hypothesis_lower)
@@ -1048,29 +1141,18 @@ class HypothesisAligner:
             - adjusted_alignment_level: str
         """
         r2_score = rule_result.get("r2_score", 0.0)
-        level = rule_result.get("alignment_level", "unknown")
-        diagnosis = rule_result.get("diagnosis", "")
+        rule_result.get("alignment_level", "unknown")
+        rule_result.get("diagnosis", "")
 
-        prompt = (
-            "Verify this alpha factor alignment assessment.\n\n"
-            f"Expression: {expression}\n"
-            f"Claimed hypothesis: {hypothesis}\n"
-            f"Rule-based R² score: {r2_score:.4f} ({level})\n"
-            f"Rule-based diagnosis: {diagnosis}\n\n"
-            "Does the expression TRULY implement the claimed economic hypothesis?\n"
-            "Consider: operator semantics, field relevance, signal direction, structural appropriateness.\n\n"
-            "Reply format:\n"
-            "AGREE: <yes/partial/no>\n"
-            "ADJUSTMENT: <-0.15 to +0.15>\n"
-            "COMMENT: <one sentence>"
+        logger.info(
+            "[HYP-ALIGN-LLM] Sending verification request for expr=%s hyp=%s r2=%.3f",
+            expression[:60],
+            hypothesis,
+            r2_score,
         )
 
-        logger.info("[HYP-ALIGN-LLM] Sending verification request for expr=%s hyp=%s r2=%.3f",
-                     expression[:60], hypothesis, r2_score)
-
         raise NotImplementedError(
-            "llm_verify_alignment requires an LLM callback. "
-            "Use align_with_llm(llm_fn=...) instead."
+            "llm_verify_alignment requires an LLM callback. Use align_with_llm(llm_fn=...) instead."
         )
 
     @algo_log(label="HypothesisAligner.align_with_llm")
@@ -1083,7 +1165,9 @@ class HypothesisAligner:
     ) -> dict[str, Any]:
         eid = None
         try:
-            eid = await self._tel.record_enter("HypothesisAligner", cycle_id="unknown", expr_id=hash(expression) % 10000)
+            eid = await self._tel.record_enter(
+                "HypothesisAligner", cycle_id="unknown", expr_id=hash(expression) % 10000
+            )
             t0 = time.perf_counter()
             llm_verified = False
 
@@ -1100,10 +1184,13 @@ class HypothesisAligner:
                 if llm_fn is None:
                     logger.debug("[HYP-ALIGN-LLM] No llm_fn provided, returning rule-only result")
                     ms = (time.perf_counter() - t0) * 1000
-                    try:
-                        await self._tel.record_exit("HypothesisAligner", eid, metrics={"llm_verified": llm_verified, "adjustment": 0.0}, duration_ms=ms)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
+                        await self._tel.record_exit(
+                            "HypothesisAligner",
+                            eid,
+                            metrics={"llm_verified": llm_verified, "adjustment": 0.0},
+                            duration_ms=ms,
+                        )
                     return base
 
                 r2 = rule_result.get("r2_score", 0.0)
@@ -1114,20 +1201,24 @@ class HypothesisAligner:
 
                 if not (in_boundary or is_weak):
                     logger.info(
-                        "[HYP-ALIGN-LLM] Skipping LLM: r2=%.3f level=%s "
-                        "(outside boundary [0.40, 0.70] and not weak)",
-                        r2, level,
+                        "[HYP-ALIGN-LLM] Skipping LLM: r2=%.3f level=%s (outside boundary [0.40, 0.70] and not weak)",
+                        r2,
+                        level,
                     )
                     ms = (time.perf_counter() - t0) * 1000
-                    try:
-                        await self._tel.record_exit("HypothesisAligner", eid, metrics={"llm_verified": llm_verified, "adjustment": 0.0}, duration_ms=ms)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
+                        await self._tel.record_exit(
+                            "HypothesisAligner",
+                            eid,
+                            metrics={"llm_verified": llm_verified, "adjustment": 0.0},
+                            duration_ms=ms,
+                        )
                     return base
 
             logger.info(
                 "[HYP-ALIGN-LLM] Boundary zone detected: r2=%.3f level=%s → invoking LLM",
-                r2, level,
+                r2,
+                level,
             )
 
             r2_score = rule_result.get("r2_score", 0.0)
@@ -1179,9 +1270,14 @@ class HypothesisAligner:
                 override_level = self._classify_alignment_level(new_r2)
 
             logger.info(
-                "[HYP-ALIGN-LLM] Verification complete: agree=%s adj=%.3f "
-                "r2: %.4f→%.4f level: %s→%s | %s",
-                agree, adjustment, r2, new_r2, old_level, override_level, comment,
+                "[HYP-ALIGN-LLM] Verification complete: agree=%s adj=%.3f r2: %.4f→%.4f level: %s→%s | %s",
+                agree,
+                adjustment,
+                r2,
+                new_r2,
+                old_level,
+                override_level,
+                comment,
             )
 
             result = {
@@ -1194,17 +1290,18 @@ class HypothesisAligner:
             }
             llm_verified = True
             ms = (time.perf_counter() - t0) * 1000
-            try:
-                await self._tel.record_exit("HypothesisAligner", eid, metrics={"llm_verified": llm_verified, "adjustment": round(adjustment, 4)}, duration_ms=ms)
-            except (OSError, ValueError, RuntimeError):
-                pass
+            with contextlib.suppress(OSError, ValueError, RuntimeError):
+                await self._tel.record_exit(
+                    "HypothesisAligner",
+                    eid,
+                    metrics={"llm_verified": llm_verified, "adjustment": round(adjustment, 4)},
+                    duration_ms=ms,
+                )
             return result
         except Exception as e:
             if eid:
-                try:
+                with contextlib.suppress(OSError, ValueError, RuntimeError):
                     await self._tel.record_error("HypothesisAligner", str(e), type(e).__name__)
-                except (OSError, ValueError, RuntimeError):
-                    pass
             raise
 
     def _parse_llm_verification_response(self, response_text: str) -> dict[str, str]:
@@ -1218,15 +1315,15 @@ class HypothesisAligner:
             "comment": "",
         }
 
-        agree_match = re.search(r'AGREE[:\s]+(yes|partial|no)', response_text, re.IGNORECASE)
+        agree_match = re.search(r"AGREE[:\s]+(yes|partial|no)", response_text, re.IGNORECASE)
         if agree_match:
             result["agree"] = agree_match.group(1).lower()
 
-        adj_match = re.search(r'ADJUSTMENT[:\s]*([+-]?[\d.]+)', response_text, re.IGNORECASE)
+        adj_match = re.search(r"ADJUSTMENT[:\s]*([+-]?[\d.]+)", response_text, re.IGNORECASE)
         if adj_match:
             result["adjustment"] = adj_match.group(1)
 
-        comment_match = re.search(r'COMMENT[:\s]+(.+)', response_text, re.IGNORECASE | re.DOTALL)
+        comment_match = re.search(r"COMMENT[:\s]+(.+)", response_text, re.IGNORECASE | re.DOTALL)
         if comment_match:
             result["comment"] = comment_match.group(1).strip()
 
@@ -1236,7 +1333,6 @@ class HypothesisAligner:
 # ========== 內嵌測試用例 ==========
 
 if __name__ == "__main__":
-
     aligner = HypothesisAligner()
 
     # 測試案例 1：動量多頭表達式 — 應得高分
@@ -1264,7 +1360,9 @@ if __name__ == "__main__":
     # 測試案例 4：反向偵測
     detected = aligner.detect_hypothesis_from_expression(expr1)
     print(f"[PASS] Test 4 — 反向偵測: '{expr1[:50]}...' → {detected}")
-    assert detected == "industry_rotation", f"Test 4 failed: expression with group_neutralize(..., industry) should be industry_rotation, detected={detected}"
+    assert detected == "industry_rotation", (
+        f"Test 4 failed: expression with group_neutralize(..., industry) should be industry_rotation, detected={detected}"  # noqa: E501
+    )
 
     # 測試案例 5：反饋文字生成
     feedback = aligner.build_alignment_feedback(r3)

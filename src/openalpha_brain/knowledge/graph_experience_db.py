@@ -19,6 +19,7 @@ Usage:
     )
     similar = db.query_similar_expressions("rank(close)", top_k=5)
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,11 +47,34 @@ FIELD_FAMILY_MAP = {
 }
 
 OPERATOR_CATEGORIES = {
-    "time_series": {"ts_mean", "ts_std_dev", "ts_sum", "ts_product", "ts_min", "ts_max",
-                    "ts_rank", "ts_delta", "ts_decay_linear", "ts_regression",
-                    "ts_av_diff", "ts_skewness", "ts_kurtosis", "ts_corr", "ts_covariance"},
-    "cross_section": {"rank", "zscore", "scale", "normalize", "winsorize",
-                      "group_rank", "group_zscore", "group_neutralize", "group_mean"},
+    "time_series": {
+        "ts_mean",
+        "ts_std_dev",
+        "ts_sum",
+        "ts_product",
+        "ts_min",
+        "ts_max",
+        "ts_rank",
+        "ts_delta",
+        "ts_decay_linear",
+        "ts_regression",
+        "ts_av_diff",
+        "ts_skewness",
+        "ts_kurtosis",
+        "ts_corr",
+        "ts_covariance",
+    },
+    "cross_section": {
+        "rank",
+        "zscore",
+        "scale",
+        "normalize",
+        "winsorize",
+        "group_rank",
+        "group_zscore",
+        "group_neutralize",
+        "group_mean",
+    },
     "math": {"abs", "log", "sign", "sqrt", "power", "signed_power", "max", "min"},
     "logical": {"if_else", "when", "switch"},
 }
@@ -68,6 +92,7 @@ class ExperienceNode:
         metadata: Additional attributes (timestamp, category, etc.)
         created_at: Unix timestamp
     """
+
     node_id: str = ""
     node_type: str = ""
     content: Any = None
@@ -93,6 +118,7 @@ class ExperienceEdge:
         weight: Edge weight (similarity score or confidence)
         metadata: Additional info
     """
+
     source_id: str = ""
     target_id: str = ""
     edge_type: str = ""
@@ -120,12 +146,8 @@ class SimpleDiGraph:
             self._pred.setdefault(node.node_id, {})
 
     def add_edge(self, edge: ExperienceEdge) -> None:
-        self.add_node(self._nodes.get(edge.source_id) or ExperienceNode(
-            node_id=edge.source_id, node_type="unknown"
-        ))
-        self.add_node(self._nodes.get(edge.target_id) or ExperienceNode(
-            node_id=edge.target_id, node_type="unknown"
-        ))
+        self.add_node(self._nodes.get(edge.source_id) or ExperienceNode(node_id=edge.source_id, node_type="unknown"))
+        self.add_node(self._nodes.get(edge.target_id) or ExperienceNode(node_id=edge.target_id, node_type="unknown"))
         self._adj[edge.source_id][edge.target_id] = edge
         self._pred[edge.target_id][edge.source_id] = edge
 
@@ -206,11 +228,7 @@ class GraphBasedExperienceDB:
 
     @algo_log()
     def add_factor_experience(
-        self,
-        expression: str,
-        wq_feedback: dict,
-        improvement_result: dict | None = None,
-        category: str = "general"
+        self, expression: str, wq_feedback: dict, improvement_result: dict | None = None, category: str = "general"
     ) -> str:
         """Record a complete factor→feedback→improvement experience triplet.
 
@@ -300,16 +318,15 @@ class GraphBasedExperienceDB:
 
         logger.info(
             "[GRAPH-DB] Added experience: expr=%s category=%s nodes=%d",
-            expression[:50], category, self.node_counter,
+            expression[:50],
+            category,
+            self.node_counter,
         )
         return expr_node.node_id
 
     @algo_log()
     def query_similar_experiences(
-        self,
-        current_expression: str,
-        top_k: int = 5,
-        min_similarity: float = 0.3
+        self, current_expression: str, top_k: int = 5, min_similarity: float = 0.3
     ) -> list[dict]:
         """Query historical experiences with similar factor structures.
 
@@ -396,15 +413,17 @@ class GraphBasedExperienceDB:
             if error_type and pattern_error_type != error_type:
                 continue
 
-            patterns.append({
-                "error_type": pattern_error_type,
-                "original_expression": original_expr,
-                "fix_strategy": strategy,
-                "new_expression": new_expr,
-                "success": result.get("success", False),
-                "result_metrics": result.get("metrics", {}),
-                "node_id": imp_node.node_id,
-            })
+            patterns.append(
+                {
+                    "error_type": pattern_error_type,
+                    "original_expression": original_expr,
+                    "fix_strategy": strategy,
+                    "new_expression": new_expr,
+                    "success": result.get("success", False),
+                    "result_metrics": result.get("metrics", {}),
+                    "node_id": imp_node.node_id,
+                }
+            )
 
         patterns.sort(key=lambda x: x.get("success", False), reverse=True)
         return patterns
@@ -438,20 +457,22 @@ class GraphBasedExperienceDB:
 
             feedback = self._get_node_feedback(node.node_id)
 
-            successful.append({
-                "expression": node.content,
-                "field_families": list(node.features.get("field_families", set())),
-                "operators": node.features.get("operators", []),
-                "complexity": node.features.get("complexity", 0),
-                "has_neutralize": node.features.get("has_neutralize", False),
-                "has_decay": node.features.get("has_decay", False),
-                "decay_window": node.features.get("decay_window"),
-                "sharpe": feedback.get("sharpe") if feedback else None,
-                "fitness": feedback.get("fitness") if feedback else None,
-                "turnover": feedback.get("turnover") if feedback else None,
-                "category": category,
-                "node_id": node.node_id,
-            })
+            successful.append(
+                {
+                    "expression": node.content,
+                    "field_families": list(node.features.get("field_families", set())),
+                    "operators": node.features.get("operators", []),
+                    "complexity": node.features.get("complexity", 0),
+                    "has_neutralize": node.features.get("has_neutralize", False),
+                    "has_decay": node.features.get("has_decay", False),
+                    "decay_window": node.features.get("decay_window"),
+                    "sharpe": feedback.get("sharpe") if feedback else None,
+                    "fitness": feedback.get("fitness") if feedback else None,
+                    "turnover": feedback.get("turnover") if feedback else None,
+                    "category": category,
+                    "node_id": node.node_id,
+                }
+            )
 
         successful.sort(key=lambda x: x.get("sharpe") or 0, reverse=True)
         return successful
@@ -536,12 +557,14 @@ class GraphBasedExperienceDB:
         for case in similar:
             if case.get("improvement_strategy"):
                 strategies.add(case["improvement_strategy"])
-            cases.append({
-                "expression": case["expression"],
-                "similarity": case["similarity"],
-                "sharpe": case["sharpe"],
-                "outcome": case["category"],
-            })
+            cases.append(
+                {
+                    "expression": case["expression"],
+                    "similarity": case["similarity"],
+                    "sharpe": case["sharpe"],
+                    "outcome": case["category"],
+                }
+            )
 
         avg_similarity = sum(c["similarity"] for c in cases) / len(cases) if cases else 0
 
@@ -581,7 +604,8 @@ class GraphBasedExperienceDB:
 
             logger.info(
                 "[GRAPH-DB] Saved %d nodes to %s",
-                self.graph.size(), self.db_path,
+                self.graph.size(),
+                self.db_path,
             )
         except OSError:
             if Path(temp_path).exists():
@@ -612,14 +636,13 @@ class GraphBasedExperienceDB:
 
             logger.info(
                 "[GRAPH-DB] Loaded %d nodes from %s (version=%s)",
-                self.graph.size(), self.db_path,
+                self.graph.size(),
+                self.db_path,
                 data.get("version", "unknown"),
             )
             return True
         except OSError as e:
-            logger.warning(
-                "[GRAPH-DB] Failed to load from %s: %s", self.db_path, e, exc_info=True
-            )
+            logger.warning("[GRAPH-DB] Failed to load from %s: %s", self.db_path, e, exc_info=True)
             return False
 
     def get_stats(self) -> dict:
@@ -682,10 +705,7 @@ class GraphBasedExperienceDB:
         field_families = self._classify_field_families(fields)
         complexity = len(operators)
 
-        has_neutralize = any(
-            op in expression.lower()
-            for op in ["group_neutralize", "group_zscore"]
-        )
+        has_neutralize = any(op in expression.lower() for op in ["group_neutralize", "group_zscore"])
 
         has_decay = "ts_decay_linear" in expression
         decay_window = None
@@ -750,24 +770,21 @@ class GraphBasedExperienceDB:
         struct_sim = self._structure_similarity(struct_a, struct_b)
 
         special_sim = 0.0
-        decay_match = (
-            features_a.get("has_decay") == features_b.get("has_decay") and
-            features_a.get("decay_window") == features_b.get("decay_window")
-        )
-        neutralize_match = (
-            features_a.get("has_neutralize") == features_b.get("has_neutralize")
-        )
+        decay_match = features_a.get("has_decay") == features_b.get("has_decay") and features_a.get(
+            "decay_window"
+        ) == features_b.get("decay_window")
+        neutralize_match = features_a.get("has_neutralize") == features_b.get("has_neutralize")
         if decay_match and neutralize_match:
             special_sim = 1.0
         elif decay_match or neutralize_match:
             special_sim = 0.5
 
         total = (
-            weights["fields"] * field_sim +
-            weights["operators"] * op_sim +
-            weights["field_families"] * fam_sim +
-            weights["structure"] * struct_sim +
-            weights["special_flags"] * special_sim
+            weights["fields"] * field_sim
+            + weights["operators"] * op_sim
+            + weights["field_families"] * fam_sim
+            + weights["structure"] * struct_sim
+            + weights["special_flags"] * special_sim
         )
 
         return max(0.0, min(1.0, total))
@@ -876,40 +893,78 @@ class GraphBasedExperienceDB:
         Identifies data field references like 'close', 'volume', etc.
         that are not wrapped in function calls.
         """
-        func_pattern = r'\b([a-z_][a-z0-9_]*)\s*\('
+        func_pattern = r"\b([a-z_][a-z0-9_]*)\s*\("
         funcs = set(re.findall(func_pattern, expression, re.IGNORECASE))
 
-        tokens = re.split(r'[^\w]', expression)
+        tokens = re.split(r"[^\w]", expression)
         fields = set()
         known_operators = {
-            "ts_mean", "ts_std_dev", "ts_sum", "ts_product", "ts_min", "ts_max",
-            "ts_rank", "ts_delta", "ts_decay_linear", "ts_regression", "ts_av_diff",
-            "ts_skewness", "ts_kurtosis", "ts_corr", "ts_covariance", "ts_zscore",
-            "rank", "zscore", "scale", "normalize", "winsorize",
-            "group_rank", "group_zscore", "group_neutralize", "group_mean",
-            "abs", "log", "sign", "sqrt", "power", "signed_power", "max", "min",
-            "if_else", "when", "switch", "delay", "delta",
+            "ts_mean",
+            "ts_std_dev",
+            "ts_sum",
+            "ts_product",
+            "ts_min",
+            "ts_max",
+            "ts_rank",
+            "ts_delta",
+            "ts_decay_linear",
+            "ts_regression",
+            "ts_av_diff",
+            "ts_skewness",
+            "ts_kurtosis",
+            "ts_corr",
+            "ts_covariance",
+            "ts_zscore",
+            "rank",
+            "zscore",
+            "scale",
+            "normalize",
+            "winsorize",
+            "group_rank",
+            "group_zscore",
+            "group_neutralize",
+            "group_mean",
+            "abs",
+            "log",
+            "sign",
+            "sqrt",
+            "power",
+            "signed_power",
+            "max",
+            "min",
+            "if_else",
+            "when",
+            "switch",
+            "delay",
+            "delta",
         }
         known_operators.update(funcs)
 
         for token in tokens:
             token_lower = token.lower().strip()
-            if (token_lower and
-                token_lower not in known_operators and
-                not token.isdigit() and
-                len(token) > 1):
+            if token_lower and token_lower not in known_operators and not token.isdigit() and len(token) > 1:
                 fields.add(token_lower)
 
         common_fields = {
-            "close", "open", "high", "low", "volume", "amount", "vwap",
-            "returns", "sharesout", "sales", "earnings", "capex",
+            "close",
+            "open",
+            "high",
+            "low",
+            "volume",
+            "amount",
+            "vwap",
+            "returns",
+            "sharesout",
+            "sales",
+            "earnings",
+            "capex",
         }
         return fields & common_fields if fields else fields
 
     @staticmethod
     def _extract_operators(expression: str) -> list[str]:
         """Extract operator/function names from expression."""
-        pattern = r'\b([a-z_][a-z0-9_]*)\s*\('
+        pattern = r"\b([a-z_][a-z0-9_]*)\s*\("
         return re.findall(pattern, expression, re.IGNORECASE)
 
     @staticmethod
@@ -917,13 +972,23 @@ class GraphBasedExperienceDB:
         """Extract structural template by replacing fields with placeholders."""
         structure = expression
         common_fields = [
-            "close", "open", "high", "low", "volume", "amount", "vwap",
-            "returns", "sharesout", "sales", "earnings", "capex",
+            "close",
+            "open",
+            "high",
+            "low",
+            "volume",
+            "amount",
+            "vwap",
+            "returns",
+            "sharesout",
+            "sales",
+            "earnings",
+            "capex",
         ]
         for field in sorted(common_fields, key=len, reverse=True):
-            structure = re.sub(r'\b' + field + r'\b', "{FIELD}", structure, flags=re.IGNORECASE)
+            structure = re.sub(r"\b" + field + r"\b", "{FIELD}", structure, flags=re.IGNORECASE)
 
-        nums = re.sub(r'\b\d+\b', "{N}", structure)
+        nums = re.sub(r"\b\d+\b", "{N}", structure)
         return nums
 
     def _classify_field_families(self, fields: set[str]) -> set[str]:
@@ -968,8 +1033,8 @@ class GraphBasedExperienceDB:
         if not struct_a or not struct_b:
             return 0.0 if (struct_a or struct_b) else 1.0
 
-        norm_a = re.sub(r'\s+', '', struct_a.lower())
-        norm_b = re.sub(r'\s+', '', struct_b.lower())
+        norm_a = re.sub(r"\s+", "", struct_a.lower())
+        norm_b = re.sub(r"\s+", "", struct_b.lower())
 
         if norm_a == norm_b:
             return 1.0
@@ -978,7 +1043,7 @@ class GraphBasedExperienceDB:
         if shorter == 0:
             return 0.0
 
-        matches = sum(1 for a, b in zip(norm_a, norm_b) if a == b)
+        matches = sum(1 for a, b in zip(norm_a, norm_b, strict=False) if a == b)
         return matches / max(len(norm_a), len(norm_b))
 
 

@@ -17,6 +17,7 @@ Usage:
     launcher = BrainLauncher()
     await launcher.run(focus_area="momentum", max_cycles=100)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,13 +32,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import aiohttp
+
 try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import Progress, SpinnerColumn, TextColumn
+
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
+
+import contextlib
 
 from openalpha_brain.config.config import settings
 from openalpha_brain.services import brain_client
@@ -57,6 +63,7 @@ def _print(status: str, message: str) -> None:
 @dataclass
 class CheckReport:
     """Result of startup checks."""
+
     passed: bool = True
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -65,6 +72,7 @@ class CheckReport:
 @dataclass
 class LLMStatus:
     """LLM service detection result."""
+
     available: bool = False
     model_name: str | None = None
     endpoint: str | None = None
@@ -74,6 +82,7 @@ class LLMStatus:
 @dataclass
 class WQStatus:
     """WQ platform authentication result."""
+
     authenticated: bool = False
     alpha_count: int = 0
     active_simulations: int = 0
@@ -84,6 +93,7 @@ class WQStatus:
 @dataclass
 class PipelineStatus:
     """Pipeline loading result."""
+
     ready: bool = False
     components: list[str] = field(default_factory=list)
     error: str | None = None
@@ -126,7 +136,7 @@ class BrainLauncher:
         self._stop_requested: bool = False
         self._cycle_count: int = 0
         self._session_id: str | None = None
-        logger = logging.getLogger("openalpha.launcher")
+        logging.getLogger("openalpha.launcher")
 
     async def run(
         self,
@@ -186,7 +196,9 @@ class BrainLauncher:
             return 130
         except Exception as exc:
             logging.getLogger("openalpha.launcher").error(
-                "Launcher crashed: %s", exc, exc_info=True,
+                "Launcher crashed: %s",
+                exc,
+                exc_info=True,
             )
             _print("❌", f"Fatal error: {exc}")
             return 1
@@ -237,7 +249,7 @@ class BrainLauncher:
                 _print("❌", msg)
 
         # 1.3 .env file check
-        env_path = Path(".env")
+        Path(".env")
         project_root = Path(__file__).resolve().parent.parent.parent.parent
         env_full_path = project_root / ".env"
         if env_full_path.exists():
@@ -295,7 +307,9 @@ class BrainLauncher:
 
         logger.info(
             "Startup check completed: passed=%s warnings=%d errors=%d",
-            report.passed, len(report.warnings), len(report.errors),
+            report.passed,
+            len(report.warnings),
+            len(report.errors),
         )
         return report
 
@@ -319,6 +333,7 @@ class BrainLauncher:
 
         try:
             import httpx
+
             client = httpx.AsyncClient(timeout=10.0)
             resp = await client.get(models_url)
             await client.aclose()
@@ -418,7 +433,9 @@ class BrainLauncher:
 
             logger.info(
                 "WQ authenticated: email=%s alphas=%d slots=%d",
-                email[:3] + "***", status.alpha_count, status.slots_available,
+                email[:3] + "***",
+                status.alpha_count,
+                status.slots_available,
             )
 
         except brain_client.BrainAuthError as exc:
@@ -452,8 +469,9 @@ class BrainLauncher:
             # 4.1 FieldProxyMap (29 proxy families)
             _print("⏳", "Loading FieldProxyMap (29 proxy families)...")
             from openalpha_brain.core.scheduler import ExplorationScheduler
+
             scheduler = ExplorationScheduler()
-            if hasattr(scheduler, 'field_proxy_map') and scheduler.field_proxy_map:
+            if hasattr(scheduler, "field_proxy_map") and scheduler.field_proxy_map:
                 components.append("FieldProxyMap")
                 _print("✅", f"FieldProxyMap loaded — {len(scheduler.field_proxy_map)} families")
             else:
@@ -463,9 +481,10 @@ class BrainLauncher:
             # 4.2 AlphaLogicLibrary (three-stage templates)
             _print("⏳", "Loading AlphaLogicLibrary (three-stage templates)...")
             from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
+
             logic_lib = AlphaLogicLibrary()
             components.append("AlphaLogicLibrary")
-            template_count = len(logic_lib.templates) if hasattr(logic_lib, 'templates') else 0
+            template_count = len(logic_lib.templates) if hasattr(logic_lib, "templates") else 0
             _print("✅", f"AlphaLogicLibrary loaded — {template_count} templates")
 
             # 4.3 MAB initialization
@@ -476,9 +495,10 @@ class BrainLauncher:
             # 4.4 ASTValidator (66 operator whitelist)
             _print("⏳", "Initializing ASTValidator (66-operator whitelist)...")
             from openalpha_brain.validation.validator import get_originality_checker
+
             whitelist_mgr = get_originality_checker()
             components.append("ASTValidator")
-            if whitelist_mgr and hasattr(whitelist_mgr, 'whitelist'):
+            if whitelist_mgr and hasattr(whitelist_mgr, "whitelist"):
                 _print("✅", f"ASTValidator ready — {len(whitelist_mgr.whitelist)} operators whitelisted")
             else:
                 _print("✅", "ASTValidator initialized")
@@ -541,10 +561,8 @@ class BrainLauncher:
         # Setup signal handlers for graceful shutdown
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
+            with contextlib.suppress(NotImplementedError):
                 loop.add_signal_handler(sig, self._request_shutdown)
-            except NotImplementedError:
-                pass
 
         from openalpha_brain.cli import session_manager as sm
         from openalpha_brain.core import loop_engine
@@ -606,7 +624,10 @@ class BrainLauncher:
 
                     logger.error(
                         "[Cycle %d] Error (%d consecutive): [%s] %s",
-                        cycle_num, consecutive_errors, error_type, error_msg,
+                        cycle_num,
+                        consecutive_errors,
+                        error_type,
+                        error_msg,
                         exc_info=True,
                     )
 
@@ -632,7 +653,7 @@ class BrainLauncher:
                         )
                         break
 
-                    backoff = min(2 ** consecutive_errors, 30)
+                    backoff = min(2**consecutive_errors, 30)
                     _print("⏳", f"Waiting {backoff}s before next cycle...")
                     await asyncio.sleep(backoff)
 
@@ -678,7 +699,8 @@ class BrainLauncher:
             # Save MAB state if available
             try:
                 from openalpha_brain.core import loop_state as _ls
-                if hasattr(_ls, '_scheduler') and _ls._scheduler:
+
+                if hasattr(_ls, "_scheduler") and _ls._scheduler:
                     _ls._scheduler.save_state()
                     _print("✅", "MAB state saved")
             except (OSError, ValueError, RuntimeError) as e:
@@ -687,6 +709,7 @@ class BrainLauncher:
             # Close HTTP connection pool
             try:
                 from openalpha_brain.services.http_pool import close_client
+
                 await close_client()
                 _print("✅", "HTTP connection pool closed")
             except (OSError, ValueError, RuntimeError) as e:

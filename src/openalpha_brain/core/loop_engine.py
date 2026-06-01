@@ -6,9 +6,11 @@ Persists state after every step. Checks stop_requested every cycle.
 Refactored: in-memory state within cycle, modular sub-functions,
 integrated AST repair, robust BRAIN expression parsing.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
 from typing import Any, cast
@@ -137,7 +139,9 @@ logger = logging.getLogger(__name__)
 
 
 async def _gate_regenerate_fn(
-    expression: str, correction_prompt: str, payload: dict,
+    expression: str,
+    correction_prompt: str,
+    payload: dict,
 ) -> tuple[str, dict]:
     prompt = (
         f"The following alpha expression failed generation gate checks:\n\n"
@@ -151,8 +155,11 @@ async def _gate_regenerate_fn(
         new_expr = response.strip()
         if "```" in new_expr:
             import re as _gate_re
+
             _code_match = _gate_re.search(
-                r'```(?:fastexpr|python)?\s*\n?(.*?)```', new_expr, _gate_re.DOTALL,
+                r"```(?:fastexpr|python)?\s*\n?(.*?)```",
+                new_expr,
+                _gate_re.DOTALL,
             )
             if _code_match:
                 new_expr = _code_match.group(1).strip()
@@ -160,7 +167,6 @@ async def _gate_regenerate_fn(
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("[DEFENSIVE_LOG] _extract_code_block_from_expr 解析异常，返回原始表达式: %s", exc)
         return expression, payload
-
 
 
 def _family_locked(state) -> bool:
@@ -174,8 +180,8 @@ def _last_family(state) -> str:
     return state.family_run_tracker[-1] if state.family_run_tracker else "Unknown"
 
 
-
 # ── Main loop ──────────────────────────────────────────────────────────────────
+
 
 @algo_log(level=logging.INFO)
 async def run_loop(session_id: str) -> None:
@@ -188,7 +194,8 @@ async def run_loop(session_id: str) -> None:
     if _ls._scheduler is None and _ls._rag_engine is None:
         _ls.init_intelligent_search()
 
-    logger.info("[%s] Component status: Scheduler=%s RAG=%s Whitelist=%s SignalArbiter=%s AlphaChannel=%s ExperienceDistiller=%s MarketState=%s MultiAgent=%s",
+    logger.info(
+        "[%s] Component status: Scheduler=%s RAG=%s Whitelist=%s SignalArbiter=%s AlphaChannel=%s ExperienceDistiller=%s MarketState=%s MultiAgent=%s",  # noqa: E501
         session_id,
         _ls._scheduler is not None,
         _ls._rag_engine is not None and _ls._rag_engine.is_ready if _ls._rag_engine else False,
@@ -205,8 +212,25 @@ async def run_loop(session_id: str) -> None:
     if settings.MULTI_AGENT_ENABLED:
         if _ls._logic_library is None:
             _ls._logic_library = AlphaLogicLibrary()
-        _idea_agent = IdeaAgent(llm_client.generate, _ls._rag_engine, logic_library=_ls._logic_library, classifier=_ls._strategy_classifier, mab=_ls._scheduler, field_proxy_map=getattr(_ls._scheduler, 'field_proxy_map', None) if _ls._scheduler else None)
-        _factor_agent = FactorAgent(llm_client.generate, _ls._rag_engine, logic_library=_ls._logic_library, success_lib=_ls._success_lib, feature_map=_ls._feature_map, reflection_engine=_ls._reflection_engine, whitelist_mgr=_ls._whitelist_mgr, field_proxy_map=getattr(_ls._scheduler, 'field_proxy_map', None) if _ls._scheduler else None, mab=_ls._scheduler)
+        _idea_agent = IdeaAgent(
+            llm_client.generate,
+            _ls._rag_engine,
+            logic_library=_ls._logic_library,
+            classifier=_ls._strategy_classifier,
+            mab=_ls._scheduler,
+            field_proxy_map=getattr(_ls._scheduler, "field_proxy_map", None) if _ls._scheduler else None,
+        )
+        _factor_agent = FactorAgent(
+            llm_client.generate,
+            _ls._rag_engine,
+            logic_library=_ls._logic_library,
+            success_lib=_ls._success_lib,
+            feature_map=_ls._feature_map,
+            reflection_engine=_ls._reflection_engine,
+            whitelist_mgr=_ls._whitelist_mgr,
+            field_proxy_map=getattr(_ls._scheduler, "field_proxy_map", None) if _ls._scheduler else None,
+            mab=_ls._scheduler,
+        )
         _eval_agent = EvalAgent(
             brain_client.submit_and_poll,
             mab=_ls._scheduler,
@@ -216,7 +240,9 @@ async def run_loop(session_id: str) -> None:
             dedup_callback=create_dedup_mutation_callback,
         )
         orchestrator = MultiAgentOrchestrator(
-            _idea_agent, _factor_agent, _eval_agent,
+            _idea_agent,
+            _factor_agent,
+            _eval_agent,
             originality_checker=val.get_originality_checker(),
             complexity_controller=val.get_complexity_controller(),
             rag_engine=_ls._rag_engine,
@@ -230,12 +256,16 @@ async def run_loop(session_id: str) -> None:
     if _ls._crossover_engine is None:
         try:
             from openalpha_brain.validation.validator import get_originality_checker as _get_oc
+
             _oc = _get_oc()
             _engine = CrossoverMutationEngine(originality_checker=_oc, llm_generate_fn=llm_client.generate)
             _ls._crossover_engine = _engine
             logger.info("[%s] CrossoverMutationEngine initialized (standard loop)", session_id)
         except (OSError, ValueError, RuntimeError):
-            _ls._crossover_engine = CrossoverMutationEngine(originality_checker=None, llm_generate_fn=llm_client.generate)
+            _ls._crossover_engine = CrossoverMutationEngine(
+                originality_checker=None,
+                llm_generate_fn=llm_client.generate,
+            )
             logger.info("[%s] CrossoverMutationEngine initialized (standard loop, no originality checker)", session_id)
 
     if _ls._decay_detector is None:
@@ -245,6 +275,7 @@ async def run_loop(session_id: str) -> None:
             _ls._scheduler.decay_detector = _decay_detector
         try:
             from openalpha_brain.services.brain_data_client import get_brain_data_client
+
             _bdc = get_brain_data_client()
             if _bdc is not None:
                 decay_handler = await create_alpha_decay_handler(loop_state_module=_ls)
@@ -258,7 +289,7 @@ async def run_loop(session_id: str) -> None:
         except (OSError, ValueError, RuntimeError) as _decay_init_exc:
             logger.warning("[%s] DecayDetector instrument registration failed: %s", session_id, _decay_init_exc)
 
-    if not hasattr(_ls, '_generation_gates') or _ls._generation_gates is None:
+    if not hasattr(_ls, "_generation_gates") or _ls._generation_gates is None:
         _hyp_aligner = HypothesisAligner()
         _ls._hypothesis_aligner = _hyp_aligner
         _gen_gates = GenerationGates(
@@ -270,11 +301,18 @@ async def run_loop(session_id: str) -> None:
 
     _consecutive_errors = 0
     _MAX_CONSECUTIVE_ERRORS = 3
+    pool = AlphaCachePool()
+    _consecutive_rejections: dict[str, int] = {}
+    _rotation_threshold = 3
+    _variant_batch: list[dict] = []
+    _variant_batch_max_size = 8
     _ev = get_event_bus()
 
     for global_cycle in range(1, settings.MAX_CYCLES + 1):
-
-        _ev.emit(EVENT_CYCLE_START, {"session_id": session_id, "cycle": global_cycle, "max_cycles": settings.MAX_CYCLES})
+        _ev.emit(
+            EVENT_CYCLE_START,
+            {"session_id": session_id, "cycle": global_cycle, "max_cycles": settings.MAX_CYCLES},
+        )
 
         if _ls._console_stop_event and _ls._console_stop_event.is_set():
             logger.info("[%s] Console stop requested, breaking loop", session_id)
@@ -309,14 +347,19 @@ async def run_loop(session_id: str) -> None:
         state.status = SessionStatus.GENERATING
         await sm.save_session(state)
 
-        exploration_direction: str = _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+        exploration_direction: str = (
+            _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+        )
         _sched_template_id: str = ""
         _sched_family_id: str = ""
         _sched_recommended_fields: list[str] = []
         if settings.MAB_ENABLED and _ls._scheduler:
             try:
                 _ls._algo_tick("mab_select")
-                _sched_result = _ls._scheduler.select_exploration_arm(focus_area=_resolve_effective_focus(state.focus_area), explore_mode=False)
+                _sched_result = _ls._scheduler.select_exploration_arm(
+                    focus_area=_resolve_effective_focus(state.focus_area),
+                    explore_mode=False,
+                )
                 if _sched_result:
                     exploration_direction = _sched_result["direction"]
                     _sched_template_id = _sched_result.get("template_id", "")
@@ -333,7 +376,10 @@ async def run_loop(session_id: str) -> None:
                     exploration_direction = random.choice(_unexplored)
                     logger.info(
                         "[%s] MAP-Elites EXPLORE: pivoting to unexplored direction=%s (weight=%.2f coverage=%.1f%%)",
-                        session_id, exploration_direction, _explore_weight, _schedule["coverage"] * 100,
+                        session_id,
+                        exploration_direction,
+                        _explore_weight,
+                        _schedule["coverage"] * 100,
                     )
                 _explore_targets = _ls._feature_map.get_explore_targets(top_k=3)
                 if _explore_targets:
@@ -344,27 +390,40 @@ async def run_loop(session_id: str) -> None:
                     logger.info(
                         "[%s] MAP-Elites EXPLORE_TARGET: cell=%s "
                         "direction=%s horizon=%s mechanism=%s (coverage=%.1f%%)",
-                        session_id, _target.get("key", ""), _target_dir,
-                        _target.get("time_horizon", ""), _target.get("mechanism", ""),
+                        session_id,
+                        _target.get("key", ""),
+                        _target_dir,
+                        _target.get("time_horizon", ""),
+                        _target.get("mechanism", ""),
                         _schedule["coverage"] * 100,
                     )
             else:
                 _exploit_cell = _ls._feature_map.get_cell(
-                    exploration_direction, "medium", "signal",
+                    exploration_direction,
+                    "medium",
+                    "signal",
                 )
                 if _exploit_cell is not None and _exploit_cell.elites:
                     _cell_elites = _ls._feature_map.get_cell_elites(
-                        exploration_direction, "medium", "signal",
+                        exploration_direction,
+                        "medium",
+                        "signal",
                     )
                     logger.info(
                         "[%s] MAP-Elites EXPLOIT: direction=%s (coverage=%.1f%% elite_density=%.2f cell_elites=%d)",
-                        session_id, exploration_direction, _schedule["coverage"] * 100,
-                        _schedule["elite_density"], len(_cell_elites),
+                        session_id,
+                        exploration_direction,
+                        _schedule["coverage"] * 100,
+                        _schedule["elite_density"],
+                        len(_cell_elites),
                     )
 
         # ── 1. Build user message ───────────────────────────────────────────
         if global_cycle == 1:
-            user_msg = build_start_trigger(global_cycle, _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION)
+            user_msg = build_start_trigger(
+                global_cycle,
+                _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION,
+            )
         else:
             user_msg = _build_continuation_msg(state, str(global_cycle))
 
@@ -391,12 +450,16 @@ async def run_loop(session_id: str) -> None:
                         _repair_lines.append(f"  - {_etype}: {', '.join(list(_vars)[:3])}")
                     user_msg += "\n".join(_repair_lines)
 
-        cycle_exploration_direction: str = _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+        cycle_exploration_direction: str = (
+            _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+        )
         if _ls._strategy_classifier is not None:
             try:
                 _top_profiles = _ls._strategy_classifier.get_top_profiles(n=3)
                 if _top_profiles:
-                    _profile_lines = ["\n\nProven effective strategy directions (use as reference for new alpha ideas):"]
+                    _profile_lines = [
+                        "\n\nProven effective strategy directions (use as reference for new alpha ideas):"
+                    ]
                     for _tp in _top_profiles:
                         _profile_lines.append(
                             f"  - direction={_tp.direction} mechanism={_tp.mechanism} "
@@ -407,29 +470,45 @@ async def run_loop(session_id: str) -> None:
                 logger.debug("[%s] cycle=%d strategy classifier profile failed: %s", session_id, global_cycle, exc)
             try:
                 _ls._algo_tick("find_similar_by_embedding")
-                similar_strategies = await _ls._strategy_classifier.find_similar_by_embedding(cycle_exploration_direction, top_k=3)
+                similar_strategies = await _ls._strategy_classifier.find_similar_by_embedding(
+                    cycle_exploration_direction,
+                    top_k=3,
+                )
                 if similar_strategies:
                     high_sim = [s for s in similar_strategies if s.get("similarity", 0) > 0.8]
                     if high_sim:
-                        logger.warning("[%s] cycle=%d Potential strategy duplication — %d similar strategies (sim>0.8)", session_id, global_cycle, len(high_sim))
+                        logger.warning(
+                            "[%s] cycle=%d Potential strategy duplication — %d similar strategies (sim>0.8)",
+                            session_id,
+                            global_cycle,
+                            len(high_sim),
+                        )
                         dup_lines = []
                         for _si in high_sim[:3]:
                             p = _si.get("profile")
                             if p:
-                                dup_lines.append(f"  - direction={getattr(p, 'direction', '?')} sharpe={getattr(p, 'sharpe', 'N/A')} expr={getattr(p, 'best_expression', '?')[:60]}")
+                                dup_lines.append(
+                                    f"  - direction={getattr(p, 'direction', '?')} "
+                                    f"sharpe={getattr(p, 'sharpe', 'N/A')} "
+                                    f"expr={getattr(p, 'best_expression', '?')[:60]}"
+                                )
                         if dup_lines:
                             user_msg += "\n\nSimilar existing strategies to avoid duplicating:\n" + "\n".join(dup_lines)
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.debug("[%s] cycle=%d strategy classifier embedding search failed: %s", session_id, global_cycle, exc)
+                logger.debug(
+                    "[%s] cycle=%d strategy classifier embedding search failed: %s", session_id, global_cycle, exc
+                )
 
         # ── 2. LLM call ────────────────────────────────────────────────────
-        _fb_list = getattr(_ls, '_brain_feedback_buffer', None)
+        _fb_list = getattr(_ls, "_brain_feedback_buffer", None)
         if _fb_list:
             for _fb_msg in _fb_list:
                 state.conversation_history.append(_fb_msg)
             logger.info(
                 "[%s] cycle=%d injected %d BRAIN result feedback(s) into conversation history",
-                session_id, global_cycle, len(_fb_list),
+                session_id,
+                global_cycle,
+                len(_fb_list),
             )
             _ls._brain_feedback_buffer = []
             await sm.save_session(state)
@@ -441,7 +520,13 @@ async def run_loop(session_id: str) -> None:
             if was_summarized:
                 logger.info("[%s] cycle=%d — conversation history summarized before LLM call", session_id, global_cycle)
         logger.info("[%s] cycle=%d — calling LLM", session_id, global_cycle)
-        _ls._monitor.record("STEP", "llm", "generate", f"cycle={global_cycle}", session_id=session_id)
+        _ls._monitor.record(
+            "STEP",
+            "llm",
+            "generate",
+            f"cycle={global_cycle}",
+            session_id=session_id,
+        )
         if _ls._heartbeat:
             _ls._heartbeat.touch(session_id)
         _run_loop_tool_results: dict = {}
@@ -455,9 +540,22 @@ async def run_loop(session_id: str) -> None:
                 rag_context = _ls._rag_engine.assemble_context(retrieval)
                 _rag_ops = retrieval.get("operators", [])
                 _rag_fields = retrieval.get("fields", [])
-                logger.info("[%s] MONITOR: rag_retrieve: ops=%d fields=%d top_ops=%s top_fields=%s", session_id, len(_rag_ops), len(_rag_fields), [o.get("id", o.get("name", "")) for o in _rag_ops[:3]], [f.get("id", f.get("name", "")) for f in _rag_fields[:3]])
+                logger.info(
+                    "[%s] MONITOR: rag_retrieve: ops=%d fields=%d top_ops=%s top_fields=%s",
+                    session_id,
+                    len(_rag_ops),
+                    len(_rag_fields),
+                    [o.get("id", o.get("name", "")) for o in _rag_ops[:3]],
+                    [f.get("id", f.get("name", "")) for f in _rag_fields[:3]],
+                )
                 rag_context = await _arbiter_rerank(retrieval, rag_context, exploration_direction)
-                _ls._monitor.record("STEP", "rag", "retrieve", f"direction={exploration_direction}", session_id=session_id)
+                _ls._monitor.record(
+                    "STEP",
+                    "rag",
+                    "retrieve",
+                    f"direction={exploration_direction}",
+                    session_id=session_id,
+                )
                 if _ls._whitelist_mgr and rag_context.get("field_ids"):
                     _ls._algo_tick("whitelist_update")
                     _ls._whitelist_mgr.update_dynamic(rag_context["field_ids"])
@@ -475,7 +573,15 @@ async def run_loop(session_id: str) -> None:
             try:
                 _ls._algo_tick("experience_card_retrieval")
                 _exp_cards = await _ls._experience_distiller.get_applicable_cards(exploration_direction, top_k=3)
-                _exp_cards_dicts = [{"failure_pattern": c.failure_pattern, "fix_strategy": c.fix_strategy, "applicable_conditions": c.applicable_conditions, "confidence": c.confidence} for c in _exp_cards]
+                _exp_cards_dicts = [
+                    {
+                        "failure_pattern": c.failure_pattern,
+                        "fix_strategy": c.fix_strategy,
+                        "applicable_conditions": c.applicable_conditions,
+                        "confidence": c.confidence,
+                    }
+                    for c in _exp_cards
+                ]
                 _exp_card_rule_ids = [c.rule_id for c in _exp_cards if c.rule_id]
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.debug("[%s] cycle=%d experience card retrieval failed: %s", session_id, global_cycle, exc)
@@ -487,7 +593,9 @@ async def run_loop(session_id: str) -> None:
                 if similar_cases:
                     ref_lines = []
                     for sc in similar_cases[:3]:
-                        ref_lines.append(f"  - (sharpe={sc.get('sharpe', 'N/A')}, fitness={sc.get('fitness', 'N/A')}): {sc.get('expr', '')}")
+                        ref_lines.append(
+                            f"  - (sharpe={sc.get('sharpe', 'N/A')}, fitness={sc.get('fitness', 'N/A')}): {sc.get('expr', '')}"  # noqa: E501
+                        )
                     _success_context = "\n\nPreviously successful alphas for reference:\n" + "\n".join(ref_lines)
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.debug("[%s] cycle=%d success case library search failed: %s", session_id, global_cycle, exc)
@@ -513,33 +621,48 @@ async def run_loop(session_id: str) -> None:
 
                 logger.info(
                     "[ALGO_STEP] module=multi_agent iteration=%d converged=%s originality=%.2f",
-                    result.iterations, result.converged, result.originality_score,
+                    result.iterations,
+                    result.converged,
+                    result.originality_score,
                 )
 
-                _orchestrator_variants = getattr(result, 'variants', [])
+                _orchestrator_variants = getattr(result, "variants", [])
 
                 try:
                     _ls._algo_tick("llm_multi_candidate")
                     llm_variants = await _generate_llm_variants(
-                        result.expression, exploration_direction, num_variants=3,
+                        result.expression,
+                        exploration_direction,
+                        num_variants=3,
                     )
                     if llm_variants:
                         valid_variants = _filter_variants_by_field_overlap(
-                            result.expression, llm_variants, max_overlap=0.7,
+                            result.expression,
+                            llm_variants,
+                            max_overlap=0.7,
                         )
                         _orchestrator_variants = list(_orchestrator_variants) + valid_variants
                         logger.info(
                             "[%s] cycle=%d LLM multi-candidate: generated=%d accepted=%d (field_overlap<0.7)",
-                            session_id, global_cycle, len(llm_variants), len(valid_variants),
+                            session_id,
+                            global_cycle,
+                            len(llm_variants),
+                            len(valid_variants),
                         )
                 except (OSError, ValueError, RuntimeError) as exc:
-                    logger.debug("[%s] cycle=%d LLM multi-candidate generation failed: %s", session_id, global_cycle, exc)
+                    logger.debug(
+                        "[%s] cycle=%d LLM multi-candidate generation failed: %s", session_id, global_cycle, exc
+                    )
 
-                if hasattr(result, 'trajectory') and result.trajectory:
+                if hasattr(result, "trajectory") and result.trajectory:
                     try:
-                        if not hasattr(state, 'trajectories'):
+                        if not hasattr(state, "trajectories"):
                             state.trajectories = []
-                        state.trajectories.append(result.trajectory.model_dump() if hasattr(result.trajectory, 'model_dump') else vars(result.trajectory))
+                        state.trajectories.append(
+                            result.trajectory.model_dump()
+                            if hasattr(result.trajectory, "model_dump")
+                            else vars(result.trajectory)
+                        )
                     except (OSError, ValueError, RuntimeError) as exc:
                         logger.debug("[%s] cycle=%d trajectory append failed: %s", session_id, global_cycle, exc)
 
@@ -558,9 +681,9 @@ async def run_loop(session_id: str) -> None:
 
                 expression = result.expression
 
-                _gate_ops = operators_list if 'operators_list' in locals() else None
-                _gate_fields = fields_list if 'fields_list' in locals() else None
-                _gates = getattr(_ls, '_generation_gates', None)
+                _gate_ops = operators_list if "operators_list" in locals() else None
+                _gate_fields = fields_list if "fields_list" in locals() else None
+                _gates = getattr(_ls, "_generation_gates", None)
                 if _gates is not None:
                     expression, _gate_report = await _gates.apply_with_retry(
                         hypothesis_direction=result.hypothesis.direction,
@@ -583,20 +706,27 @@ async def run_loop(session_id: str) -> None:
                 if not _gate_report.passed:
                     logger.warning(
                         "[%s] cycle=%d GENERATION GATES FAILED: score=%.3f failed=%s",
-                        session_id, global_cycle, _gate_report.overall_score, _gate_report.failed_gates,
+                        session_id,
+                        global_cycle,
+                        _gate_report.overall_score,
+                        _gate_report.failed_gates,
                     )
                     _gate_correction = _gate_report.correction_prompt
                     state.conversation_history.append({"role": "user", "content": str(user_msg)})
-                    state.conversation_history.append({
-                        "role": "assistant",
-                        "content": f"Expression generated: {expression}\n\n{_gate_correction}",
-                    })
+                    state.conversation_history.append(
+                        {
+                            "role": "assistant",
+                            "content": f"Expression generated: {expression}\n\n{_gate_correction}",
+                        }
+                    )
                     state.status = SessionStatus.ITERATING
                     await sm.save_session(state)
                     continue
                 logger.info(
                     "[%s] cycle=%d GENERATION GATES PASSED: score=%.3f",
-                    session_id, global_cycle, _gate_report.overall_score,
+                    session_id,
+                    global_cycle,
+                    _gate_report.overall_score,
                 )
 
                 syntax_result = val.validate_syntax(expression)
@@ -617,6 +747,7 @@ async def run_loop(session_id: str) -> None:
                         if _ls._failure_lib or _ls._success_lib:
                             try:
                                 from openalpha_brain.knowledge.rag_engine import auto_debug_loop as _auto_debug
+
                                 _ls._algo_tick("auto_debug_loop")
                                 debugged_expr, debug_ok = await _auto_debug(
                                     generate_fn=llm_client.generate,
@@ -630,7 +761,10 @@ async def run_loop(session_id: str) -> None:
                                         parsed["expression"] = debugged_expr
                                     syntax_result = val.validate_syntax(expression)
                                     _debug_recovered = True
-                                    logger.info("[ALGO_STEP] module=auto_debug step=debug result=success expr=%s", expression[:60])
+                                    logger.info(
+                                        "[ALGO_STEP] module=auto_debug step=debug result=success expr=%s",
+                                        expression[:60],
+                                    )
                             except (OSError, ValueError, RuntimeError):
                                 logger.warning("[ALGO_STEP] module=auto_debug step=debug result=failed")
                         if not _debug_recovered:
@@ -642,12 +776,14 @@ async def run_loop(session_id: str) -> None:
                                 cycle=global_cycle,
                             )
                             state.conversation_history.append({"role": "assistant", "content": failure_msg})
-                            state.failure_catalog.append({
-                                "fingerprint": {},
-                                "failure_type": "syntax_unrepairable",
-                                "metric_value": syntax_result.failures[:3],
-                                "mutation_tried": "repair_failed",
-                            })
+                            state.failure_catalog.append(
+                                {
+                                    "fingerprint": {},
+                                    "failure_type": "syntax_unrepairable",
+                                    "metric_value": syntax_result.failures[:3],
+                                    "mutation_tried": "repair_failed",
+                                }
+                            )
                             state.status = SessionStatus.ITERATING
                             await sm.save_session(state)
                             _consecutive_errors += 1
@@ -660,7 +796,12 @@ async def run_loop(session_id: str) -> None:
                 logger.error("[%s] cycle=%d LLM permanent failure (multi-agent): %s", session_id, global_cycle, exc)
                 _consecutive_errors += 1
                 if _consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
-                    logger.error("[%s] cycle=%d %d consecutive LLM errors — aborting", session_id, global_cycle, _consecutive_errors)
+                    logger.error(
+                        "[%s] cycle=%d %d consecutive LLM errors — aborting",
+                        session_id,
+                        global_cycle,
+                        _consecutive_errors,
+                    )
                     state.status = SessionStatus.ERROR
                     state.error_message = str(exc)
                     await sm.save_session(state)
@@ -668,20 +809,26 @@ async def run_loop(session_id: str) -> None:
                         _ls._heartbeat.remove(session_id)
                     return
                 state.conversation_history.append({"role": "user", "content": user_msg})
-                state.conversation_history.append({
-                    "role": "assistant",
-                    "content": f"LLM call failed (cycle {global_cycle}): {exc}. Retrying next cycle.",
-                })
+                state.conversation_history.append(
+                    {
+                        "role": "assistant",
+                        "content": f"LLM call failed (cycle {global_cycle}): {exc}. Retrying next cycle.",
+                    }
+                )
                 state.status = SessionStatus.ITERATING
                 state.error_message = str(exc)
                 await sm.save_session(state)
                 await asyncio.sleep(2)
                 continue
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.error("[%s] cycle=%d Multi-agent orchestrator error: %s", session_id, global_cycle, exc, exc_info=True)
+                logger.error(
+                    "[%s] cycle=%d Multi-agent orchestrator error: %s", session_id, global_cycle, exc, exc_info=True
+                )
                 _consecutive_errors += 1
                 if _consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
-                    logger.error("[%s] cycle=%d %d consecutive errors — aborting", session_id, global_cycle, _consecutive_errors)
+                    logger.error(
+                        "[%s] cycle=%d %d consecutive errors — aborting", session_id, global_cycle, _consecutive_errors
+                    )
                     state.status = SessionStatus.ERROR
                     state.error_message = str(exc)
                     await sm.save_session(state)
@@ -689,10 +836,12 @@ async def run_loop(session_id: str) -> None:
                         _ls._heartbeat.remove(session_id)
                     return
                 state.conversation_history.append({"role": "user", "content": user_msg})
-                state.conversation_history.append({
-                    "role": "assistant",
-                    "content": f"Orchestrator error (cycle {global_cycle}): {exc}. Retrying next cycle.",
-                })
+                state.conversation_history.append(
+                    {
+                        "role": "assistant",
+                        "content": f"Orchestrator error (cycle {global_cycle}): {exc}. Retrying next cycle.",
+                    }
+                )
                 state.status = SessionStatus.ITERATING
                 state.error_message = str(exc)
                 await sm.save_session(state)
@@ -707,26 +856,41 @@ async def run_loop(session_id: str) -> None:
                     try:
                         _logic_templates = _ls._logic_library.get_templates_for_direction(exploration_direction)
                         if _logic_templates:
-                            _template_lines = ["\n\n▶ LOGIC-GUIDED TEMPLATES (direction=" + exploration_direction + "):"]
+                            _template_lines = [
+                                "\n\n▶ LOGIC-GUIDED TEMPLATES (direction=" + exploration_direction + "):"
+                            ]
                             for _lti, _lt in enumerate(_logic_templates[:5]):
-                                _template_lines.append(f"  {_lti+1}. {_lt}")
+                                _template_lines.append(f"  {_lti + 1}. {_lt}")
                             _template_lines.append("Use these as structural starting points for your alpha expression.")
                             _run_loop_system_prompt += "\n".join(_template_lines)
                     except (OSError, ValueError, RuntimeError) as exc:
-                        logger.debug("[%s] logic_library get_templates_for_direction 失败，继续使用基础 prompt: %s", session_id, exc)
+                        logger.debug(
+                            "[%s] logic_library get_templates_for_direction 失败，继续使用基础 prompt: %s",
+                            session_id,
+                            exc,
+                        )
                 if settings.RAG_TOOL_CALL_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
-                    _run_loop_system_prompt += "\n\nUse search_operators, search_fields, and search_financial_logic tools to actively retrieve operators and data fields beyond the core set."
+                    _run_loop_system_prompt += "\n\nUse search_operators, search_fields, and search_financial_logic tools to actively retrieve operators and data fields beyond the core set."  # noqa: E501
 
-                if settings.RAG_ENABLED and settings.RAG_TOOL_CALL_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
-                    _run_loop_system_prompt += build_dynamic_context(rag_context, global_blacklist=_global_blacklist_entries, experience_cards=_exp_cards_dicts or None)
+                if (
+                    settings.RAG_ENABLED
+                    and settings.RAG_TOOL_CALL_ENABLED
+                    and _ls._rag_engine
+                    and _ls._rag_engine.is_ready
+                ):
+                    _run_loop_system_prompt += build_dynamic_context(
+                        rag_context,
+                        global_blacklist=_global_blacklist_entries,
+                        experience_cards=_exp_cards_dicts or None,
+                    )
                     if _sched_recommended_fields:
-                        _run_loop_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_sched_recommended_fields)}"
+                        _run_loop_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_sched_recommended_fields)}"  # noqa: E501
                     if _ls._market_state_inferencer is not None:
                         try:
                             _ls._algo_tick("market_state_infer")
                             _ms_summary = _ls._market_state_inferencer.get_market_state_summary()
                             if _ms_summary.get("current_dominant"):
-                                _run_loop_system_prompt += f"\n\nCurrent market state: dominant strategy is {_ms_summary['current_dominant']}. Avg Sharpes: {_ms_summary.get('avg_sharpes_by_direction', {})}"
+                                _run_loop_system_prompt += f"\n\nCurrent market state: dominant strategy is {_ms_summary['current_dominant']}. Avg Sharpes: {_ms_summary.get('avg_sharpes_by_direction', {})}"  # noqa: E501
                         except (OSError, ValueError, RuntimeError):
                             pass
                     raw_response, _run_loop_tool_results = await llm_client.generate_with_tools(
@@ -740,14 +904,26 @@ async def run_loop(session_id: str) -> None:
                         grammar=_ls._fastexpr_grammar,
                     )
                     if _run_loop_tool_results:
-                        _ls._monitor.record("STEP", "rag_tools", "tool_call", f"tools={list(_run_loop_tool_results.keys())}", session_id=session_id)
+                        _ls._monitor.record(
+                            "STEP",
+                            "rag_tools",
+                            "tool_call",
+                            f"tools={list(_run_loop_tool_results.keys())}",
+                            session_id=session_id,
+                        )
                 else:
                     if rag_context:
-                        _run_loop_system_prompt += build_dynamic_context(rag_context, global_blacklist=_global_blacklist_entries, experience_cards=_exp_cards_dicts or None)
+                        _run_loop_system_prompt += build_dynamic_context(
+                            rag_context,
+                            global_blacklist=_global_blacklist_entries,
+                            experience_cards=_exp_cards_dicts or None,
+                        )
                     elif _global_blacklist_entries:
-                        _run_loop_system_prompt += build_dynamic_context(global_blacklist=_global_blacklist_entries, experience_cards=_exp_cards_dicts or None)
+                        _run_loop_system_prompt += build_dynamic_context(
+                            global_blacklist=_global_blacklist_entries, experience_cards=_exp_cards_dicts or None
+                        )
                     if _sched_recommended_fields:
-                        _run_loop_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_sched_recommended_fields)}"
+                        _run_loop_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_sched_recommended_fields)}"  # noqa: E501
 
                     try:
                         from openalpha_brain.core.loop_state import (
@@ -755,23 +931,33 @@ async def run_loop(session_id: str) -> None:
                             _last_diversity_stats,
                             _last_unexplored_directions,
                         )
-                        if (_last_unexplored_directions and global_cycle > 1
-                                and _diversity_last_cycle > 0
-                                and (global_cycle - _diversity_last_cycle) <= 15):
+
+                        if (
+                            _last_unexplored_directions
+                            and global_cycle > 1
+                            and _diversity_last_cycle > 0
+                            and (global_cycle - _diversity_last_cycle) <= 15
+                        ):
                             _unexp = _last_unexplored_directions[:6]
                             if _unexp:
-                                _div_hint_lines = ["\n\n▶ FEATURE_MAP DIVERSITY GUIDANCE (bias exploration toward these under-explored regions):"]
+                                _div_hint_lines = [
+                                    "\n\n▶ FEATURE_MAP DIVERSITY GUIDANCE (bias exploration toward these under-explored regions):"  # noqa: E501
+                                ]
                                 for _ui, _ud in enumerate(_unexp):
-                                    _div_hint_lines.append(f"  {_ui+1}. {_ud}")
+                                    _div_hint_lines.append(f"  {_ui + 1}. {_ud}")
                                 if _last_diversity_stats:
                                     _cov = _last_diversity_stats.get("coverage", 0) * 100
                                     _div_hint_lines.append(f"  Current feature-space coverage: {_cov:.1f}%")
                                     if _cov > 85.0:
-                                        _div_hint_lines.append("  ⚠️ Coverage is HIGH — strongly prefer unexplored directions above to avoid redundancy.")
+                                        _div_hint_lines.append(
+                                            "  ⚠️ Coverage is HIGH — strongly prefer unexplored directions above to avoid redundancy."  # noqa: E501
+                                        )
                                 user_msg += "\n".join(_div_hint_lines)
                                 logger.info(
                                     "[%s] cycle=%d Injected %d unexplored direction hints into generation prompt",
-                                    session_id, global_cycle, len(_unexp),
+                                    session_id,
+                                    global_cycle,
+                                    len(_unexp),
                                 )
                     except (OSError, ValueError, RuntimeError) as exc:
                         logger.debug("[%s] dynamic_skill_library 注入失败，继续执行 LLM 调用: %s", session_id, exc)
@@ -823,10 +1009,16 @@ async def run_loop(session_id: str) -> None:
         ast_topology: Any = parsed.get("ast_topology")
         ast_collision: list[Any] = parsed.get("ast_collision", [])
         simulation_payload: dict[str, Any] | None = cast(dict[str, Any] | None, parsed.get("simulation_payload"))
-        logger.info("[%s] MONITOR: llm_expression: expr_len=%d expr_head=%s direction=%s", session_id, len(expression), expression[:100], exploration_direction)
+        logger.info(
+            "[%s] MONITOR: llm_expression: expr_len=%d expr_head=%s direction=%s",
+            session_id,
+            len(expression),
+            expression[:100],
+            exploration_direction,
+        )
 
         if expression and orchestrator is None:
-            _gates_standalone = getattr(_ls, '_generation_gates', None)
+            _gates_standalone = getattr(_ls, "_generation_gates", None)
             if _gates_standalone is not None:
                 expression, _gate_standalone_report = await _gates_standalone.apply_with_retry(
                     hypothesis_direction=family or exploration_direction,
@@ -845,19 +1037,26 @@ async def run_loop(session_id: str) -> None:
             if not _gate_standalone_report.passed:
                 logger.warning(
                     "[%s] cycle=%d GENERATION GATES FAILED (standalone): score=%.3f failed=%s",
-                    session_id, global_cycle, _gate_standalone_report.overall_score, _gate_standalone_report.failed_gates,
+                    session_id,
+                    global_cycle,
+                    _gate_standalone_report.overall_score,
+                    _gate_standalone_report.failed_gates,
                 )
                 _gate_correction = _gate_standalone_report.correction_prompt
-                state.conversation_history.append({
-                    "role": "assistant",
-                    "content": f"Expression: {expression}\n\n{_gate_correction}",
-                })
+                state.conversation_history.append(
+                    {
+                        "role": "assistant",
+                        "content": f"Expression: {expression}\n\n{_gate_correction}",
+                    }
+                )
                 state.status = SessionStatus.ITERATING
                 await sm.save_session(state)
                 continue
             logger.info(
                 "[%s] cycle=%d GENERATION GATES PASSED (standalone): score=%.3f",
-                session_id, global_cycle, _gate_standalone_report.overall_score,
+                session_id,
+                global_cycle,
+                _gate_standalone_report.overall_score,
             )
 
         if expression and _ls._strategy_classifier is not None:
@@ -865,18 +1064,36 @@ async def run_loop(session_id: str) -> None:
                 _ls._algo_tick("early_strategy_classification")
                 early_profile = await _ls._strategy_classifier.classify(expression)
                 logger.info(
-                    "[%s] cycle=%d Early strategy classification: direction=%s time_horizon=%s mechanism=%s complexity=%d",
-                    session_id, global_cycle, early_profile.direction, early_profile.time_horizon, early_profile.mechanism, early_profile.complexity,
+                    "[%s] cycle=%d Early strategy classification: direction=%s time_horizon=%s mechanism=%s complexity=%d",  # noqa: E501
+                    session_id,
+                    global_cycle,
+                    early_profile.direction,
+                    early_profile.time_horizon,
+                    early_profile.mechanism,
+                    early_profile.complexity,
                 )
-                if early_profile.direction != exploration_direction.split("_")[0] if "_" in exploration_direction else exploration_direction:
+                if (
+                    early_profile.direction != exploration_direction.split("_")[0]
+                    if "_" in exploration_direction
+                    else exploration_direction
+                ):
                     logger.warning(
                         "[%s] cycle=%d Direction mismatch: expression classified as '%s' but exploring '%s'",
-                        session_id, global_cycle, early_profile.direction, exploration_direction,
+                        session_id,
+                        global_cycle,
+                        early_profile.direction,
+                        exploration_direction,
                     )
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.warning("[%s] cycle=%d Early strategy classification failed: %s", session_id, global_cycle, exc)
 
-        if expression and settings.RAG_ENABLED and settings.RAG_TOOL_CALL_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
+        if (
+            expression
+            and settings.RAG_ENABLED
+            and settings.RAG_TOOL_CALL_ENABLED
+            and _ls._rag_engine
+            and _ls._rag_engine.is_ready
+        ):
             _allowed_fields = _extract_allowed_fields_from_tool_results(_run_loop_tool_results)
             if not _allowed_fields and rag_context and rag_context.get("field_ids"):
                 _allowed_fields = {f.lower() for f in rag_context["field_ids"]}
@@ -885,14 +1102,19 @@ async def run_loop(session_id: str) -> None:
                 if not _is_valid:
                     logger.warning(
                         "[%s] cycle=%d Invalid fields in expression: %s — auto-repairing",
-                        session_id, global_cycle, _invalid,
+                        session_id,
+                        global_cycle,
+                        _invalid,
                     )
                     _ls._algo_tick("ast_repair")
                     _repaired = auto_repair_expression(expression, _allowed_fields, _invalid)
                     if _repaired != expression:
                         logger.info(
                             "[%s] cycle=%d Auto-repaired expression: %s -> %s",
-                            session_id, global_cycle, expression, _repaired,
+                            session_id,
+                            global_cycle,
+                            expression,
+                            _repaired,
                         )
                         expression = _repaired
                         parsed["expression"] = _repaired
@@ -908,21 +1130,40 @@ async def run_loop(session_id: str) -> None:
                 if similar_by_expr:
                     high_sim_expr = [s for s in similar_by_expr if s.get("similarity", 0) > 0.9]
                     if high_sim_expr:
-                        logger.warning("[%s] cycle=%d Expression-level strategy duplication — %d similar (sim>0.9)", session_id, global_cycle, len(high_sim_expr))
+                        logger.warning(
+                            "[%s] cycle=%d Expression-level strategy duplication — %d similar (sim>0.9)",
+                            session_id,
+                            global_cycle,
+                            len(high_sim_expr),
+                        )
             except (OSError, ValueError, RuntimeError) as exc:
-                logger.warning("[%s] cycle=%d 策略去重检查 (find_similar_by_embedding) 失败，跳过重复检测: %s", session_id, global_cycle, exc)
+                logger.warning(
+                    "[%s] cycle=%d 策略去重检查 (find_similar_by_embedding) 失败，跳过重复检测: %s",
+                    session_id,
+                    global_cycle,
+                    exc,
+                )
 
         logger.info(
             "[%s] cycle=%d parsed — decision=%s family=%s topology=%s",
-            session_id, global_cycle, decision, family, ast_topology,
+            session_id,
+            global_cycle,
+            decision,
+            family,
+            ast_topology,
         )
 
         _economic_rationale = _extract_economic_rationale(raw_response)
         if not _economic_rationale:
             _economic_rationale = parsed.get("rationale", "")
         _rationale_verification = _apply_economic_rationale_verification(
-            expression, _economic_rationale, raw_response, state,
-            session_id, global_cycle, exploration_direction,
+            expression,
+            _economic_rationale,
+            raw_response,
+            state,
+            session_id,
+            global_cycle,
+            exploration_direction,
         )
 
         # ── 4. Validate ────────────────────────────────────────────────────
@@ -936,7 +1177,10 @@ async def run_loop(session_id: str) -> None:
             if clean_expr and clean_expr != expression:
                 logger.info(
                     "[%s] cycle=%d sanitized expression: %s → %s",
-                    session_id, global_cycle, expression[:60], clean_expr[:60],
+                    session_id,
+                    global_cycle,
+                    expression[:60],
+                    clean_expr[:60],
                 )
                 expression = clean_expr
 
@@ -948,12 +1192,33 @@ async def run_loop(session_id: str) -> None:
         if expression:
             try:
                 sharpe_est = val.estimate_sharpe_likelihood(expression)
-                logger.info("[%s] cycle=%d Sharpe likelihood estimate: %.2f for %s",
-                            session_id, global_cycle, sharpe_est, expression[:60])
+                logger.info(
+                    "[%s] cycle=%d Sharpe likelihood estimate: %.2f for %s",
+                    session_id,
+                    global_cycle,
+                    sharpe_est,
+                    expression[:60],
+                )
             except (OSError, ValueError, RuntimeError) as exc:
                 logger.debug("[%s] cycle=%d Sharpe likelihood estimate failed: %s", session_id, global_cycle, exc)
-        logger.info("[%s] cycle=%d ALPHA_GENERATED: expr=%s direction=%s sharpe_est=%.2f", session_id, global_cycle, expression[:200], exploration_direction, sharpe_est)
-        _ev.emit(EVENT_ALPHA_GENERATED, {"session_id": session_id, "cycle": global_cycle, "expression": expression[:200], "direction": exploration_direction, "sharpe_est": sharpe_est})
+        logger.info(
+            "[%s] cycle=%d ALPHA_GENERATED: expr=%s direction=%s sharpe_est=%.2f",
+            session_id,
+            global_cycle,
+            expression[:200],
+            exploration_direction,
+            sharpe_est,
+        )
+        _ev.emit(
+            EVENT_ALPHA_GENERATED,
+            {
+                "session_id": session_id,
+                "cycle": global_cycle,
+                "expression": expression[:200],
+                "direction": exploration_direction,
+                "sharpe_est": sharpe_est,
+            },
+        )
 
         # H1: AST repair on syntax failure in main loop
         _was_repaired = False
@@ -968,7 +1233,8 @@ async def run_loop(session_id: str) -> None:
                 state.hallucination_log.extend(repair_entries)
                 logger.info(
                     "[%s] cycle=%d main loop AST repair: %s",
-                    session_id, global_cycle,
+                    session_id,
+                    global_cycle,
                     "; ".join(e["error_message"] for e in repair_entries),
                 )
                 if repaired_expr != expression:
@@ -981,6 +1247,7 @@ async def run_loop(session_id: str) -> None:
             if not syntax_result.passed and (_ls._failure_lib or _ls._success_lib):
                 try:
                     from openalpha_brain.knowledge.rag_engine import auto_debug_loop as _auto_debug
+
                     _ls._algo_tick("auto_debug_loop")
                     debugged_expr, debug_ok = await _auto_debug(
                         generate_fn=llm_client.generate,
@@ -992,10 +1259,18 @@ async def run_loop(session_id: str) -> None:
                         expression = debugged_expr
                         _was_repaired = True
                         syntax_result = val.validate_syntax(expression)
-                        logger.info("[%s] cycle=%d auto_debug_loop succeeded: %s", session_id, global_cycle, expression[:60])
+                        logger.info(
+                            "[%s] cycle=%d auto_debug_loop succeeded: %s", session_id, global_cycle, expression[:60]
+                        )
                 except (OSError, ValueError, RuntimeError):
                     logger.warning("[%s] cycle=%d auto_debug_loop failed", session_id, global_cycle)
-        logger.info("[%s] cycle=%d ALPHA_PARSED: valid=%s ast_repaired=%s", session_id, global_cycle, syntax_result.passed, _was_repaired)
+        logger.info(
+            "[%s] cycle=%d ALPHA_PARSED: valid=%s ast_repaired=%s",
+            session_id,
+            global_cycle,
+            syntax_result.passed,
+            _was_repaired,
+        )
 
         # AST originality + complexity check
         alpha_id_prelim = f"A{len(state.passed_alphas) + 1:03d}"
@@ -1009,22 +1284,24 @@ async def run_loop(session_id: str) -> None:
                 topology_collision = True
                 logger.info(
                     "[%s] cycle=%d topology collision: '%s' is %s",
-                    session_id, global_cycle, ast_topology, existing_status,
+                    session_id,
+                    global_cycle,
+                    ast_topology,
+                    existing_status,
                 )
 
         # Dataset exhaustion check
         dataset_exhausted = (
             dataset_family != "Unknown"
             and state.dataset_usage.get(dataset_family, 0) >= 3
-            and all(
-                fc.get("fingerprint", {}).get("dataset") == dataset_family
-                for fc in state.failure_catalog[-3:]
-            )
+            and all(fc.get("fingerprint", {}).get("dataset") == dataset_family for fc in state.failure_catalog[-3:])
         )
         if dataset_exhausted:
             logger.info(
                 "[%s] cycle=%d dataset exhausted: '%s' used %d times with consistent failure",
-                session_id, global_cycle, dataset_family,
+                session_id,
+                global_cycle,
+                dataset_family,
                 state.dataset_usage.get(dataset_family, 0),
             )
 
@@ -1044,7 +1321,10 @@ async def run_loop(session_id: str) -> None:
                         _vector_duplicate = True
                         logger.info(
                             "[%s] cycle=%d Vector duplicate detected: similarity=%.3f with record %s",
-                            session_id, global_cycle, s.get("similarity", 0), s.get("record", {}).get("record_id", ""),
+                            session_id,
+                            global_cycle,
+                            s.get("similarity", 0),
+                            s.get("record", {}).get("record_id", ""),
                         )
                         break
             except (OSError, ValueError, RuntimeError):
@@ -1065,7 +1345,10 @@ async def run_loop(session_id: str) -> None:
                 if _semantic_alignment_score < 0.3:
                     logger.warning(
                         "[%s] cycle=%d Low semantic alignment score=%.3f for expression: %s",
-                        session_id, global_cycle, _semantic_alignment_score, expression[:80],
+                        session_id,
+                        global_cycle,
+                        _semantic_alignment_score,
+                        expression[:80],
                     )
             except (OSError, ValueError, RuntimeError):
                 pass
@@ -1074,16 +1357,27 @@ async def run_loop(session_id: str) -> None:
         # Register assistant turn (in memory)
         state.conversation_history.append({"role": "assistant", "content": raw_response})
 
-        if ast_topology:
-            if ast_topology not in state.topology_map:
-                state.topology_map[ast_topology] = "EXPLORING"
+        if ast_topology and ast_topology not in state.topology_map:
+            state.topology_map[ast_topology] = "EXPLORING"
 
         if decision == "REJECT" or collision or topology_collision or dataset_exhausted:
             reason = "REJECT decision"
-            if collision:          reason = "fingerprint collision"
-            if topology_collision: reason = "AST topology collision"
-            if dataset_exhausted:  reason = "dataset exhausted"
-            _ev.emit(EVENT_ALPHA_REJECTED, {"session_id": session_id, "cycle": global_cycle, "expression": (expression or "")[:100], "reason": reason, "direction": exploration_direction})
+            if collision:
+                reason = "fingerprint collision"
+            if topology_collision:
+                reason = "AST topology collision"
+            if dataset_exhausted:
+                reason = "dataset exhausted"
+            _ev.emit(
+                EVENT_ALPHA_REJECTED,
+                {
+                    "session_id": session_id,
+                    "cycle": global_cycle,
+                    "expression": (expression or "")[:100],
+                    "reason": reason,
+                    "direction": exploration_direction,
+                },
+            )
             await _handle_reject(state, session_id, global_cycle, fingerprint_dict, ast_topology, reason)
             await asyncio.sleep(1)
             continue
@@ -1092,21 +1386,41 @@ async def run_loop(session_id: str) -> None:
             if decision == "ITERATE" and not all_failures and simulation_payload and simulation_payload.get("regular"):
                 logger.info(
                     "[%s] cycle=%d Overriding ITERATE→SUBMIT (no real failures, valid payload)",
-                    session_id, global_cycle,
+                    session_id,
+                    global_cycle,
                 )
                 decision = "SUBMIT"
             else:
-                await _handle_iterate(state, session_id, global_cycle, parsed, expression,
-                                      fingerprint_dict, ast_topology, all_failures, decision)
+                await _handle_iterate(
+                    state,
+                    session_id,
+                    global_cycle,
+                    parsed,
+                    expression,
+                    fingerprint_dict,
+                    ast_topology,
+                    all_failures,
+                    decision,
+                )
                 await asyncio.sleep(1)
                 continue
 
         # ── 6. PASS path ────────────────────────────────────────────────────
-        alpha = _build_alpha(state, parsed, expression, fingerprint_dict,
-                             str(family), ast_topology, ast_collision, cast(dict, simulation_payload),
-                             metrics_result, global_cycle, decision,
-                             economic_rationale=_economic_rationale,
-                             rationale_verification=_rationale_verification)
+        alpha = _build_alpha(
+            state,
+            parsed,
+            expression,
+            fingerprint_dict,
+            str(family),
+            ast_topology,
+            ast_collision,
+            cast(dict, simulation_payload),
+            metrics_result,
+            global_cycle,
+            decision,
+            economic_rationale=_economic_rationale,
+            rationale_verification=_rationale_verification,
+        )
         alpha.exploration_direction = exploration_direction
         alpha.template_id = _sched_template_id
         alpha.family_id = _sched_family_id
@@ -1120,7 +1434,12 @@ async def run_loop(session_id: str) -> None:
                     expression=expression,
                 )
                 if critique_result and (critique_result.consistency_score or 1.0) < 0.3:
-                    logger.warning("[%s] cycle=%d Self-critique consistency_score=%.2f < 0.3 — expression may not match hypothesis", session_id, global_cycle, critique_result.consistency_score or 0)
+                    logger.warning(
+                        "[%s] cycle=%d Self-critique consistency_score=%.2f < 0.3 — expression may not match hypothesis",  # noqa: E501
+                        session_id,
+                        global_cycle,
+                        critique_result.consistency_score or 0,
+                    )
             except (OSError, ValueError, RuntimeError):
                 pass
 
@@ -1132,7 +1451,7 @@ async def run_loop(session_id: str) -> None:
                         _stage = _r.get("failure_stage", "unknown")
                         _reason = _r.get("failure_reason", "")
                         _fix = _r.get("suggested_fix", "")
-                        _refl_lines.append(f"  {_ri+1}. [{_stage}] {_reason} → Fix: {_fix}")
+                        _refl_lines.append(f"  {_ri + 1}. [{_stage}] {_reason} → Fix: {_fix}")
                     user_msg += "\n" + "\n".join(_refl_lines)
             except (OSError, ValueError, RuntimeError):
                 pass
@@ -1140,20 +1459,46 @@ async def run_loop(session_id: str) -> None:
         if _ls._scheduler is not None:
             try:
                 if alpha.template_id and alpha.family_id:
-                    _ls._scheduler.record_result(alpha.template_id, alpha.family_id, exploration_direction, reward=REWARD_VALIDATOR_PASS)
+                    _ls._scheduler.record_result(
+                        alpha.template_id, alpha.family_id, exploration_direction, reward=REWARD_VALIDATOR_PASS
+                    )
                 else:
                     _ls._scheduler.record_direction_result(exploration_direction, reward=REWARD_VALIDATOR_PASS)
             except (OSError, ValueError, RuntimeError):
                 pass
-        _ev.emit(EVENT_MAB_FEEDBACK, {"session_id": session_id, "cycle": global_cycle, "direction": exploration_direction, "expression": expression[:100], "reward": REWARD_VALIDATOR_PASS})
+        _ev.emit(
+            EVENT_MAB_FEEDBACK,
+            {
+                "session_id": session_id,
+                "cycle": global_cycle,
+                "direction": exploration_direction,
+                "expression": expression[:100],
+                "reward": REWARD_VALIDATOR_PASS,
+            },
+        )
 
         _consecutive_errors = 0
 
         logger.info(
             "[%s] cycle=%d PASS — alpha_id=%s family=%s decision=%s",
-            session_id, global_cycle, alpha.alpha_id, family, decision,
+            session_id,
+            global_cycle,
+            alpha.alpha_id,
+            family,
+            decision,
         )
-        _ev.emit(EVENT_ALPHA_VALIDATED, {"session_id": session_id, "cycle": global_cycle, "alpha_id": alpha.alpha_id, "expression": expression[:120], "direction": exploration_direction, "family": str(family), "decision": decision})
+        _ev.emit(
+            EVENT_ALPHA_VALIDATED,
+            {
+                "session_id": session_id,
+                "cycle": global_cycle,
+                "alpha_id": alpha.alpha_id,
+                "expression": expression[:120],
+                "direction": exploration_direction,
+                "family": str(family),
+                "decision": decision,
+            },
+        )
 
         if global_cycle < settings.MAX_CYCLES:
             success_msg = build_success_feedback(
@@ -1180,7 +1525,15 @@ async def run_loop(session_id: str) -> None:
             await sm.save_session(state)
 
             _brain_settings = alpha.simulation_payload.get("settings", {}) if alpha.simulation_payload else {}
-            logger.info("[%s] cycle=%d BRAIN_SUBMIT: expr=%s universe=%s delay=%s decay=%s", session_id, global_cycle, expression[:100], _brain_settings.get("universe", "N/A"), _brain_settings.get("delay", "N/A"), _brain_settings.get("decay", "N/A"))
+            logger.info(
+                "[%s] cycle=%d BRAIN_SUBMIT: expr=%s universe=%s delay=%s decay=%s",
+                session_id,
+                global_cycle,
+                expression[:100],
+                _brain_settings.get("universe", "N/A"),
+                _brain_settings.get("delay", "N/A"),
+                _brain_settings.get("decay", "N/A"),
+            )
 
             if _ls._whitelist_mgr is not None:
                 try:
@@ -1189,27 +1542,41 @@ async def run_loop(session_id: str) -> None:
                     solidified = _ls._whitelist_mgr.solidified_fields
                     _ls._algo_tick("whitelist_pre_submit_check")
                     import re as _re_whitelist
-                    _expr_fields_whitelist = set(_re_whitelist.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()', expression))
-                    _expr_fields_whitelist -= {'and', 'or', 'not', 'if', 'else', 'true', 'false', 'nan', 'inf'}
+
+                    _expr_fields_whitelist = set(
+                        _re_whitelist.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()", expression)
+                    )
+                    _expr_fields_whitelist -= {"and", "or", "not", "if", "else", "true", "false", "nan", "inf"}
                     _expr_fields_whitelist -= val.PERMITTED_OPERATORS
                     _invalid_fields = [f for f in _expr_fields_whitelist if f not in allowed_fields]
                     if _invalid_fields:
                         logger.warning(
-                            "[%s] cycle=%d WHITELIST_FILTER: expression contains %d non-whitelisted fields: %s (allowed=%d, solidified=%d, eliminated=%d)",
-                            session_id, global_cycle, len(_invalid_fields), _invalid_fields[:5],
-                            len(allowed_fields), len(solidified), len(eliminated),
+                            "[%s] cycle=%d WHITELIST_FILTER: expression contains %d non-whitelisted fields: %s (allowed=%d, solidified=%d, eliminated=%d)",  # noqa: E501
+                            session_id,
+                            global_cycle,
+                            len(_invalid_fields),
+                            _invalid_fields[:5],
+                            len(allowed_fields),
+                            len(solidified),
+                            len(eliminated),
                         )
                     else:
                         logger.info(
-                            "[%s] cycle=%d WHITELIST_PASS: all %d fields in whitelist (allowed=%d, solidified=%d, eliminated=%d)",
-                            session_id, global_cycle, len(_expr_fields_whitelist),
-                            len(allowed_fields), len(solidified), len(eliminated),
+                            "[%s] cycle=%d WHITELIST_PASS: all %d fields in whitelist (allowed=%d, solidified=%d, eliminated=%d)",  # noqa: E501
+                            session_id,
+                            global_cycle,
+                            len(_expr_fields_whitelist),
+                            len(allowed_fields),
+                            len(solidified),
+                            len(eliminated),
                         )
 
                     _overuse_warnings = _ls._whitelist_mgr.detect_field_overfit()
                     if _overuse_warnings:
                         for _ow in _overuse_warnings[:3]:
-                            logger.warning("[%s] cycle=%d OVERUSE_DETECTED: %s", session_id, global_cycle, _ow.get("message", ""))
+                            logger.warning(
+                                "[%s] cycle=%d OVERUSE_DETECTED: %s", session_id, global_cycle, _ow.get("message", "")
+                            )
                 except (OSError, ValueError, RuntimeError):
                     pass
 
@@ -1223,12 +1590,14 @@ async def run_loop(session_id: str) -> None:
                         _last_diversity_stats,
                         _last_unexplored_directions,
                     )
+
                     _ls_mod._last_diversity_stats = _diversity_stats
                     _ls_mod._last_unexplored_directions = list(_unexplored) if _unexplored else []
                     _ls_mod._diversity_last_cycle = global_cycle
                     logger.info(
                         "[%s] cycle=%d FEATURE_MAP_STATS: coverage=%.2f%% (%d/%d) filled, unexplored=%s",
-                        session_id, global_cycle,
+                        session_id,
+                        global_cycle,
                         _diversity_stats.get("coverage", 0) * 100,
                         _diversity_stats.get("filled_cells", 0),
                         _diversity_stats.get("total_cells", 0),
@@ -1237,20 +1606,25 @@ async def run_loop(session_id: str) -> None:
                     _coverage_pct = _diversity_stats.get("coverage", 0) * 100
                     if _coverage_pct > 90.0:
                         logger.warning(
-                            "[%s] cycle=%d LOW DIVERSITY WARNING: feature space coverage=%.1f%% — consider pivoting to unexplored directions: %s",
-                            session_id, global_cycle, _coverage_pct, _unexplored[:5],
+                            "[%s] cycle=%d LOW DIVERSITY WARNING: feature space coverage=%.1f%% — consider pivoting to unexplored directions: %s",  # noqa: E501
+                            session_id,
+                            global_cycle,
+                            _coverage_pct,
+                            _unexplored[:5],
                         )
                 except (OSError, ValueError, RuntimeError):
                     pass
 
-                _mutator = getattr(_ls, '_semantic_mutator', None)
+                _mutator = getattr(_ls, "_semantic_mutator", None)
                 if _mutator is not None and _ls._feature_map is not None and _ls._evo_db is not None:
                     _coverage = _diversity_stats.get("coverage", 1.0)
                     if _coverage < 0.5 and global_cycle % 5 == 0:
                         try:
                             _ls._algo_tick("mcts_explore_unexplored")
                             _mcts_results = await _mutator.explore_unexplored_regions(
-                                _ls._feature_map, _ls._evo_db, top_k=2,
+                                _ls._feature_map,
+                                _ls._evo_db,
+                                top_k=2,
                             )
                             for _mr in _mcts_results:
                                 if _mr.get("expression"):
@@ -1265,7 +1639,9 @@ async def run_loop(session_id: str) -> None:
                                         decision="SUBMIT",
                                         simulation_payload={
                                             "regular": _mr["expression"],
-                                            "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                                            "settings": dict(alpha.simulation_payload.get("settings", {}))
+                                            if alpha.simulation_payload
+                                            else {},
                                         },
                                         cycle_num=alpha.cycle_num,
                                         passed=True,
@@ -1276,12 +1652,14 @@ async def run_loop(session_id: str) -> None:
                                     await pool.enqueue(vid, priority="low")
                                     logger.info(
                                         "[%s] MCTS explored alpha enqueued: %s (%s)",
-                                        session_id, vid, _mr.get("feature_description", "")[:60],
+                                        session_id,
+                                        vid,
+                                        _mr.get("feature_description", "")[:60],
                                     )
                         except (OSError, ValueError, RuntimeError):
                             logger.warning("[%s] MCTS explore_unexplored_regions failed", session_id, exc_info=True)
 
-                if _ls._evo_db is not None and hasattr(_ls, '_crossover_engine') and _ls._crossover_engine is not None:
+                if _ls._evo_db is not None and hasattr(_ls, "_crossover_engine") and _ls._crossover_engine is not None:
                     try:
                         _successful_records = _ls._evo_db.sample_inspiration(n=6, min_sharpe=0.3)
                         if _ls._feature_map is not None:
@@ -1291,6 +1669,7 @@ async def run_loop(session_id: str) -> None:
                                 _elite_sharpe = _elite_sample.get("sharpe", 0.0)
                                 if _elite_fitness > 0.3:
                                     from openalpha_brain.knowledge.evolution_db import EvolutionRecord
+
                                     _elite_record = EvolutionRecord(
                                         expr=_elite_sample["expr"],
                                         direction=exploration_direction,
@@ -1300,8 +1679,10 @@ async def run_loop(session_id: str) -> None:
                                     )
                                     _successful_records.insert(0, _elite_record)
                                     logger.info(
-                                        "[%s] FeatureMap sample_elite injected as crossover parent: fitness=%.4f sharpe=%.4f",
-                                        session_id, _elite_fitness, _elite_sharpe,
+                                        "[%s] FeatureMap sample_elite injected as crossover parent: fitness=%.4f sharpe=%.4f",  # noqa: E501
+                                        session_id,
+                                        _elite_fitness,
+                                        _elite_sharpe,
                                     )
                         if len(_successful_records) >= 2 and global_cycle % 7 == 0:
                             _ls._algo_tick("llm_semantic_crossover_explore")
@@ -1328,7 +1709,9 @@ async def run_loop(session_id: str) -> None:
                                             decision="SUBMIT",
                                             simulation_payload={
                                                 "regular": _lcr.child_expression,
-                                                "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                                                "settings": dict(alpha.simulation_payload.get("settings", {}))
+                                                if alpha.simulation_payload
+                                                else {},
                                             },
                                             cycle_num=alpha.cycle_num,
                                             passed=True,
@@ -1339,19 +1722,58 @@ async def run_loop(session_id: str) -> None:
                                         await pool.enqueue(_lcvid, priority="low")
                                         logger.info(
                                             "[%s] LLM semantic crossover enqueued: %s (%s)",
-                                            session_id, _lcvid, _lcr.crossover_point[:60],
+                                            session_id,
+                                            _lcvid,
+                                            _lcr.crossover_point[:60],
                                         )
-                            logger.info("[%s] LLM semantic crossover: explored %d parent pairs", session_id, min(2, len(_successful_records) - 1))
+                            logger.info(
+                                "[%s] LLM semantic crossover: explored %d parent pairs",
+                                session_id,
+                                min(2, len(_successful_records) - 1),
+                            )
                     except (OSError, ValueError, RuntimeError):
                         logger.warning("[%s] LLM semantic crossover exploration failed", session_id, exc_info=True)
 
             brain_result = await _submit_to_brain(alpha, session_id, global_cycle)
 
-            logger.info("[%s] MONITOR: brain_submit: status=%s sharpe=%s fitness=%s turnover=%s direction=%s alpha_id=%s", session_id, brain_result.status.value if brain_result.status else "ERROR", brain_result.real_sharpe, brain_result.real_fitness, brain_result.real_turnover, alpha.exploration_direction or exploration_direction, brain_result.alpha_id)
-            logger.info("[%s] cycle=%d BRAIN_RESULT: status=%s sharpe=%.4f fitness=%.4f turnover=%.2f drawdown=%.2f", session_id, global_cycle, brain_result.status.value if brain_result.status else "ERROR", brain_result.real_sharpe or 0.0, brain_result.real_fitness or 0.0, brain_result.real_turnover or 0.0, brain_result.real_drawdown or 0.0)
-            _ev.emit(EVENT_BRAIN_RESULT, {"session_id": session_id, "cycle": global_cycle, "alpha_id": alpha.alpha_id, "expression": expression[:120], "status": brain_result.status.value if brain_result.status else "ERROR", "sharpe": brain_result.real_sharpe, "fitness": brain_result.real_fitness, "turnover": brain_result.real_turnover, "returns": brain_result.real_returns, "drawdown": brain_result.real_drawdown, "direction": exploration_direction})
+            logger.info(
+                "[%s] MONITOR: brain_submit: status=%s sharpe=%s fitness=%s turnover=%s direction=%s alpha_id=%s",
+                session_id,
+                brain_result.status.value if brain_result.status else "ERROR",
+                brain_result.real_sharpe,
+                brain_result.real_fitness,
+                brain_result.real_turnover,
+                alpha.exploration_direction or exploration_direction,
+                brain_result.alpha_id,
+            )
+            logger.info(
+                "[%s] cycle=%d BRAIN_RESULT: status=%s sharpe=%.4f fitness=%.4f turnover=%.2f drawdown=%.2f",
+                session_id,
+                global_cycle,
+                brain_result.status.value if brain_result.status else "ERROR",
+                brain_result.real_sharpe or 0.0,
+                brain_result.real_fitness or 0.0,
+                brain_result.real_turnover or 0.0,
+                brain_result.real_drawdown or 0.0,
+            )
+            _ev.emit(
+                EVENT_BRAIN_RESULT,
+                {
+                    "session_id": session_id,
+                    "cycle": global_cycle,
+                    "alpha_id": alpha.alpha_id,
+                    "expression": expression[:120],
+                    "status": brain_result.status.value if brain_result.status else "ERROR",
+                    "sharpe": brain_result.real_sharpe,
+                    "fitness": brain_result.real_fitness,
+                    "turnover": brain_result.real_turnover,
+                    "returns": brain_result.real_returns,
+                    "drawdown": brain_result.real_drawdown,
+                    "direction": exploration_direction,
+                },
+            )
 
-            _engine = getattr(_ls, '_crossover_engine', None)
+            _engine = getattr(_ls, "_crossover_engine", None)
             if _engine is not None:
                 _accepted = brain_result.status == BrainSimStatus.PASS
                 _reject_reason = None
@@ -1374,18 +1796,29 @@ async def run_loop(session_id: str) -> None:
                 if _accepted:
                     _traj = AlphaTrajectory(
                         hypothesis_direction=exploration_direction,
-                        hypothesis_mechanism=alpha.hypothesis_mechanism if hasattr(alpha, 'hypothesis_mechanism') else "",
+                        hypothesis_mechanism=alpha.hypothesis_mechanism
+                        if hasattr(alpha, "hypothesis_mechanism")
+                        else "",
                         expression_versions=[expression] if expression else [],
                         final_status="PASS",
                         final_sharpe=brain_result.real_sharpe,
                     )
-                    _traj.add_brain_feedback({
-                        "status": brain_result.status.value if brain_result.status else "UNKNOWN",
-                        "sharpe": brain_result.real_sharpe,
-                        "fitness": brain_result.real_fitness,
-                        "turnover": brain_result.real_turnover,
-                    })
-                    _engine.record_trajectory(_traj, {"id": brain_result.alpha_id or "", "expression": expression, "direction": exploration_direction})
+                    _traj.add_brain_feedback(
+                        {
+                            "status": brain_result.status.value if brain_result.status else "UNKNOWN",
+                            "sharpe": brain_result.real_sharpe,
+                            "fitness": brain_result.real_fitness,
+                            "turnover": brain_result.real_turnover,
+                        }
+                    )
+                    _engine.record_trajectory(
+                        _traj,
+                        {
+                            "id": brain_result.alpha_id or "",
+                            "expression": expression,
+                            "direction": exploration_direction,
+                        },
+                    )
 
             if _ls._alpha_channel is not None and brain_result is not None and brain_result.real_sharpe is not None:
                 try:
@@ -1396,15 +1829,19 @@ async def run_loop(session_id: str) -> None:
                         expression=expression or "",
                         direction=alpha.exploration_direction or exploration_direction,
                     )
-                    logger.info("[%s] MONITOR: alpha_channel: route=%s sharpe=%.2f", session_id, route, brain_result.real_sharpe)
+                    logger.info(
+                        "[%s] MONITOR: alpha_channel: route=%s sharpe=%.2f", session_id, route, brain_result.real_sharpe
+                    )
                     if route == "stream" and _ls._alpha_channel_integrator is not None:
                         _ls._algo_tick("alpha_channel_stream_process")
-                        await _ls._alpha_channel_integrator.process_stream_alpha({
-                            "alpha_id": brain_result.alpha_id or "",
-                            "sharpe": brain_result.real_sharpe,
-                            "expression": expression or "",
-                            "direction": alpha.exploration_direction or exploration_direction,
-                        })
+                        await _ls._alpha_channel_integrator.process_stream_alpha(
+                            {
+                                "alpha_id": brain_result.alpha_id or "",
+                                "sharpe": brain_result.real_sharpe,
+                                "expression": expression or "",
+                                "direction": alpha.exploration_direction or exploration_direction,
+                            }
+                        )
                     _ls._algo_tick("alpha_channel_batch")
                     batch = await _ls._alpha_channel.get_batch()
                     if batch and _ls._alpha_channel_integrator is not None:
@@ -1421,21 +1858,27 @@ async def run_loop(session_id: str) -> None:
             _log_brain_result(state, brain_result, expression, attempt=0)
             await sm.save_session(state)
 
-            if (settings.PARAM_OPTIMIZATION_ENABLED
-                    and _ls._param_optimizer
-                    and brain_result.status == BrainSimStatus.FAIL
-                    and brain_result.real_sharpe is not None
-                    and _ls._param_optimizer.should_optimize(
-                        brain_result.real_sharpe, brain_client.GATE_SHARPE_MIN)):
-                _ls._log(state, "PARAM_OPT",
-                     f"Sharpe={brain_result.real_sharpe:.3f} near gate "
-                     f"{brain_client.GATE_SHARPE_MIN} — running param optimization",
-                     {"sharpe": brain_result.real_sharpe})
+            if (
+                settings.PARAM_OPTIMIZATION_ENABLED
+                and _ls._param_optimizer
+                and brain_result.status == BrainSimStatus.FAIL
+                and brain_result.real_sharpe is not None
+                and _ls._param_optimizer.should_optimize(brain_result.real_sharpe, brain_client.GATE_SHARPE_MIN)
+            ):
+                _ls._log(
+                    state,
+                    "PARAM_OPT",
+                    f"Sharpe={brain_result.real_sharpe:.3f} near gate "
+                    f"{brain_client.GATE_SHARPE_MIN} — running param optimization",
+                    {"sharpe": brain_result.real_sharpe},
+                )
                 await sm.save_session(state)
 
                 _ls._algo_tick("param_optimization")
                 opt_result = await _run_param_optimization(
-                    expression, session_id, global_cycle,
+                    expression,
+                    session_id,
+                    global_cycle,
                 )
 
                 state = await sm.load_session(session_id)
@@ -1444,8 +1887,10 @@ async def run_loop(session_id: str) -> None:
                     if brain_result.real_sharpe is None or opt_result.real_sharpe > brain_result.real_sharpe:
                         logger.info(
                             "[%s] cycle=%d Param optimization improved Sharpe: %.3f → %.3f",
-                            session_id, global_cycle,
-                            brain_result.real_sharpe or 0, opt_result.real_sharpe,
+                            session_id,
+                            global_cycle,
+                            brain_result.real_sharpe or 0,
+                            opt_result.real_sharpe,
                         )
                         brain_result = opt_result
                         _log_brain_result(state, brain_result, expression, attempt=0)
@@ -1467,16 +1912,16 @@ async def run_loop(session_id: str) -> None:
                 if brain_result.status == BrainSimStatus.ERROR:
                     _original_failure_type = "BRAIN_SYNTAX_ERROR"
                     if _ls._scheduler is not None:
-                        try:
+                        with contextlib.suppress(OSError, ValueError, RuntimeError):
                             _ls._scheduler.record_direction_result(exploration_direction, penalty=PENALTY_BRAIN_ERROR)
-                        except (OSError, ValueError, RuntimeError):
-                            pass
                 brain_checks = getattr(brain_result, "brain_checks", []) or []
                 if brain_checks:
                     failed_checks = [c["name"] for c in brain_checks if c.get("result") == "FAIL"]
                     _original_failure_type = "; ".join(failed_checks[:3]) if failed_checks else "BRAIN_FAIL"
                 elif brain_result.gate_failures:
-                    _original_failure_type = brain_result.gate_failures[0] if brain_result.gate_failures else "BRAIN_FAIL"
+                    _original_failure_type = (
+                        brain_result.gate_failures[0] if brain_result.gate_failures else "BRAIN_FAIL"
+                    )
 
                 brain_result = await _brain_improvement_loop(
                     initial_result=brain_result,
@@ -1518,7 +1963,7 @@ async def run_loop(session_id: str) -> None:
                 if _ls._heartbeat:
                     _ls._heartbeat.touch(session_id)
 
-                _engine = getattr(_ls, '_crossover_engine', None)
+                _engine = getattr(_ls, "_crossover_engine", None)
                 if _engine is not None:
                     _accepted = brain_result.status == BrainSimStatus.PASS
                     _reject_reason = None
@@ -1552,9 +1997,15 @@ async def run_loop(session_id: str) -> None:
             if _ls._feature_map is not None and brain_result.status == BrainSimStatus.PASS:
                 feat = _extract_strategy_features(expression, exploration_direction)
                 _ls._algo_tick("feature_map_add")
-                _ls._feature_map.add_candidate(expression, feat, fitness_score=brain_result.real_fitness or 0.0, sharpe=brain_result.real_sharpe or 0.0, turnover=brain_result.real_turnover)
+                _ls._feature_map.add_candidate(
+                    expression,
+                    feat,
+                    fitness_score=brain_result.real_fitness or 0.0,
+                    sharpe=brain_result.real_sharpe or 0.0,
+                    turnover=brain_result.real_turnover,
+                )
 
-            _classifier = getattr(_ls, '_strategy_classifier', None)
+            _classifier = getattr(_ls, "_strategy_classifier", None)
             if _classifier is not None and brain_result.status == BrainSimStatus.PASS:
                 try:
                     _ls._algo_tick("strategy_classify")
@@ -1568,19 +2019,18 @@ async def run_loop(session_id: str) -> None:
                     if _complementary:
                         logger.info(
                             "[%s] StrategyClassifier: complementary suggestions: %s",
-                            session_id, [(c.get("direction"), c.get("reason")) for c in _complementary],
+                            session_id,
+                            [(c.get("direction"), c.get("reason")) for c in _complementary],
                         )
                         for _comp in _complementary:
                             _comp_dir = _comp.get("direction", "")
                             _comp_score = _comp.get("similarity_score", 0.3)
                             if _comp_dir and _ls._scheduler is not None:
-                                try:
+                                with contextlib.suppress(OSError, ValueError, RuntimeError):
                                     _ls._scheduler.record_direction_result(
                                         _comp_dir,
                                         reward=_comp_score * 0.15,
                                     )
-                                except (OSError, ValueError, RuntimeError):
-                                    pass
                 except (OSError, ValueError, RuntimeError):
                     logger.warning("[%s] StrategyClassifier failed", session_id, exc_info=True)
 
@@ -1589,19 +2039,20 @@ async def run_loop(session_id: str) -> None:
                     _force_dir = _complementary[0].get("direction", "")
                     if _force_dir and _force_dir != exploration_direction:
                         logger.warning(
-                            "[%s] FORCED ROTATION: direction=%s after %d consecutive rejections → switching to complementary=%s",
-                            session_id, exploration_direction, _current_rejections, _force_dir,
+                            "[%s] FORCED ROTATION: direction=%s after %d consecutive rejections → switching to complementary=%s",  # noqa: E501
+                            session_id,
+                            exploration_direction,
+                            _current_rejections,
+                            _force_dir,
                         )
                         _ls._algo_tick("forced_rotation")
                         exploration_direction = _force_dir
                         _consecutive_rejections[exploration_direction] = 0
                         if _ls._scheduler is not None:
-                            try:
+                            with contextlib.suppress(OSError, ValueError, RuntimeError):
                                 _ls._scheduler.record_direction_result(_force_dir, reward=0.20)
-                            except (OSError, ValueError, RuntimeError):
-                                pass
 
-            _aligner = getattr(_ls, '_hypothesis_aligner', None)
+            _aligner = getattr(_ls, "_hypothesis_aligner", None)
             if _aligner is not None:
                 try:
                     _ls._algo_tick("hypothesis_align")
@@ -1609,38 +2060,44 @@ async def run_loop(session_id: str) -> None:
                     if _alignment["alignment_level"] in ("contradictory", "weak"):
                         logger.warning(
                             "[%s] HypothesisAligner: %s alignment (R²=%.3f) for direction=%s - %s",
-                            session_id, _alignment["alignment_level"].upper(),
-                            _alignment["r2_score"], exploration_direction,
+                            session_id,
+                            _alignment["alignment_level"].upper(),
+                            _alignment["r2_score"],
+                            exploration_direction,
                             _alignment["diagnosis"],
                         )
                         _alpha_extra_context = _aligner.build_alignment_feedback(_alignment)
-                        _fb_buf_align_loop = getattr(_ls, '_brain_feedback_buffer', None)
+                        _fb_buf_align_loop = getattr(_ls, "_brain_feedback_buffer", None)
                         if _fb_buf_align_loop is None:
                             _ls._brain_feedback_buffer = []
                             _fb_buf_align_loop = _ls._brain_feedback_buffer
-                        _fb_buf_align_loop.append({
-                            "role": "user",
-                            "content": _alpha_extra_context,
-                        })
+                        _fb_buf_align_loop.append(
+                            {
+                                "role": "user",
+                                "content": _alpha_extra_context,
+                            }
+                        )
                     else:
                         _alpha_extra_context = ""
                 except (OSError, ValueError, RuntimeError):
                     logger.warning("[%s] HypothesisAligner failed", session_id, exc_info=True)
                     _alpha_extra_context = ""
 
-            _engine_for_variants = getattr(_ls, '_crossover_engine', None)
+            _engine_for_variants = getattr(_ls, "_crossover_engine", None)
             if _engine_for_variants is not None and expression and brain_result.status == BrainSimStatus.PASS:
-                _variant_batch.append({
-                    "expression": expression,
-                    "id": alpha.alpha_id,
-                    "direction": exploration_direction,
-                    "fitness": brain_result.real_fitness or 0.0,
-                    "sharpe": brain_result.real_sharpe or 0.0,
-                    "turnover": brain_result.real_turnover or 0.5,
-                    "complexity": len(expression),
-                    "originality_score": getattr(brain_result, 'originality_score', 0.6),
-                })
-                _variant_batch = _variant_batch[-_variant_batch_max_size * 2:]
+                _variant_batch.append(
+                    {
+                        "expression": expression,
+                        "id": alpha.alpha_id,
+                        "direction": exploration_direction,
+                        "fitness": brain_result.real_fitness or 0.0,
+                        "sharpe": brain_result.real_sharpe or 0.0,
+                        "turnover": brain_result.real_turnover or 0.5,
+                        "complexity": len(expression),
+                        "originality_score": getattr(brain_result, "originality_score", 0.6),
+                    }
+                )
+                _variant_batch = _variant_batch[-_variant_batch_max_size * 2 :]
                 if len(_variant_batch) >= _variant_batch_max_size:
                     try:
                         _ls._algo_tick("generate_variants")
@@ -1661,7 +2118,9 @@ async def run_loop(session_id: str) -> None:
                                 decision="SUBMIT",
                                 simulation_payload={
                                     "regular": _v["expression"],
-                                    "settings": dict(alpha.simulation_payload.get("settings", {})) if alpha.simulation_payload else {},
+                                    "settings": dict(alpha.simulation_payload.get("settings", {}))
+                                    if alpha.simulation_payload
+                                    else {},
                                 },
                                 cycle_num=alpha.cycle_num,
                                 passed=True,
@@ -1672,14 +2131,19 @@ async def run_loop(session_id: str) -> None:
                             await pool.enqueue(_vid, priority="low")
                             logger.info(
                                 "[%s] Evolution variant enqueued: %s source=%s direction=%s",
-                                session_id, _vid, _v.get("source"), _v.get("direction", exploration_direction),
+                                session_id,
+                                _vid,
+                                _v.get("source"),
+                                _v.get("direction", exploration_direction),
                             )
                         _variant_batch.clear()
                     except (OSError, ValueError, RuntimeError):
                         logger.warning("[%s] generate_variants failed", session_id, exc_info=True)
 
             hierarchical_reward, hierarchical_level_name = compute_hierarchical_reward_with_penalties(
-                brain_result, expression, session_id,
+                brain_result,
+                expression,
+                session_id,
             )
             if hierarchical_level_name:
                 alpha.hierarchical_reward = hierarchical_reward
@@ -1687,19 +2151,26 @@ async def run_loop(session_id: str) -> None:
 
             check_margin_efficiency(brain_result, alpha, session_id)
 
-            if (brain_result.real_returns is not None
-                    and brain_result.real_margin is not None
-                    and brain_result.real_margin > 0
-                    and hierarchical_reward < 0.3):
-                logger.info("[%s] Hierarchical reward %.2f < 0.3 (below basic) — skipping BRAIN submission, going directly to improvement loop", session_id, hierarchical_reward)
+            if (
+                brain_result.real_returns is not None
+                and brain_result.real_margin is not None
+                and brain_result.real_margin > 0
+                and hierarchical_reward < 0.3
+            ):
+                logger.info(
+                    "[%s] Hierarchical reward %.2f < 0.3 (below basic) — skipping BRAIN submission, going directly to improvement loop",  # noqa: E501
+                    session_id,
+                    hierarchical_reward,
+                )
                 if _ls._scheduler is not None:
-                    try:
+                    with contextlib.suppress(OSError, ValueError, RuntimeError):
                         _ls._scheduler.record_direction_result(alpha.exploration_direction, penalty=PENALTY_BRAIN_FAIL)
-                    except (OSError, ValueError, RuntimeError):
-                        pass
-                _ls._log(state, "LOW_REWARD_SKIP",
-                     f"Alpha {alpha.alpha_id} hierarchical_reward={hierarchical_reward:.2f} < 0.3 — skipping BRAIN submission",
-                     {"hierarchical_reward": hierarchical_reward})
+                _ls._log(
+                    state,
+                    "LOW_REWARD_SKIP",
+                    f"Alpha {alpha.alpha_id} hierarchical_reward={hierarchical_reward:.2f} < 0.3 — skipping BRAIN submission",  # noqa: E501
+                    {"hierarchical_reward": hierarchical_reward},
+                )
                 if _ls._failure_lib and settings.FAILURE_FIX_LIBRARY_ENABLED:
                     try:
                         _ls._algo_tick("failure_fix_add")
@@ -1713,12 +2184,14 @@ async def run_loop(session_id: str) -> None:
                         )
                     except (OSError, ValueError, RuntimeError):
                         pass
-                state.failure_catalog.append({
-                    "fingerprint": alpha.fingerprint.model_dump() if alpha.fingerprint else {},
-                    "failure_type": "low_hierarchical_reward",
-                    "metric_value": hierarchical_reward,
-                    "mutation_tried": "skipped_brain",
-                })
+                state.failure_catalog.append(
+                    {
+                        "fingerprint": alpha.fingerprint.model_dump() if alpha.fingerprint else {},
+                        "failure_type": "low_hierarchical_reward",
+                        "metric_value": hierarchical_reward,
+                        "mutation_tried": "skipped_brain",
+                    }
+                )
                 state.status = SessionStatus.ITERATING
                 await sm.save_session(state)
                 continue
@@ -1730,8 +2203,13 @@ async def run_loop(session_id: str) -> None:
 
             if brain_result.status == BrainSimStatus.PASS:
                 await record_pass_feedback(
-                    brain_result, alpha, expression, exploration_direction,
-                    parsed, session_id, hierarchical_reward,
+                    brain_result,
+                    alpha,
+                    expression,
+                    exploration_direction,
+                    parsed,
+                    session_id,
+                    hierarchical_reward,
                     exp_card_rule_ids=_exp_card_rule_ids,
                 )
                 await submit_for_review(brain_result, alpha, session_id, state)
@@ -1741,13 +2219,14 @@ async def run_loop(session_id: str) -> None:
                         await _ls._decay_detector.register_alpha(
                             alpha_id=brain_result.alpha_id,
                             expression=expression,
-                            fingerprint=alpha.fingerprint if hasattr(alpha, 'fingerprint') else None,
+                            fingerprint=alpha.fingerprint if hasattr(alpha, "fingerprint") else None,
                             direction=exploration_direction,
                             initial_sharpe=brain_result.real_sharpe or 0.0,
                         )
                         logger.info(
                             "[%s] DecayDetector: registered alpha %s dir=%s sharpe=%.3f",
-                            session_id, brain_result.alpha_id,
+                            session_id,
+                            brain_result.alpha_id,
                             exploration_direction,
                             brain_result.real_sharpe or 0.0,
                         )
@@ -1757,43 +2236,74 @@ async def run_loop(session_id: str) -> None:
                 state.status = SessionStatus.PASS
                 sharpe_str: str = f"{brain_result.real_sharpe:.3f}" if brain_result.real_sharpe is not None else "N/A"
                 f_val: str = f"{brain_result.real_fitness:.3f}" if brain_result.real_fitness is not None else "N/A"
-                _ls._log(state, "PASS",
-                     f"Alpha {alpha.alpha_id} PASSED all BRAIN checks! "
-                     f"Sharpe={sharpe_str} Fitness={f_val}",
-                     {"brain_id": brain_result.alpha_id})
+                _ls._log(
+                    state,
+                    "PASS",
+                    f"Alpha {alpha.alpha_id} PASSED all BRAIN checks! Sharpe={sharpe_str} Fitness={f_val}",
+                    {"brain_id": brain_result.alpha_id},
+                )
 
                 hierarchical_reward, pnl_curve, yearly_data = await run_stability_analysis(
-                    brain_result, alpha, session_id, state, hierarchical_reward,
+                    brain_result,
+                    alpha,
+                    session_id,
+                    state,
+                    hierarchical_reward,
                 )
 
             hierarchical_reward = await fetch_correlation_analysis(
-                brain_result, alpha, session_id, hierarchical_reward,
+                brain_result,
+                alpha,
+                session_id,
+                hierarchical_reward,
             )
 
             if brain_result.status == BrainSimStatus.PASS:
                 hierarchical_reward = await record_evo_and_success(
-                    brain_result, alpha, expression, exploration_direction,
-                    session_id, hierarchical_reward, parsed=parsed,
+                    brain_result,
+                    alpha,
+                    expression,
+                    exploration_direction,
+                    session_id,
+                    hierarchical_reward,
+                    parsed=parsed,
                 )
                 if _ls._evo_db is not None and brain_result.alpha_id:
                     try:
                         _ls._algo_tick("evo_lineage")
                         _lineage = _ls._evo_db.get_lineage(brain_result.alpha_id, depth=3)
                         if _lineage and len(_lineage) > 1:
-                            _lineage_dirs = [r.direction for r in _lineage if hasattr(r, 'direction')]
-                            logger.info("[%s] Alpha %s lineage: %d ancestors, directions=%s", session_id, brain_result.alpha_id, len(_lineage), _lineage_dirs)
+                            _lineage_dirs = [r.direction for r in _lineage if hasattr(r, "direction")]
+                            logger.info(
+                                "[%s] Alpha %s lineage: %d ancestors, directions=%s",
+                                session_id,
+                                brain_result.alpha_id,
+                                len(_lineage),
+                                _lineage_dirs,
+                            )
                     except (OSError, ValueError, RuntimeError):
                         pass
             else:
                 await record_fail_feedback(
-                    brain_result, alpha, expression, exploration_direction,
-                    session_id, fingerprint_dict, global_cycle, state,
-                    hierarchical_reward, exp_card_rule_ids=_exp_card_rule_ids,
+                    brain_result,
+                    alpha,
+                    expression,
+                    exploration_direction,
+                    session_id,
+                    fingerprint_dict,
+                    global_cycle,
+                    state,
+                    hierarchical_reward,
+                    exp_card_rule_ids=_exp_card_rule_ids,
                 )
             await sm.save_session(state)
             await run_post_brain_processing(
-                alpha, brain_result, expression, exploration_direction,
-                session_id, state,
+                alpha,
+                brain_result,
+                expression,
+                exploration_direction,
+                session_id,
+                state,
             )
             _ls._save_intelligent_search_state()
 
@@ -1802,7 +2312,12 @@ async def run_loop(session_id: str) -> None:
                     _ls._algo_tick("refill_eliminated_fields")
                     _eliminated = await _refill_eliminated_fields(exploration_direction)
                     if _eliminated:
-                        logger.info("[%s] cycle=%d Eliminated %d low-score fields, refilled via RAG", session_id, global_cycle, len(_eliminated))
+                        logger.info(
+                            "[%s] cycle=%d Eliminated %d low-score fields, refilled via RAG",
+                            session_id,
+                            global_cycle,
+                            len(_eliminated),
+                        )
                 except (OSError, ValueError, RuntimeError):
                     logger.warning("[%s] Refill eliminated fields failed", session_id, exc_info=True)
 
@@ -1814,6 +2329,7 @@ async def run_loop(session_id: str) -> None:
         if _ls._evolution_cycle_count % 10 == 0:
             try:
                 from openalpha_brain.cli.algo_monitor import AlgoMonitor
+
                 _health_modules: dict[str, Any] = {}
                 if _ls._signal_arbiter is not None:
                     _health_modules["signal_arbiter"] = _ls._signal_arbiter
@@ -1833,19 +2349,38 @@ async def run_loop(session_id: str) -> None:
                 _ghosts = AlgoMonitor.detect_ghost_algorithms(_health_modules)
                 if _ghosts:
                     logger.warning("[%s] Ghost algorithms detected: %s", session_id, ", ".join(_ghosts))
-                logger.info("[%s] Health check: %s", session_id, {k: v.get("status", "unknown") for k, v in _health_report.items()})
+                logger.info(
+                    "[%s] Health check: %s",
+                    session_id,
+                    {k: v.get("status", "unknown") for k, v in _health_report.items()},
+                )
                 if _ls._alpha_channel is not None:
                     _ch_stats = _ls._alpha_channel.get_stats()
-                    logger.info("[%s] AlphaChannel stats: streamed=%d batched=%d buffer=%d avg_stream_sharpe=%.2f avg_batch_sharpe=%.2f",
-                        session_id, _ch_stats.get("streamed", 0), _ch_stats.get("batched", 0),
-                        _ch_stats.get("buffer_size", 0), _ch_stats.get("avg_sharpe_stream", 0), _ch_stats.get("avg_sharpe_batch", 0))
+                    logger.info(
+                        "[%s] AlphaChannel stats: streamed=%d batched=%d buffer=%d avg_stream_sharpe=%.2f avg_batch_sharpe=%.2f",  # noqa: E501
+                        session_id,
+                        _ch_stats.get("streamed", 0),
+                        _ch_stats.get("batched", 0),
+                        _ch_stats.get("buffer_size", 0),
+                        _ch_stats.get("avg_sharpe_stream", 0),
+                        _ch_stats.get("avg_sharpe_batch", 0),
+                    )
                 if _ls._scheduler is not None:
                     try:
                         _dir_stats = _ls._scheduler.get_direction_stats()
-                        _over_explored = [d for d, s in _dir_stats.items() if s.get("samples", 0) > 50 and s.get("expectation", 1.0) < 0.2]
+                        _over_explored = [
+                            d
+                            for d, s in _dir_stats.items()
+                            if s.get("samples", 0) > 50 and s.get("expectation", 1.0) < 0.2
+                        ]
                         _under_explored = [d for d, s in _dir_stats.items() if s.get("samples", 0) < 5]
                         if _over_explored or _under_explored:
-                            logger.info("[%s] Scheduler direction analysis: over_explored=%s under_explored=%s", session_id, _over_explored, _under_explored)
+                            logger.info(
+                                "[%s] Scheduler direction analysis: over_explored=%s under_explored=%s",
+                                session_id,
+                                _over_explored,
+                                _under_explored,
+                            )
                     except (OSError, ValueError, RuntimeError):
                         pass
                 if _ls._strategy_classifier is not None:
@@ -1854,14 +2389,31 @@ async def run_loop(session_id: str) -> None:
                         if _top_profiles:
                             _top_dirs = [p.direction for p in _top_profiles]
                             _top_sharpes = [f"{p.sharpe:.2f}" for p in _top_profiles]
-                            logger.info("[%s] Top strategy profiles: directions=%s sharpes=%s", session_id, _top_dirs, _top_sharpes)
-                        _all_directions = ["momentum", "mean_reversion", "volatility", "statistical", "volume", "interaction"]
+                            logger.info(
+                                "[%s] Top strategy profiles: directions=%s sharpes=%s",
+                                session_id,
+                                _top_dirs,
+                                _top_sharpes,
+                            )
+                        _all_directions = [
+                            "momentum",
+                            "mean_reversion",
+                            "volatility",
+                            "statistical",
+                            "volume",
+                            "interaction",
+                        ]
                         for _check_dir in _all_directions:
                             _dir_profiles = _ls._strategy_classifier.get_profiles_by_direction(_check_dir)
                             if len(_dir_profiles) < 2 and _ls._scheduler is not None:
                                 try:
                                     _ls._scheduler.record_direction_result(_check_dir, reward=0.10)
-                                    logger.info("[%s] Direction '%s' has only %d profiles — boosting exploration weight", session_id, _check_dir, len(_dir_profiles))
+                                    logger.info(
+                                        "[%s] Direction '%s' has only %d profiles — boosting exploration weight",
+                                        session_id,
+                                        _check_dir,
+                                        len(_dir_profiles),
+                                    )
                                 except (OSError, ValueError, RuntimeError):
                                     pass
                     except (OSError, ValueError, RuntimeError):
@@ -1885,6 +2437,7 @@ async def run_loop(session_id: str) -> None:
             if brain_result.alpha_id and brain_result.status == BrainSimStatus.PASS:
                 try:
                     from openalpha_brain.services.brain_data_client import get_brain_data_client
+
                     _bdc = get_brain_data_client()
                     if _bdc is not None:
                         _ls._algo_tick("yearly_data_fetch")
@@ -1896,12 +2449,23 @@ async def run_loop(session_id: str) -> None:
                             )
                             logger.info(
                                 "[%s] Yearly performance data fetched for alpha %s: %d years",
-                                session_id, brain_result.alpha_id, len(yearly_data),
+                                session_id,
+                                brain_result.alpha_id,
+                                len(yearly_data),
                             )
                 except (OSError, ValueError, RuntimeError):
-                    logger.warning("[%s] Failed to fetch yearly data for alpha %s", session_id, brain_result.alpha_id, exc_info=True)
+                    logger.warning(
+                        "[%s] Failed to fetch yearly data for alpha %s",
+                        session_id,
+                        brain_result.alpha_id,
+                        exc_info=True,
+                    )
 
-        if _ls._evolution_cycle_count % 5 == 0 and _ls._market_state_inferencer is not None and _ls._scheduler is not None:
+        if (
+            _ls._evolution_cycle_count % 5 == 0
+            and _ls._market_state_inferencer is not None
+            and _ls._scheduler is not None
+        ):
             try:
                 _ls._algo_tick("mab_bias_adjustment")
                 _ls._scheduler.adjust_mab_bias(_ls._market_state_inferencer)
@@ -1924,8 +2488,12 @@ async def run_loop(session_id: str) -> None:
         await sm.save_session(state)
     if _ls._heartbeat:
         _ls._heartbeat.remove(session_id)
-    logger.info("[%s] Loop completed — %d cycles, %d alphas passed",
-                session_id, settings.MAX_CYCLES, len(state.passed_alphas) if state else 0)
+    logger.info(
+        "[%s] Loop completed — %d cycles, %d alphas passed",
+        session_id,
+        settings.MAX_CYCLES,
+        len(state.passed_alphas) if state else 0,
+    )
     logger.info("[%s] Algo call stats: %s", session_id, _ls.get_algo_call_stats())
     if _ls._alpha_channel is not None:
         try:
@@ -1935,7 +2503,15 @@ async def run_loop(session_id: str) -> None:
             logger.info("[%s] AlphaChannel shutdown complete: %d remaining processed", session_id, len(_remaining))
         except (OSError, ValueError, RuntimeError) as _shutdown_exc:
             logger.warning("[%s] AlphaChannel shutdown error: %s", session_id, _shutdown_exc)
-    _ev.emit(EVENT_MINING_COMPLETE, {"session_id": session_id, "mode": "sequential", "cycles": settings.MAX_CYCLES, "alphas_passed": len(state.passed_alphas) if state else 0})
+    _ev.emit(
+        EVENT_MINING_COMPLETE,
+        {
+            "session_id": session_id,
+            "mode": "sequential",
+            "cycles": settings.MAX_CYCLES,
+            "alphas_passed": len(state.passed_alphas) if state else 0,
+        },
+    )
 
 
 # ── Multi-Generator parallel helpers ────────────────────────────────────────────
@@ -1954,7 +2530,7 @@ async def _select_diverse_directions(
     state: Any,
     num: int = 3,
 ) -> list[dict[str, Any]]:
-    raw_focus = getattr(state, 'focus_area', None) or ""
+    raw_focus = getattr(state, "focus_area", None) or ""
     effective_focus = _resolve_effective_focus(raw_focus)
     default_dir: str = effective_focus or settings.DEFAULT_EXPLORATION_DIRECTION
     results: list[dict[str, Any]] = []
@@ -1986,8 +2562,25 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
     if settings.MULTI_AGENT_ENABLED:
         if _ls._logic_library is None:
             _ls._logic_library = AlphaLogicLibrary()
-        _idea_agent = IdeaAgent(llm_client.generate, _ls._rag_engine, logic_library=_ls._logic_library, classifier=_ls._strategy_classifier, mab=_ls._scheduler, field_proxy_map=getattr(_ls._scheduler, 'field_proxy_map', None) if _ls._scheduler else None)
-        _factor_agent = FactorAgent(llm_client.generate, _ls._rag_engine, logic_library=_ls._logic_library, success_lib=_ls._success_lib, feature_map=_ls._feature_map, reflection_engine=_ls._reflection_engine, whitelist_mgr=_ls._whitelist_mgr, field_proxy_map=getattr(_ls._scheduler, 'field_proxy_map', None) if _ls._scheduler else None, mab=_ls._scheduler)
+        _idea_agent = IdeaAgent(
+            llm_client.generate,
+            _ls._rag_engine,
+            logic_library=_ls._logic_library,
+            classifier=_ls._strategy_classifier,
+            mab=_ls._scheduler,
+            field_proxy_map=getattr(_ls._scheduler, "field_proxy_map", None) if _ls._scheduler else None,
+        )
+        _factor_agent = FactorAgent(
+            llm_client.generate,
+            _ls._rag_engine,
+            logic_library=_ls._logic_library,
+            success_lib=_ls._success_lib,
+            feature_map=_ls._feature_map,
+            reflection_engine=_ls._reflection_engine,
+            whitelist_mgr=_ls._whitelist_mgr,
+            field_proxy_map=getattr(_ls._scheduler, "field_proxy_map", None) if _ls._scheduler else None,
+            mab=_ls._scheduler,
+        )
         _eval_agent = EvalAgent(
             None,
             mab=_ls._scheduler,
@@ -1997,7 +2590,9 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
             dedup_callback=create_dedup_mutation_callback,
         )
         orchestrator = MultiAgentOrchestrator(
-            _idea_agent, _factor_agent, _eval_agent,
+            _idea_agent,
+            _factor_agent,
+            _eval_agent,
             originality_checker=val.get_originality_checker(),
             complexity_controller=val.get_complexity_controller(),
             rag_engine=_ls._rag_engine,
@@ -2013,8 +2608,10 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
     _pev = get_event_bus()
 
     for global_cycle in range(1, settings.MAX_CYCLES + 1):
-
-        _pev.emit(EVENT_CYCLE_START, {"session_id": session_id, "cycle": global_cycle, "max_cycles": settings.MAX_CYCLES, "mode": "pipeline"})
+        _pev.emit(
+            EVENT_CYCLE_START,
+            {"session_id": session_id, "cycle": global_cycle, "max_cycles": settings.MAX_CYCLES, "mode": "pipeline"},
+        )
 
         if _ls._console_stop_event and _ls._console_stop_event.is_set():
             logger.info("[%s] Console stop requested, breaking LLM generator loop", session_id)
@@ -2062,40 +2659,54 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
         memory_str = build_memory_injection(state)
         user_msg = memory_str + "\n" + user_msg
 
-        if _ls._strategy_classifier is not None:
-            try:
-                _ls._algo_tick("find_similar_by_embedding")
-                similar_strategies = await _ls._strategy_classifier.find_similar_by_embedding(exploration_direction, top_k=3)
-                if similar_strategies:
-                    high_sim = [s for s in similar_strategies if s.get("similarity", 0) > 0.8]
-                    if high_sim:
-                        logger.warning("[%s] cycle=%d Potential strategy duplication (pipeline) — %d similar strategies (sim>0.8)", session_id, global_cycle, len(high_sim))
-                        dup_lines = []
-                        for s in high_sim[:3]:
-                            p = s.get("profile")
-                            if p:
-                                dup_lines.append(f"  - direction={getattr(p, 'direction', '?')} sharpe={getattr(p, 'sharpe', 'N/A')} expr={getattr(p, 'best_expression', '?')[:60]}")
-                        if dup_lines:
-                            user_msg += "\n\nSimilar existing strategies to avoid duplicating:\n" + "\n".join(dup_lines)
-            except (OSError, ValueError, RuntimeError):
-                pass
-
         dynamic_system_prompt = get_system_prompt() + _ls._build_global_blacklist_prompt()
         if settings.RAG_TOOL_CALL_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
-            dynamic_system_prompt += "\n\nUse search_operators, search_fields, and search_financial_logic tools to actively retrieve operators and data fields beyond the core set."
+            dynamic_system_prompt += "\n\nUse search_operators, search_fields, and search_financial_logic tools to actively retrieve operators and data fields beyond the core set."  # noqa: E501
         rag_context = None
         _global_blacklist_entries = _ls._global_knowledge.get_rag_context_entries() if _ls._global_knowledge else None
 
-        exploration_direction: str = _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+        exploration_direction: str = (
+            _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+        )
         _pipeline_sched_template_id: str = ""
         _pipeline_sched_family_id: str = ""
         _pipeline_sched_recommended_fields: list[str] = []
         _pipeline_exp_card_rule_ids_local: list[str] = []
         _pipeline_exp_card_rule_ids2_local: list[str] = []
+
+        if _ls._strategy_classifier is not None:
+            try:
+                _ls._algo_tick("find_similar_by_embedding")
+                similar_strategies = await _ls._strategy_classifier.find_similar_by_embedding(
+                    exploration_direction, top_k=3
+                )
+                if similar_strategies:
+                    high_sim = [s for s in similar_strategies if s.get("similarity", 0) > 0.8]
+                    if high_sim:
+                        logger.warning(
+                            "[%s] cycle=%d Potential strategy duplication (pipeline) — %d similar strategies (sim>0.8)",
+                            session_id,
+                            global_cycle,
+                            len(high_sim),
+                        )
+                        dup_lines = []
+                        for s in high_sim[:3]:
+                            p = s.get("profile")
+                            if p:
+                                dup_lines.append(
+                                    f"  - direction={getattr(p, 'direction', '?')} sharpe={getattr(p, 'sharpe', 'N/A')} expr={getattr(p, 'best_expression', '?')[:60]}"  # noqa: E501
+                                )
+                        if dup_lines:
+                            user_msg += "\n\nSimilar existing strategies to avoid duplicating:\n" + "\n".join(dup_lines)
+            except (OSError, ValueError, RuntimeError):
+                pass
+
         if settings.RAG_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
             if settings.MAB_ENABLED and _ls._scheduler:
                 _ls._algo_tick("mab_select")
-                _sched_result = _ls._scheduler.select_exploration_arm(focus_area=_resolve_effective_focus(state.focus_area), explore_mode=False)
+                _sched_result = _ls._scheduler.select_exploration_arm(
+                    focus_area=_resolve_effective_focus(state.focus_area), explore_mode=False
+                )
                 if _sched_result:
                     exploration_direction = _sched_result["direction"]
                     _pipeline_sched_template_id = _sched_result.get("template_id", "")
@@ -2111,8 +2722,11 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                     if _unexplored and random.random() < _explore_weight:
                         exploration_direction = random.choice(_unexplored)
                         logger.info(
-                            "[%s] MAP-Elites EXPLORE: pivoting to unexplored direction=%s (weight=%.2f coverage=%.1f%%)",
-                            session_id, exploration_direction, _explore_weight, _schedule["coverage"] * 100,
+                            "[%s] MAP-Elites EXPLORE: pivoting to unexplored direction=%s (weight=%.2f coverage=%.1f%%)",  # noqa: E501
+                            session_id,
+                            exploration_direction,
+                            _explore_weight,
+                            _schedule["coverage"] * 100,
                         )
                     _explore_targets = _ls._feature_map.get_explore_targets(top_k=3)
                     if _explore_targets:
@@ -2122,8 +2736,11 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                             exploration_direction = _target_dir
                         logger.info(
                             "[%s] MAP-Elites EXPLORE_TARGET (pipeline): cell=%s direction=%s horizon=%s mechanism=%s",
-                            session_id, _target.get("key", ""), _target_dir,
-                            _target.get("time_horizon", ""), _target.get("mechanism", ""),
+                            session_id,
+                            _target.get("key", ""),
+                            _target_dir,
+                            _target.get("time_horizon", ""),
+                            _target.get("mechanism", ""),
                         )
 
             try:
@@ -2132,21 +2749,46 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                 rag_context = _ls._rag_engine.assemble_context(retrieval)
                 _rag_ops = retrieval.get("operators", [])
                 _rag_fields = retrieval.get("fields", [])
-                logger.info("[%s] MONITOR: rag_retrieve: ops=%d fields=%d top_ops=%s top_fields=%s", session_id, len(_rag_ops), len(_rag_fields), [o.get("id", o.get("name", "")) for o in _rag_ops[:3]], [f.get("id", f.get("name", "")) for f in _rag_fields[:3]])
+                logger.info(
+                    "[%s] MONITOR: rag_retrieve: ops=%d fields=%d top_ops=%s top_fields=%s",
+                    session_id,
+                    len(_rag_ops),
+                    len(_rag_fields),
+                    [o.get("id", o.get("name", "")) for o in _rag_ops[:3]],
+                    [f.get("id", f.get("name", "")) for f in _rag_fields[:3]],
+                )
                 rag_context = await _arbiter_rerank(retrieval, rag_context, exploration_direction)
-                _ls._monitor.record("STEP", "rag", "retrieve", f"direction={exploration_direction}", session_id=session_id)
+                _ls._monitor.record(
+                    "STEP", "rag", "retrieve", f"direction={exploration_direction}", session_id=session_id
+                )
                 _pipeline_exp_cards: list[dict] = []
                 if _ls._experience_distiller:
                     try:
                         _ls._algo_tick("experience_card_retrieval")
                         _pec = await _ls._experience_distiller.get_applicable_cards(exploration_direction, top_k=3)
-                        _pipeline_exp_cards = [{"failure_pattern": c.failure_pattern, "fix_strategy": c.fix_strategy, "applicable_conditions": c.applicable_conditions, "confidence": c.confidence} for c in _pec]
+                        _pipeline_exp_cards = [
+                            {
+                                "failure_pattern": c.failure_pattern,
+                                "fix_strategy": c.fix_strategy,
+                                "applicable_conditions": c.applicable_conditions,
+                                "confidence": c.confidence,
+                            }
+                            for c in _pec
+                        ]
                         _pipeline_exp_card_rule_ids_local = [c.rule_id for c in _pec if c.rule_id]
                     except (OSError, ValueError, RuntimeError):
                         pass
-                dynamic_system_prompt = get_system_prompt() + _ls._build_global_blacklist_prompt() + build_dynamic_context(rag_context, global_blacklist=_global_blacklist_entries, experience_cards=_pipeline_exp_cards or None)
+                dynamic_system_prompt = (
+                    get_system_prompt()
+                    + _ls._build_global_blacklist_prompt()
+                    + build_dynamic_context(
+                        rag_context,
+                        global_blacklist=_global_blacklist_entries,
+                        experience_cards=_pipeline_exp_cards or None,
+                    )
+                )
                 if _pipeline_sched_recommended_fields:
-                    dynamic_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_pipeline_sched_recommended_fields)}"
+                    dynamic_system_prompt += f"\n\n▶ SCHEDULER RECOMMENDED FIELDS (prioritize these in your expression): {', '.join(_pipeline_sched_recommended_fields)}"  # noqa: E501
 
                 if _ls._whitelist_mgr and rag_context.get("field_ids"):
                     _ls._algo_tick("whitelist_update")
@@ -2164,11 +2806,21 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                 try:
                     _ls._algo_tick("experience_card_retrieval")
                     _pec2 = await _ls._experience_distiller.get_applicable_cards(exploration_direction, top_k=3)
-                    _pipeline_exp_cards2 = [{"failure_pattern": c.failure_pattern, "fix_strategy": c.fix_strategy, "applicable_conditions": c.applicable_conditions, "confidence": c.confidence} for c in _pec2]
+                    _pipeline_exp_cards2 = [
+                        {
+                            "failure_pattern": c.failure_pattern,
+                            "fix_strategy": c.fix_strategy,
+                            "applicable_conditions": c.applicable_conditions,
+                            "confidence": c.confidence,
+                        }
+                        for c in _pec2
+                    ]
                     _pipeline_exp_card_rule_ids2_local = [c.rule_id for c in _pec2 if c.rule_id]
                 except (OSError, ValueError, RuntimeError):
                     pass
-            dynamic_system_prompt += build_dynamic_context(global_blacklist=_global_blacklist_entries, experience_cards=_pipeline_exp_cards2 or None)
+            dynamic_system_prompt += build_dynamic_context(
+                global_blacklist=_global_blacklist_entries, experience_cards=_pipeline_exp_cards2 or None
+            )
 
         _pipeline_success_context = ""
         if _ls._success_lib and settings.SUCCESS_CASE_LIBRARY_ENABLED:
@@ -2177,8 +2829,12 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                 if similar_cases:
                     ref_lines = []
                     for sc in similar_cases[:3]:
-                        ref_lines.append(f"  - (sharpe={sc.get('sharpe', 'N/A')}, fitness={sc.get('fitness', 'N/A')}): {sc.get('expr', '')}")
-                    _pipeline_success_context = "\n\nPreviously successful alphas for reference:\n" + "\n".join(ref_lines)
+                        ref_lines.append(
+                            f"  - (sharpe={sc.get('sharpe', 'N/A')}, fitness={sc.get('fitness', 'N/A')}): {sc.get('expr', '')}"  # noqa: E501
+                        )
+                    _pipeline_success_context = "\n\nPreviously successful alphas for reference:\n" + "\n".join(
+                        ref_lines
+                    )
             except (OSError, ValueError, RuntimeError):
                 pass
 
@@ -2190,18 +2846,22 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                 _ls._algo_tick("factor_template")
                 _templates = _ls._logic_library.get_templates_for_direction(exploration_direction)
                 if _templates:
-                    _template_str = "\n\nReference expression templates (adapt, do NOT copy verbatim):\n" + "\n".join(f"  - {t}" for t in _templates)
+                    _template_str = "\n\nReference expression templates (adapt, do NOT copy verbatim):\n" + "\n".join(
+                        f"  - {t}" for t in _templates
+                    )
                     user_msg += _template_str
             except (OSError, ValueError, RuntimeError):
                 pass
 
-        _fb_list_pipeline = getattr(_ls, '_brain_feedback_buffer', None)
+        _fb_list_pipeline = getattr(_ls, "_brain_feedback_buffer", None)
         if _fb_list_pipeline:
             for _fb_msg in _fb_list_pipeline:
                 state.conversation_history.append(_fb_msg)
             logger.info(
                 "[%s] cycle=%d injected %d BRAIN result feedback(s) — pipeline",
-                session_id, global_cycle, len(_fb_list_pipeline),
+                session_id,
+                global_cycle,
+                len(_fb_list_pipeline),
             )
             _ls._brain_feedback_buffer = []
             await sm.save_session(state)
@@ -2211,57 +2871,91 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
             _ls._algo_tick("conversation_summarizer")
             effective_history, was_summarized = await _ls._summarizer.summarize_if_needed(state.conversation_history)
             if was_summarized:
-                logger.info("[%s] cycle=%d — conversation history summarized before LLM call (pipeline)", session_id, global_cycle)
+                logger.info(
+                    "[%s] cycle=%d — conversation history summarized before LLM call (pipeline)",
+                    session_id,
+                    global_cycle,
+                )
         # ── Launch independent streaming generation tasks (no gather barrier) ──
-        logger.info("[%s] cycle=%d — launching %d streaming generation tasks",
-                    session_id, global_cycle, settings.GENERATOR_PARALLEL_TASKS)
+        logger.info(
+            "[%s] cycle=%d — launching %d streaming generation tasks",
+            session_id,
+            global_cycle,
+            settings.GENERATOR_PARALLEL_TASKS,
+        )
         if _ls._heartbeat:
             _ls._heartbeat.touch(session_id)
 
         _directions = await _select_diverse_directions(session_id, state, num=settings.GENERATOR_PARALLEL_TASKS)
-        logger.info("[%s] cycle=%d diverse directions: %s", session_id, global_cycle, [d.get("direction", "") for d in _directions])
+        logger.info(
+            "[%s] cycle=%d diverse directions: %s",
+            session_id,
+            global_cycle,
+            [d.get("direction", "") for d in _directions],
+        )
 
         for _gi, _dir_info in enumerate(_directions):
-            _dir = _dir_info.get("direction", "") or _resolve_effective_focus(state.focus_area) or settings.DEFAULT_EXPLORATION_DIRECTION
+            _dir = (
+                _dir_info.get("direction", "")
+                or _resolve_effective_focus(state.focus_area)
+                or settings.DEFAULT_EXPLORATION_DIRECTION
+            )
             _dir_tid = _dir_info.get("template_id", "")
             _dir_fid = _dir_info.get("family_id", "")
             _task_state = await sm.load_session(session_id)
             if _task_state is None:
                 _task_state = state
-            asyncio.create_task(_generate_one_and_enqueue(
-                gen_idx=_gi,
-                session_id=session_id,
-                global_cycle=global_cycle,
-                direction=_dir,
-                state=_task_state,
-                orchestrator=orchestrator,
-                system_prompt=dynamic_system_prompt,
-                global_blacklist_entries=_global_blacklist_entries,
-                conversation_summarizer=_ls._summarizer,
-                pool=pool,
-                pev=_pev,
-                user_msg=user_msg,
-                template_id=_dir_tid,
-                family_id=_dir_fid,
-            ))
+            asyncio.create_task(
+                _generate_one_and_enqueue(
+                    gen_idx=_gi,
+                    session_id=session_id,
+                    global_cycle=global_cycle,
+                    direction=_dir,
+                    state=_task_state,
+                    orchestrator=orchestrator,
+                    system_prompt=dynamic_system_prompt,
+                    global_blacklist_entries=_global_blacklist_entries,
+                    conversation_summarizer=_ls._summarizer,
+                    pool=pool,
+                    pev=_pev,
+                    user_msg=user_msg,
+                    template_id=_dir_tid,
+                    family_id=_dir_fid,
+                )
+            )
 
         _consecutive_errors = 0
 
         # ── Event-driven scheduling: wait for generation green light ──
         got_slot = await pool.await_generation_slot(timeout=120.0)
         if got_slot:
-            logger.info("[%s] cycle=%d EVENT: generation green light — pool=%d active=%d",
-                        session_id, global_cycle, len(pool), 3 - pool.available_slots())
+            logger.info(
+                "[%s] cycle=%d EVENT: generation green light — pool=%d active=%d",
+                session_id,
+                global_cycle,
+                len(pool),
+                3 - pool.available_slots(),
+            )
         else:
             _pool_len = len(pool)
             _active = 3 - pool.available_slots()
-            logger.info("[%s] cycle=%d EVENT: green light timeout (120s) — pool=%d active=%d — continuing",
-                        session_id, global_cycle, _pool_len, _active)
+            logger.info(
+                "[%s] cycle=%d EVENT: green light timeout (120s) — pool=%d active=%d — continuing",
+                session_id,
+                global_cycle,
+                _pool_len,
+                _active,
+            )
 
         # ── Auto-degrade: if BRAIN fully saturated + backlog, use LLM for improvement ──
         if pool.should_degrade_to_improvement():
-            logger.info("[%s] cycle=%d DEGRADE: BRAIN saturated — switching to improvement mode (pool=%d active=%d)",
-                        session_id, global_cycle, len(pool), 3 - pool.available_slots())
+            logger.info(
+                "[%s] cycle=%d DEGRADE: BRAIN saturated — switching to improvement mode (pool=%d active=%d)",
+                session_id,
+                global_cycle,
+                len(pool),
+                3 - pool.available_slots(),
+            )
             try:
                 state = await sm.load_session(session_id)
                 if state is not None:
@@ -2275,18 +2969,23 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                                 break
                         if _target_alpha is not None and _target_alpha.expression:
                             _ls._algo_tick("degraded_improvement")
-                            logger.info("[%s] cycle=%d DEGRADE_IMPROVE: running improvement on alpha %s",
-                                        session_id, global_cycle, _target_id)
+                            logger.info(
+                                "[%s] cycle=%d DEGRADE_IMPROVE: running improvement on alpha %s",
+                                session_id,
+                                global_cycle,
+                                _target_id,
+                            )
                             _impr_result = await _brain_improvement_loop(
                                 initial_result=None,
                                 session_id=session_id,
                                 cycle_num=global_cycle,
                                 expression=_target_alpha.expression,
-                                exploration_direction=_target_alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
+                                exploration_direction=_target_alpha.exploration_direction
+                                or settings.DEFAULT_EXPLORATION_DIRECTION,
                                 alpha=_target_alpha,
                                 global_cycle=global_cycle,
                             )
-                            if _impr_result and getattr(_impr_result, 'status', None) == BrainSimStatus.PASS:
+                            if _impr_result and getattr(_impr_result, "status", None) == BrainSimStatus.PASS:
                                 _impr_aid = f"{_target_id}_impr"
                                 _impr_alpha = AlphaResult(
                                     alpha_id=_impr_aid,
@@ -2296,10 +2995,13 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                                     metrics=AlphaMetrics(),
                                     fingerprint=AlphaFingerprint(),
                                     decision="SUBMIT",
-                                    simulation_payload=dict(_target_alpha.simulation_payload) if _target_alpha.simulation_payload else {"regular": _target_alpha.expression},
+                                    simulation_payload=dict(_target_alpha.simulation_payload)
+                                    if _target_alpha.simulation_payload
+                                    else {"regular": _target_alpha.expression},
                                     cycle_num=global_cycle,
                                     passed=True,
-                                    exploration_direction=_target_alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
+                                    exploration_direction=_target_alpha.exploration_direction
+                                    or settings.DEFAULT_EXPLORATION_DIRECTION,
                                     pipeline_status=PipelineStatus.QUEUED,
                                 )
                                 await sm.add_alpha(session_id, _impr_alpha)
@@ -2317,7 +3019,12 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                 _refill_dir = settings.DEFAULT_EXPLORATION_DIRECTION
                 _eliminated = await _refill_eliminated_fields(_refill_dir)
                 if _eliminated:
-                    logger.info("[%s] cycle=%d Eliminated %d low-score fields, refilled via RAG (pipeline)", session_id, global_cycle, len(_eliminated))
+                    logger.info(
+                        "[%s] cycle=%d Eliminated %d low-score fields, refilled via RAG (pipeline)",
+                        session_id,
+                        global_cycle,
+                        len(_eliminated),
+                    )
             except (OSError, ValueError, RuntimeError):
                 logger.warning("[%s] Refill eliminated fields failed (pipeline)", session_id, exc_info=True)
 
@@ -2327,6 +3034,7 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
         if _ls._evolution_cycle_count % 10 == 0:
             try:
                 from openalpha_brain.cli.algo_monitor import AlgoMonitor
+
                 _health_modules: dict[str, Any] = {}
                 if _ls._signal_arbiter is not None:
                     _health_modules["signal_arbiter"] = _ls._signal_arbiter
@@ -2346,30 +3054,49 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
                 _ghosts = AlgoMonitor.detect_ghost_algorithms(_health_modules)
                 if _ghosts:
                     logger.warning("[%s] Ghost algorithms detected: %s", session_id, ", ".join(_ghosts))
-                logger.info("[%s] Health check: %s", session_id, {k: v.get("status", "unknown") for k, v in _health_report.items()})
+                logger.info(
+                    "[%s] Health check: %s",
+                    session_id,
+                    {k: v.get("status", "unknown") for k, v in _health_report.items()},
+                )
             except (OSError, ValueError, RuntimeError):
                 pass
 
         if _ls._evolution_cycle_count % 10 == 0:
             if _ls._alpha_channel is not None:
                 _ch_stats = _ls._alpha_channel.get_stats()
-                logger.info("[%s] AlphaChannel stats (pipeline): streamed=%d batched=%d buffer=%d avg_stream_sharpe=%.2f avg_batch_sharpe=%.2f",
-                    session_id, _ch_stats.get("streamed", 0), _ch_stats.get("batched", 0),
-                    _ch_stats.get("buffer_size", 0), _ch_stats.get("avg_sharpe_stream", 0), _ch_stats.get("avg_sharpe_batch", 0))
+                logger.info(
+                    "[%s] AlphaChannel stats (pipeline): streamed=%d batched=%d buffer=%d avg_stream_sharpe=%.2f avg_batch_sharpe=%.2f",  # noqa: E501
+                    session_id,
+                    _ch_stats.get("streamed", 0),
+                    _ch_stats.get("batched", 0),
+                    _ch_stats.get("buffer_size", 0),
+                    _ch_stats.get("avg_sharpe_stream", 0),
+                    _ch_stats.get("avg_sharpe_batch", 0),
+                )
             if _ls._scheduler is not None:
                 try:
                     _dir_stats = _ls._scheduler.get_direction_stats()
                     _over = [d for d, s in _dir_stats.items() if s.get("pulls", 0) > 20]
                     _under = [d for d, s in _dir_stats.items() if s.get("pulls", 0) < 3]
                     if _over or _under:
-                        logger.info("[%s] Scheduler direction balance (pipeline): over_explored=%s under_explored=%s", session_id, _over[:5], _under[:5])
+                        logger.info(
+                            "[%s] Scheduler direction balance (pipeline): over_explored=%s under_explored=%s",
+                            session_id,
+                            _over[:5],
+                            _under[:5],
+                        )
                 except (OSError, ValueError, RuntimeError):
                     pass
             if _ls._strategy_classifier is not None:
                 try:
                     _top_profiles = _ls._strategy_classifier.get_top_profiles(n=3)
                     if _top_profiles:
-                        logger.info("[%s] Top strategy profiles (pipeline): %s", session_id, [(p.direction, p.sharpe) for p in _top_profiles if hasattr(p, 'direction')])
+                        logger.info(
+                            "[%s] Top strategy profiles (pipeline): %s",
+                            session_id,
+                            [(p.direction, p.sharpe) for p in _top_profiles if hasattr(p, "direction")],
+                        )
                 except (OSError, ValueError, RuntimeError):
                     pass
 
@@ -2377,7 +3104,9 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
             _new_gen = _ls._feature_map.advance_generation()
             logger.info(
                 "[%s] cycle=%d FeatureMap generation advanced to %d (pipeline)",
-                session_id, global_cycle, _new_gen,
+                session_id,
+                global_cycle,
+                _new_gen,
             )
 
     state = await sm.load_session(session_id)
@@ -2387,19 +3116,32 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
         await sm.save_session(state)
     if _ls._heartbeat:
         _ls._heartbeat.remove(session_id)
-    logger.info("[%s] LLM generator completed — %d cycles, %d alphas passed",
-                session_id, settings.MAX_CYCLES, len(state.passed_alphas) if state else 0)
+    logger.info(
+        "[%s] LLM generator completed — %d cycles, %d alphas passed",
+        session_id,
+        settings.MAX_CYCLES,
+        len(state.passed_alphas) if state else 0,
+    )
     logger.info("[%s] Algo call stats: %s", session_id, _ls.get_algo_call_stats())
     if _ls._alpha_channel is not None:
         try:
             _remaining = await _ls._alpha_channel.shutdown()
             if _remaining and _ls._alpha_channel_integrator is not None:
                 await _ls._alpha_channel_integrator.process_batch_alphas(_remaining)
-            logger.info("[%s] AlphaChannel shutdown complete (pipeline): %d remaining processed", session_id, len(_remaining))
+            logger.info(
+                "[%s] AlphaChannel shutdown complete (pipeline): %d remaining processed", session_id, len(_remaining)
+            )
         except (OSError, ValueError, RuntimeError) as _shutdown_exc:
             logger.warning("[%s] AlphaChannel shutdown error: %s", session_id, _shutdown_exc)
-    _pev.emit(EVENT_MINING_COMPLETE, {"session_id": session_id, "mode": "pipeline", "cycles": settings.MAX_CYCLES, "alphas_passed": len(state.passed_alphas) if state else 0})
-
+    _pev.emit(
+        EVENT_MINING_COMPLETE,
+        {
+            "session_id": session_id,
+            "mode": "pipeline",
+            "cycles": settings.MAX_CYCLES,
+            "alphas_passed": len(state.passed_alphas) if state else 0,
+        },
+    )
 
 
 async def _brain_submitter_worker(worker_id: int, session_id: str, pool: AlphaCachePool) -> None:
@@ -2420,7 +3162,13 @@ async def _brain_submitter_worker(worker_id: int, session_id: str, pool: AlphaCa
 
         alpha_id = await pool.next_to_submit()
         if alpha_id is None:
-            _ls._monitor.record("SKIP", "brain_worker", "poll", f"worker-{worker_id} no alpha (pool_size={len(pool)}, slots={pool.available_slots()})", session_id=session_id)
+            _ls._monitor.record(
+                "SKIP",
+                "brain_worker",
+                "poll",
+                f"worker-{worker_id} no alpha (pool_size={len(pool)}, slots={pool.available_slots()})",
+                session_id=session_id,
+            )
             await asyncio.sleep(0.5)
             continue
 
@@ -2459,7 +3207,15 @@ async def _brain_submitter_worker(worker_id: int, session_id: str, pool: AlphaCa
         await sm.save_session(state)
 
         _pipeline_brain_settings = alpha.simulation_payload.get("settings", {}) if alpha.simulation_payload else {}
-        logger.info("[%s] cycle=%d BRAIN_SUBMIT: expr=%s universe=%s delay=%s decay=%s", session_id, alpha.cycle_num, alpha.expression[:100], _pipeline_brain_settings.get("universe", "N/A"), _pipeline_brain_settings.get("delay", "N/A"), _pipeline_brain_settings.get("decay", "N/A"))
+        logger.info(
+            "[%s] cycle=%d BRAIN_SUBMIT: expr=%s universe=%s delay=%s decay=%s",
+            session_id,
+            alpha.cycle_num,
+            alpha.expression[:100],
+            _pipeline_brain_settings.get("universe", "N/A"),
+            _pipeline_brain_settings.get("delay", "N/A"),
+            _pipeline_brain_settings.get("decay", "N/A"),
+        )
 
         if _ls._whitelist_mgr is not None:
             try:
@@ -2468,30 +3224,69 @@ async def _brain_submitter_worker(worker_id: int, session_id: str, pool: AlphaCa
                 solidified = _ls._whitelist_mgr.solidified_fields
                 _ls._algo_tick("whitelist_pre_submit_check")
                 import re as _re_whitelist_pipe
-                _expr_fields_wl = set(_re_whitelist_pipe.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()', alpha.expression))
-                _expr_fields_wl -= {'and', 'or', 'not', 'if', 'else', 'true', 'false', 'nan', 'inf'}
+
+                _expr_fields_wl = set(
+                    _re_whitelist_pipe.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()", alpha.expression)
+                )
+                _expr_fields_wl -= {"and", "or", "not", "if", "else", "true", "false", "nan", "inf"}
                 _expr_fields_wl -= val.PERMITTED_OPERATORS
                 _invalid_fields = [f for f in _expr_fields_wl if f not in allowed_fields]
                 if _invalid_fields:
                     logger.warning(
-                        "[%s] cycle=%d WHITELIST_FILTER [PIPELINE]: expression contains %d non-whitelisted fields: %s (allowed=%d, solidified=%d, eliminated=%d)",
-                        session_id, alpha.cycle_num, len(_invalid_fields), _invalid_fields[:5],
-                        len(allowed_fields), len(solidified), len(eliminated),
+                        "[%s] cycle=%d WHITELIST_FILTER [PIPELINE]: expression contains %d non-whitelisted fields: %s (allowed=%d, solidified=%d, eliminated=%d)",  # noqa: E501
+                        session_id,
+                        alpha.cycle_num,
+                        len(_invalid_fields),
+                        _invalid_fields[:5],
+                        len(allowed_fields),
+                        len(solidified),
+                        len(eliminated),
                     )
                 else:
                     logger.info(
-                        "[%s] cycle=%d WHITELIST_PASS [PIPELINE]: all %d fields in whitelist (allowed=%d, solidified=%d, eliminated=%d)",
-                        session_id, alpha.cycle_num, len(_expr_fields_wl),
-                        len(allowed_fields), len(solidified), len(eliminated),
+                        "[%s] cycle=%d WHITELIST_PASS [PIPELINE]: all %d fields in whitelist (allowed=%d, solidified=%d, eliminated=%d)",  # noqa: E501
+                        session_id,
+                        alpha.cycle_num,
+                        len(_expr_fields_wl),
+                        len(allowed_fields),
+                        len(solidified),
+                        len(eliminated),
                     )
             except (OSError, ValueError, RuntimeError):
                 pass
 
-        _wev.emit(EVENT_BRAIN_SUBMIT, {"session_id": session_id, "worker_id": worker_id, "alpha_id": alpha.alpha_id, "expression": alpha.expression[:120], "cycle": alpha.cycle_num})
+        _wev.emit(
+            EVENT_BRAIN_SUBMIT,
+            {
+                "session_id": session_id,
+                "worker_id": worker_id,
+                "alpha_id": alpha.alpha_id,
+                "expression": alpha.expression[:120],
+                "cycle": alpha.cycle_num,
+            },
+        )
         brain_result = await _submit_to_brain(alpha, session_id, alpha.cycle_num)
 
-        logger.info("[%s] MONITOR: brain_submit: status=%s sharpe=%s fitness=%s turnover=%s direction=%s alpha_id=%s", session_id, brain_result.status.value if brain_result.status else "ERROR", brain_result.real_sharpe, brain_result.real_fitness, brain_result.real_turnover, alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION, brain_result.alpha_id)
-        logger.info("[%s] cycle=%d BRAIN_RESULT: status=%s sharpe=%.4f fitness=%.4f turnover=%.2f drawdown=%.2f", session_id, alpha.cycle_num, brain_result.status.value if brain_result.status else "ERROR", brain_result.real_sharpe or 0.0, brain_result.real_fitness or 0.0, brain_result.real_turnover or 0.0, brain_result.real_drawdown or 0.0)
+        logger.info(
+            "[%s] MONITOR: brain_submit: status=%s sharpe=%s fitness=%s turnover=%s direction=%s alpha_id=%s",
+            session_id,
+            brain_result.status.value if brain_result.status else "ERROR",
+            brain_result.real_sharpe,
+            brain_result.real_fitness,
+            brain_result.real_turnover,
+            alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
+            brain_result.alpha_id,
+        )
+        logger.info(
+            "[%s] cycle=%d BRAIN_RESULT: status=%s sharpe=%.4f fitness=%.4f turnover=%.2f drawdown=%.2f",
+            session_id,
+            alpha.cycle_num,
+            brain_result.status.value if brain_result.status else "ERROR",
+            brain_result.real_sharpe or 0.0,
+            brain_result.real_fitness or 0.0,
+            brain_result.real_turnover or 0.0,
+            brain_result.real_drawdown or 0.0,
+        )
 
         if brain_result is not None and brain_result.real_sharpe is not None:
             pool.record_submission_result(
@@ -2499,18 +3294,38 @@ async def _brain_submitter_worker(worker_id: int, session_id: str, pool: AlphaCa
                 sharpe=brain_result.real_sharpe,
             )
 
-        _wev.emit(EVENT_BRAIN_RESULT, {"session_id": session_id, "worker_id": worker_id, "alpha_id": alpha.alpha_id, "expression": alpha.expression[:120], "status": brain_result.status.value if brain_result.status else "ERROR", "sharpe": brain_result.real_sharpe, "fitness": brain_result.real_fitness, "turnover": brain_result.real_turnover, "returns": brain_result.real_returns, "drawdown": brain_result.real_drawdown, "direction": alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION, "mode": "pipeline"})
+        _wev.emit(
+            EVENT_BRAIN_RESULT,
+            {
+                "session_id": session_id,
+                "worker_id": worker_id,
+                "alpha_id": alpha.alpha_id,
+                "expression": alpha.expression[:120],
+                "status": brain_result.status.value if brain_result.status else "ERROR",
+                "sharpe": brain_result.real_sharpe,
+                "fitness": brain_result.real_fitness,
+                "turnover": brain_result.real_turnover,
+                "returns": brain_result.real_returns,
+                "drawdown": brain_result.real_drawdown,
+                "direction": alpha.exploration_direction or settings.DEFAULT_EXPLORATION_DIRECTION,
+                "mode": "pipeline",
+            },
+        )
 
         await pool.release_slot(alpha_id)
-        logger.info("[%s] worker-%d slot released, spawning post-processing for alpha %s", session_id, worker_id, alpha_id)
+        logger.info(
+            "[%s] worker-%d slot released, spawning post-processing for alpha %s", session_id, worker_id, alpha_id
+        )
 
-        asyncio.create_task(_post_process_brain_result(
-            worker_id=worker_id,
-            session_id=session_id,
-            pool=pool,
-            alpha_id=alpha_id,
-            brain_result=brain_result,
-        ))
+        asyncio.create_task(
+            _post_process_brain_result(
+                worker_id=worker_id,
+                session_id=session_id,
+                pool=pool,
+                alpha_id=alpha_id,
+                brain_result=brain_result,
+            )
+        )
 
 
 @algo_log(level=logging.INFO)
@@ -2530,6 +3345,7 @@ async def run_loop_pipeline(session_id: str) -> None:
     _ls._crossover_engine = _engine
     try:
         from openalpha_brain.validation.validator import get_originality_checker
+
         _oc = get_originality_checker()
         if _oc is not None:
             _engine = CrossoverMutationEngine(originality_checker=_oc, llm_generate_fn=llm_client.generate)
@@ -2547,6 +3363,7 @@ async def run_loop_pipeline(session_id: str) -> None:
 
     try:
         from openalpha_brain.services.brain_data_client import get_brain_data_client
+
         _bdc = get_brain_data_client()
     except (OSError, ValueError, RuntimeError):
         _bdc = None
@@ -2562,10 +3379,7 @@ async def run_loop_pipeline(session_id: str) -> None:
         )
         logger.info("[%s] DecayDetector: instruments registered", session_id)
 
-    workers = [
-        _brain_submitter_worker(wid, session_id, pool)
-        for wid in range(worker_count)
-    ]
+    workers = [_brain_submitter_worker(wid, session_id, pool) for wid in range(worker_count)]
     await asyncio.gather(
         _periodic_decay_check(session_id),
         _periodic_trajectory_crossover(session_id),
@@ -2577,7 +3391,11 @@ async def run_loop_pipeline(session_id: str) -> None:
             _remaining = await _ls._alpha_channel.shutdown()
             if _remaining and _ls._alpha_channel_integrator is not None:
                 await _ls._alpha_channel_integrator.process_batch_alphas(_remaining)
-            logger.info("[%s] AlphaChannel shutdown complete (pipeline_full): %d remaining processed", session_id, len(_remaining))
+            logger.info(
+                "[%s] AlphaChannel shutdown complete (pipeline_full): %d remaining processed",
+                session_id,
+                len(_remaining),
+            )
         except (OSError, ValueError, RuntimeError) as _shutdown_exc:
             logger.warning("[%s] AlphaChannel shutdown error: %s", session_id, _shutdown_exc)
     get_event_bus().emit(EVENT_MINING_COMPLETE, {"session_id": session_id, "mode": "pipeline_full"})

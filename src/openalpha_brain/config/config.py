@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 
 _ENV_PATH = Path(__file__).resolve().parent.parent.parent.parent / ".env"
 
+
 class LLMSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
     LLM_PROVIDER: str = "anthropic"
@@ -19,6 +20,7 @@ class LLMSettings(BaseSettings):
     EMBED_BASE_URL: str = "http://localhost:1234/v1/embeddings"
     LMSTUDIO_API_BASE: str = "http://localhost:1234"
 
+
 class BRAINSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
     BRAIN_EMAIL: str | None = None
@@ -26,6 +28,7 @@ class BRAINSettings(BaseSettings):
     BRAIN_SUBMIT_ENABLED: bool = True
     BRAIN_POLL_TIMEOUT: int = Field(default=300, ge=60)
     AUTOBRAIN_SIM_ENABLED: bool = True
+
 
 class PipelineSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
@@ -36,6 +39,7 @@ class PipelineSettings(BaseSettings):
     PIPELINE_SUBMIT_TIMEOUT: float = Field(default=600.0, ge=60.0)
     PIPELINE_IMPROVE_TIMEOUT: float = Field(default=120.0, ge=30.0)
     GENERATOR_PARALLEL_TASKS: int = Field(default=3, ge=1, le=10)
+
 
 class MABSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
@@ -53,6 +57,7 @@ class MABSettings(BaseSettings):
     BETA_DECAY_FACTOR: float = 0.99
     BETA_DECAY_INTERVAL: int = 100
     EVIDENCE_MAB_BIAS_ENABLED: bool = True
+
 
 class RewardSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
@@ -77,6 +82,7 @@ class RewardSettings(BaseSettings):
     DIVERSITY_PENALTY_THRESHOLD: float = 0.2
     DIVERSITY_PENALTY: float = 0.05
 
+
 class SignalArbiterSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
     SIGNAL_ARBITER_ENABLED: bool = True
@@ -88,6 +94,7 @@ class SignalArbiterSettings(BaseSettings):
     SIGNAL_ARBITER_DEFAULT_SCORE: float = 0.5
     SIGNAL_ARBITER_LOW_SUCCESS_THRESHOLD: float = 0.3
     SIGNAL_ARBITER_HIGH_SUCCESS_THRESHOLD: float = 0.6
+
 
 class FeatureSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
@@ -135,12 +142,14 @@ class FeatureSettings(BaseSettings):
     OVERFIT_YEARLY_SHARPE_CV_SEVERE: float = 1.0
     OVERFIT_YEARLY_SHARPE_CV_WARNING: float = 0.5
 
+
 class LoopSettings(BaseSettings):
     model_config = {"env_file": str(_ENV_PATH), "env_file_encoding": "utf-8", "extra": "ignore"}
     MAX_CYCLES: int = Field(default=20, ge=1)
     MAX_MUTATIONS: int = Field(default=4, ge=1)
     SESSION_DIR: Path = Path("sessions")
     LOG_LEVEL: str = "INFO"
+
 
 class Settings:
     def __init__(self) -> None:
@@ -153,7 +162,16 @@ class Settings:
         self._feature = FeatureSettings()
         self._loop = LoopSettings()
         self._all = {}
-        for sub in (self._llm, self._brain, self._pipeline, self._mab, self._reward, self._signal_arbiter, self._feature, self._loop):
+        for sub in (
+            self._llm,
+            self._brain,
+            self._pipeline,
+            self._mab,
+            self._reward,
+            self._signal_arbiter,
+            self._feature,
+            self._loop,
+        ):
             for k, v in sub.model_dump().items():
                 self._all[k] = v
                 setattr(self, k, v)
@@ -189,5 +207,6 @@ class Settings:
     @property
     def loop(self) -> LoopSettings:
         return self._loop
+
 
 settings = Settings()

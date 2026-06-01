@@ -27,6 +27,7 @@ WQ BRAIN 异步并发提交管理器 — 生产级实现。
                          ↓             ↓             ↓
                    [Submit→Poll→Callback→Repeat]
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -218,12 +219,8 @@ class SlotManager:
         self.max_poll_seconds = max_poll_seconds
         self.submit_timeout = submit_timeout
 
-        self._slots: list[SlotInfo] = [
-            SlotInfo(slot_id=i) for i in range(max_slots)
-        ]
-        self._queue: asyncio.PriorityQueue[tuple[tuple, SubmissionTask]] = asyncio.PriorityQueue(
-            maxsize=max_queue_size
-        )
+        self._slots: list[SlotInfo] = [SlotInfo(slot_id=i) for i in range(max_slots)]
+        self._queue: asyncio.PriorityQueue[tuple[tuple, SubmissionTask]] = asyncio.PriorityQueue(maxsize=max_queue_size)
         self._metrics = SlotMetrics()
         self._callbacks: list[CompletionCallback] = []
         self._task_registry: dict[str, SubmissionTask] = {}
@@ -413,7 +410,9 @@ class SlotManager:
             metadata={**original_task.metadata, **(extra_metadata or {})},
             simulation_payload=original_task.simulation_payload,
             tier=new_tier,
-            predicted_pass_prob=predicted_pass_prob if predicted_pass_prob is not None else original_task.predicted_pass_prob,
+            predicted_pass_prob=predicted_pass_prob
+            if predicted_pass_prob is not None
+            else original_task.predicted_pass_prob,
             improvement_generation=new_gen,
             parent_task_id=task_id,
             wq_feedback=original_task.wq_feedback,
@@ -639,9 +638,7 @@ class SlotManager:
         finally:
             self._queue.task_done()
 
-    async def _submit_simulation(
-        self, task: SubmissionTask
-    ) -> tuple[str | None, str | None]:
+    async def _submit_simulation(self, task: SubmissionTask) -> tuple[str | None, str | None]:
         """
         提交 simulation 到 BRAIN API
 
@@ -679,9 +676,7 @@ class SlotManager:
         if sim_resp.status_code not in (200, 201, 202):
             body = _safe_json(sim_resp)
             msg = (body or {}).get("message", sim_resp.text[:300]) if body else sim_resp.text[:300]
-            raise BrainSubmitError(
-                f"BRAIN simulation submit failed HTTP {sim_resp.status_code}: {msg}"
-            )
+            raise BrainSubmitError(f"BRAIN simulation submit failed HTTP {sim_resp.status_code}: {msg}")
 
         location = sim_resp.headers.get("Location")
         if location and location.startswith("/"):
@@ -694,9 +689,7 @@ class SlotManager:
 
         return sim_id, location
 
-    async def _poll_simulation(
-        self, slot: SlotInfo, location: str | None
-    ) -> BrainGateResult:
+    async def _poll_simulation(self, slot: SlotInfo, location: str | None) -> BrainGateResult:
         """
         单个 simulation 的轮询逻辑
 
@@ -829,17 +822,11 @@ class SlotManager:
             else:
                 body = _safe_json(poll_resp)
                 msg = (body or {}).get("message", poll_resp.text[:200])
-                raise BrainPollError(
-                    f"Unexpected poll response HTTP {poll_resp.status_code}: {msg}"
-                )
+                raise BrainPollError(f"Unexpected poll response HTTP {poll_resp.status_code}: {msg}")
 
-        raise BrainPollError(
-            f"Simulation did not complete within {self.max_poll_seconds}s (elapsed={elapsed:.1f}s)"
-        )
+        raise BrainPollError(f"Simulation did not complete within {self.max_poll_seconds}s (elapsed={elapsed:.1f}s)")
 
-    async def _on_completion(
-        self, slot: SlotInfo, result: BrainGateResult, task: SubmissionTask
-    ) -> None:
+    async def _on_completion(self, slot: SlotInfo, result: BrainGateResult, task: SubmissionTask) -> None:
         """
         完成回调 — 更新 metrics、触发用户回调、释放 slot
         """
@@ -853,9 +840,7 @@ class SlotManager:
         if result.sharpe is not None:
             self._metrics._sharpe_sum += result.sharpe
             self._metrics._sharpe_count += 1
-            self._metrics.avg_sharpe = round(
-                self._metrics._sharpe_sum / max(self._metrics._sharpe_count, 1), 4
-            )
+            self._metrics.avg_sharpe = round(self._metrics._sharpe_sum / max(self._metrics._sharpe_count, 1), 4)
 
             if result.sharpe > self._metrics.best_sharpe:
                 self._metrics.best_sharpe = result.sharpe
@@ -916,9 +901,7 @@ class SlotManager:
 
             expr_short = slot.expression[:40] + "..." if len(slot.expression) > 40 else slot.expression
             lines.append(
-                f"  {status_icon} Slot {slot.slot_id}: {slot.state.value:<16} "
-                f"{expr_short:<42} "
-                f"{slot.elapsed_sec:.0f}s"
+                f"  {status_icon} Slot {slot.slot_id}: {slot.state.value:<16} {expr_short:<42} {slot.elapsed_sec:.0f}s"
             )
 
         lines.append("=" * 60)
