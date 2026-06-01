@@ -117,7 +117,7 @@ async def websocket_events(websocket: WebSocket):
 async def websocket_session(websocket: WebSocket, session_id: str):
     await websocket.accept()
     queue: asyncio.Queue[AlphaEvent] = asyncio.Queue()
-    _SESSION_EVENTS = frozenset(
+    _session_events = frozenset(
         {
             "cycle_complete",
             "alpha_generated",
@@ -132,7 +132,7 @@ async def websocket_session(websocket: WebSocket, session_id: str):
     loop = asyncio.get_running_loop()
 
     def _on_session_event(event: AlphaEvent) -> None:
-        if event.event_type not in _SESSION_EVENTS:
+        if event.event_type not in _session_events:
             return
         if event.data.get("session_id") != session_id:
             return
@@ -154,7 +154,7 @@ async def websocket_session(websocket: WebSocket, session_id: str):
 async def websocket_monitor(websocket: WebSocket):
     await websocket.accept()
     queue: asyncio.Queue[AlphaEvent] = asyncio.Queue()
-    _MONITOR_EVENTS = frozenset(
+    _monitor_events = frozenset(
         {
             "brain_submit",
             "brain_result",
@@ -166,7 +166,7 @@ async def websocket_monitor(websocket: WebSocket):
     loop = asyncio.get_running_loop()
 
     def _on_monitor_event(event: AlphaEvent) -> None:
-        if event.event_type not in _MONITOR_EVENTS:
+        if event.event_type not in _monitor_events:
             return
         loop.call_soon_threadsafe(queue.put_nowait, event)
 

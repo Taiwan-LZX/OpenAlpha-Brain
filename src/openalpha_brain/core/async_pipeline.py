@@ -19,13 +19,14 @@ OpenAlpha-Brain — Async Pipeline System
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from heapq import heappop, heappush
+from heapq import heapify, heappop, heappush
 from typing import Any
 
 from openalpha_brain.config.config import settings
@@ -190,7 +191,7 @@ class SubmissionSlotManager:
 
                     except TimeoutError:
                         if time.monotonic() - poll_start >= poll_timeout:
-                            raise TimeoutError(f"Poll 超時 ({poll_timeout}s)")
+                            raise TimeoutError(f"Poll 超時 ({poll_timeout}s)") from None
                         logger.debug(
                             "[SlotManager] 槽位 %d poll yield (%.0fs/%.0fs)",
                             slot.id,
@@ -397,7 +398,7 @@ class AlphaQueue:
                 return False
             try:
                 self._heap.remove(entry)
-                heapq.heapify(self._heap)
+                heapify(self._heap)
             except ValueError:
                 pass
             self._stats["removed"] += 1
@@ -709,9 +710,6 @@ class ImprovementWorkerPool:
         }
 
 
-import contextlib
-import heapq
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 組件 4: ResourceDispatcher — LLM/向量模型動態分配器
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -836,7 +834,7 @@ class ResourceDispatcher:
         except TimeoutError:
             stats.total_timeouts += 1
             self._adapt_down(req.resource_type)
-            raise TimeoutError(f"資源 {req.resource_type.value} 請求超時 ({req.timeout}s)")
+            raise TimeoutError(f"資源 {req.resource_type.value} 請求超時 ({req.timeout}s)") from None
         except (OSError, ValueError, RuntimeError):
             stats.total_errors += 1
             self._adapt_down(req.resource_type)

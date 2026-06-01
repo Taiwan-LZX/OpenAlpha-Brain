@@ -13,12 +13,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-
-logger = logging.getLogger(__name__)
 from datetime import UTC
 
 from openalpha_brain.data import get_data_path
 from openalpha_brain.utils.algo_logger import algo_log
+
+logger = logging.getLogger(__name__)
 
 _PASCAL_CASE_MAP = {
     "TSDecayLinear": "ts_decay_linear",

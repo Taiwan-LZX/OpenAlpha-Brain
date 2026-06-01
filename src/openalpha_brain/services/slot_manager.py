@@ -333,7 +333,7 @@ class SlotManager:
             self._queue.put_nowait((sort_key + (self._queue_counter,), task))
             self._queue_counter += 1
         except asyncio.QueueFull:
-            raise asyncio.QueueFull(f"SlotManager queue full (max={self.max_queue_size})")
+            raise asyncio.QueueFull(f"SlotManager queue full (max={self.max_queue_size})") from None
 
         self._task_registry[task.task_id] = task
         self._metrics.queue_depth = self._queue.qsize()

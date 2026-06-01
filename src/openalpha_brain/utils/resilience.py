@@ -61,8 +61,7 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        if self._state == CircuitState.OPEN:
-            if self._opened_at is not None and time.monotonic() - self._opened_at >= self.recovery_timeout:
+        if self._state == CircuitState.OPEN and self._opened_at is not None and time.monotonic() - self._opened_at >= self.recovery_timeout:  # noqa: E501
                 self._state = CircuitState.HALF_OPEN
                 self._half_open_count = 0
                 logger.info("[CircuitBreaker:%s] OPEN -> HALF_OPEN (recovery timeout elapsed)", self.name)

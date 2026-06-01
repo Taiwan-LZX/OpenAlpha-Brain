@@ -25,9 +25,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from openalpha_brain.utils.algo_logger import algo_log
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_SKILLS_PATH = "data/dynamic_skills.json"
 

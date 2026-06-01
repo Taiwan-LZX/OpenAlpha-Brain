@@ -8,6 +8,7 @@ API key is never logged.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time as _time
@@ -23,6 +24,7 @@ from tenacity import (
 )
 
 from openalpha_brain.config.config import settings
+from openalpha_brain.services.http_pool import get_client
 
 _provider_semaphores: dict[str, asyncio.Semaphore] = {}
 _semaphores_lock = asyncio.Lock()
@@ -44,10 +46,6 @@ def _get_embed_semaphore() -> asyncio.Semaphore:
         _embed_semaphore = asyncio.Semaphore(settings.EMBED_MAX_CONCURRENT)
     return _embed_semaphore
 
-
-import contextlib
-
-from openalpha_brain.services.http_pool import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -928,7 +926,7 @@ async def _call_gemini(
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError) as exc:
         logger.error("[%s] cycle=%d Gemini response parse error: %s | raw: %s", session_id, cycle, exc, raw_text[:200])
-        raise LLMError(f"Gemini response parse error: {exc}", cycle=cycle, session_id=session_id)
+        raise LLMError(f"Gemini response parse error: {exc}", cycle=cycle, session_id=session_id) from exc
 
 
 async def _post_with_retry(

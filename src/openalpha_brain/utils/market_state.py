@@ -416,7 +416,7 @@ class MarketStateInferencer:
         sorted_years = sorted(self._yearly_states.keys())
         recent_years = sorted_years[-3:]
 
-        _SHARPE_KEYS = [
+        _sharpe_keys = [
             "momentum",
             "mean_reversion",
             "volatility",
@@ -426,7 +426,7 @@ class MarketStateInferencer:
             "size",
         ]
 
-        for key in _SHARPE_KEYS:
+        for key in _sharpe_keys:
             sharpes = [
                 getattr(self._yearly_states[y], f"{key}_sharpe", 0.0) for y in recent_years if y in self._yearly_states
             ]

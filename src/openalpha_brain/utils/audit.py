@@ -97,9 +97,12 @@ results.append(chk("FastAPI: no shared global session state", "_running_tasks" i
 results.append(chk("FastAPI: CORS middleware configured", "CORSMiddleware" in src))
 
 # ── CONFIG & SCAFFOLD ────────────────────────────────────────
-env_ex = open(Path(__file__).resolve().parent.parent.parent.parent / ".env.example").read()
-req = open(Path(__file__).resolve().parent.parent.parent.parent / "requirements.txt").read()
-readme = open(Path(__file__).resolve().parent.parent.parent.parent / "README.md").read()
+with open(Path(__file__).resolve().parent.parent.parent.parent / ".env.example") as _f:
+    env_ex = _f.read()
+with open(Path(__file__).resolve().parent.parent.parent.parent / "requirements.txt") as _f:
+    req = _f.read()
+with open(Path(__file__).resolve().parent.parent.parent.parent / "README.md") as _f:
+    readme = _f.read()
 sm_src = _src("session_manager.py", "cli")
 
 results.append(

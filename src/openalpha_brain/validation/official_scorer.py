@@ -910,8 +910,8 @@ class OfficialScoringAdapter:
             "options",
             "implied",
         ]
-        for field in unique_fields:
-            if field in expr_lower:
+        for fname in unique_fields:
+            if fname in expr_lower:
                 uniqueness += 0.08
                 break
 

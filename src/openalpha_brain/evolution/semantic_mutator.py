@@ -177,7 +177,7 @@ class SemanticMutator:
         expr = response.strip()
         if expr.startswith("```"):
             lines = expr.split("\n")
-            lines = [l for l in lines if not l.startswith("```")]
+            lines = [line for line in lines if not line.startswith("```")]
             expr = "\n".join(lines).strip()
 
         return expr if expr else None
@@ -622,7 +622,7 @@ class SemanticMutator:
                 expr = response.strip()
                 if expr.startswith("```"):
                     lines = expr.split("\n")
-                    lines = [l for l in lines if not l.startswith("```")]
+                    lines = [line for line in lines if not line.startswith("```")]
                     expr = "\n".join(lines).strip()
                 return expr if expr else None
         except (ValueError, TypeError, OSError) as e:

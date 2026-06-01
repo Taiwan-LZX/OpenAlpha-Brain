@@ -710,7 +710,7 @@ _BRAIN_CHECK_MUTATIONS: dict[str, str] = {
 
 def _elm_fuzzy_match(check_name: str) -> str | None:
     """Fallback fuzzy matcher for unrecognized BRAIN check names."""
-    _ALIASES: dict[str, list[str]] = {
+    _aliases: dict[str, list[str]] = {
         "LOW_SHARPE": ["SHARPE", "POOR_SHARPE", "SHARPE_FAIL", "MIN_SHARPE"],
         "LOW_FITNESS": ["FITNESS", "POOR_FITNESS", "FITNESS_FAIL"],
         "HIGH_TURNOVER": ["TURNOVER_HIGH", "EXCESSIVE_TURNOVER", "TOO_MUCH_TRADING"],
@@ -732,10 +732,10 @@ def _elm_fuzzy_match(check_name: str) -> str | None:
         "OVER_COMPLEXITY": ["TOO_COMPLEX", "COMPLEX", "DEEP_NESTING", "TOO_MANY_OPS"],
     }
     check_upper = check_name.upper().strip()
-    for canonical, aliases in _ALIASES.items():
+    for canonical, aliases in _aliases.items():
         if check_upper == canonical or check_upper in [a.upper() for a in aliases]:
             return canonical
-    for canonical, aliases in _ALIASES.items():
+    for canonical, aliases in _aliases.items():
         for alias in aliases:
             if alias.upper() in check_upper or check_upper in alias.upper():
                 return canonical

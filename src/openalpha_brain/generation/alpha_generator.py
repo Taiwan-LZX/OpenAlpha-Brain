@@ -279,7 +279,7 @@ def _extract_expression_from_llm(raw: str) -> str | None:
     """
     import json as _json
 
-    _JSON_ARTIFACTS_RE = re.compile(
+    _json_artifacts_re = re.compile(
         r"\b(?:expression|regular|simulation_payload|settings|rationale|decision|"
         r"fingerprint|family|ast_topology|metrics|mutation_paths|refinement_log)\s*[:=]\s*",
     )
@@ -287,7 +287,7 @@ def _extract_expression_from_llm(raw: str) -> str | None:
     parsed = parser.parse_alpha_output(raw)
     if parsed and parsed.get("expression"):
         expr = parsed["expression"]
-        if not _JSON_ARTIFACTS_RE.search(expr):
+        if not _json_artifacts_re.search(expr):
             return expr
 
     stripped = raw.strip()
@@ -297,8 +297,7 @@ def _extract_expression_from_llm(raw: str) -> str | None:
             if isinstance(_parsed_json, dict):
                 for _key in ("expression", "regular", "alpha", "code", "fastexpr"):
                     _candidate = _parsed_json.get(_key, "")
-                    if _candidate and isinstance(_candidate, str) and "(" in _candidate and ")" in _candidate:
-                        if not _JSON_ARTIFACTS_RE.search(_candidate):
+                    if _candidate and isinstance(_candidate, str) and "(" in _candidate and ")" in _candidate and not _json_artifacts_re.search(_candidate):  # noqa: E501
                             clean_candidate = _candidate.strip().rstrip(",;")
                             if val.validate_syntax(clean_candidate).passed:
                                 return clean_candidate
@@ -343,11 +342,11 @@ def _extract_expression_from_llm(raw: str) -> str | None:
     )
     if expr_match:
         expr = expr_match.group(1).strip().rstrip(",;")
-        if not _JSON_ARTIFACTS_RE.search(expr):
+        if not _json_artifacts_re.search(expr):
             return expr
 
     if stripped and "(" in stripped and ")" in stripped:
-        _BARE_EXPR_OPS = (
+        _bare_expr_ops = (
             "rank(",
             "ts_delta(",
             "ts_mean(",
@@ -369,11 +368,11 @@ def _extract_expression_from_llm(raw: str) -> str | None:
             "ts_quantile(",
             "quantile(",
         )
-        if any(op in stripped for op in _BARE_EXPR_OPS):
+        if any(op in stripped for op in _bare_expr_ops):
             clean = stripped.rstrip(",;")
             clean = re.sub(r"^[`*\s]+", "", clean)
             clean = re.sub(r"[`*\s]+$", "", clean)
-            if not _JSON_ARTIFACTS_RE.search(clean):
+            if not _json_artifacts_re.search(clean):
                 return clean
 
     return None

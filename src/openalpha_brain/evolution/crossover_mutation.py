@@ -13,15 +13,14 @@ from typing import Any, cast
 
 import aiohttp
 
+from openalpha_brain.cli.algo_monitor import AlgoMonitor
 from openalpha_brain.evolution.evolution_types import AlphaTrajectory
 from openalpha_brain.evolution.trajectory_mutation import TrajectoryMutationResult, TrajectoryMutationV2
 from openalpha_brain.generation.ast_originality import ASTNode, FASTEXPRParser, OriginalityChecker
 from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
+from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 logger = logging.getLogger(__name__)
-
-from openalpha_brain.cli.algo_monitor import AlgoMonitor
-from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
 
 _monitor = AlgoMonitor.get_instance()
 
@@ -1517,8 +1516,7 @@ class CrossoverMutationEngine:
             curr_fitness = curr.get("fitness", 0.0)
             max_fit = max(abs(prev_fitness), abs(curr_fitness), 1e-8)
 
-            if abs(prev_fitness - curr_fitness) / max_fit < self.PARETO_TIE_THRESHOLD:
-                if self._pareto_dominates(curr, prev):
+            if abs(prev_fitness - curr_fitness) / max_fit < self.PARETO_TIE_THRESHOLD and self._pareto_dominates(curr, prev):  # noqa: E501
                     result[-1], curr = curr, prev
 
             result.append(curr)

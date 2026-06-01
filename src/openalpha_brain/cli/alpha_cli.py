@@ -442,7 +442,7 @@ class AlphaCLI:
                         "turnover": getattr(brain, "real_turnover", None),
                         "returns": getattr(brain, "real_returns", None),
                         "drawdown": getattr(brain, "real_drawdown", None),
-                        "brain_status": getattr(brain, "simulation_status", lambda: getattr(brain, "status", "?"))()
+                        "brain_status": (lambda b=brain: getattr(b, "simulation_status", lambda: getattr(b, "status", "?"))())()  # noqa: E501
                         if callable(getattr(brain, "simulation_status", None))
                         else getattr(brain, "status", "?"),
                     }
@@ -512,7 +512,7 @@ class AlphaCLI:
             await loop_engine.run_loop_pipeline(self.session_id)
         except asyncio.CancelledError:
             print(f"\n  {C.YELLOW}■ Mining cancelled by user{C.RESET}")
-        except (RuntimeError, OSError, KeyboardInterrupt, asyncio.CancelledError) as exc:
+        except (RuntimeError, OSError, KeyboardInterrupt) as exc:
             self.state = "ERROR"
             logger.error("Mining error: %s", exc, exc_info=True)
             print(f"\n  {C.RED}✖ ERROR: {exc}{C.RESET}")

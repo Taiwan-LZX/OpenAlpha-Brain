@@ -434,11 +434,6 @@ class FullAntiOverfitDetector:
     def init_from_dataframe(self, factor_df: Any, holding_period: int = 5) -> None:
         """Initialize the underlying QuantGPT detector from a DataFrame."""
         try:
-            import numpy as np
-            import pandas as pd
-            from scipy import stats as sp_stats
-            from scipy.optimize import curve_fit
-
             self._detector = _QuantGPTAntiOverfitDetector(factor_df, holding_period)
             self._import_error = None
             logger.info("[ANTI-FIT] 完整版检测器初始化成功 (pandas+scipy)")
@@ -715,7 +710,7 @@ class _QuantGPTAntiOverfitDetector:
 
         for p in periods:
             valid[f"fwd_ret_{p}"] = valid.groupby("stock_code")["daily_ret"].transform(
-                lambda s: s.shift(-1).rolling(p, min_periods=p).sum().shift(-(p - 1))
+                lambda s, _p=p: s.shift(-1).rolling(_p, min_periods=_p).sum().shift(-(_p - 1))
             )
             sub = valid.dropna(subset=["factor_value", f"fwd_ret_{p}"])
             if sub.empty:

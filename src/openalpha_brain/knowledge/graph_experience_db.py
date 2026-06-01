@@ -985,8 +985,8 @@ class GraphBasedExperienceDB:
             "earnings",
             "capex",
         ]
-        for field in sorted(common_fields, key=len, reverse=True):
-            structure = re.sub(r"\b" + field + r"\b", "{FIELD}", structure, flags=re.IGNORECASE)
+        for fname in sorted(common_fields, key=len, reverse=True):
+            structure = re.sub(r"\b" + fname + r"\b", "{FIELD}", structure, flags=re.IGNORECASE)
 
         nums = re.sub(r"\b\d+\b", "{N}", structure)
         return nums

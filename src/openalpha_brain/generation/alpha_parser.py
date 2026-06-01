@@ -124,7 +124,7 @@ def _extract_expression(sec2_body: str) -> str | None:
             ):
                 expr_lines.append(line)
         if expr_lines:
-            joined = " ".join(" ".join(l.split()) for l in expr_lines)
+            joined = " ".join(" ".join(line.split()) for line in expr_lines)
             return joined
 
     for line in sec2_body.splitlines():

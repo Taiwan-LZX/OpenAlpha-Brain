@@ -1247,7 +1247,7 @@ class HypothesisAligner:
             except TimeoutError:
                 logger.warning("[HYP-ALIGN-LLM] LLM call timed out after 10s, using rule-only result")
                 return base
-            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
+            except (aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 return base
 
             response_text = str(raw_response).strip() if raw_response is not None else ""

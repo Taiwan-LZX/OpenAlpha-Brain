@@ -1027,11 +1027,11 @@ class CMAEvolutionStrategy:
     def ask(self) -> dict[str, float]:
         with Timer("CMAEvolutionStrategy.ask"):
             try:
-                L = np.linalg.cholesky(self.C)
+                cholesky_l = np.linalg.cholesky(self.C)
             except np.linalg.LinAlgError:
-                L = np.eye(self.dim) * _EPSILON
+                cholesky_l = np.eye(self.dim) * _EPSILON
             z = np.random.randn(1, self.dim)
-            raw_sample = self.mean + self.sigma * (z @ L.T)[0]
+            raw_sample = self.mean + self.sigma * (z @ cholesky_l.T)[0]
             clipped = np.clip(raw_sample, self._lower + _EPSILON, self._upper - _EPSILON)
             result = {k: float(clipped[i]) for i, k in enumerate(self._param_names)}
             logger.info(

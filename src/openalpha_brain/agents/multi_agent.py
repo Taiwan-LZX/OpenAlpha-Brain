@@ -704,11 +704,11 @@ class IdeaAgent:
             relevant_logics = self._logic_library.get_logic_for_direction(direction)
             if relevant_logics:
                 logic_lines = []
-                for l in relevant_logics[:5]:
-                    templates_preview = "; ".join(l.factor_templates[:2])
+                for logic in relevant_logics[:5]:
+                    templates_preview = "; ".join(logic.factor_templates[:2])
                     logic_lines.append(
-                        f"  - [{l.category}] {l.hypothesis} "
-                        f"(evidence: {l.evidence_count}, templates: {templates_preview})",
+                        f"  - [{logic.category}] {logic.hypothesis} "
+                        f"(evidence: {logic.evidence_count}, templates: {templates_preview})",
                     )
                 logic_context = "\n".join(logic_lines)
         except (KeyError, ValueError, OSError) as exc:
@@ -830,7 +830,7 @@ class IdeaAgent:
             )
 
 
-class HypothesisRefinementNeeded(Exception):
+class HypothesisRefinementNeededError(Exception):
     pass
 
 
@@ -983,10 +983,10 @@ class FactorAgent:
             allowed_lower = {f.lower() for f in allowed}
             invalid = [f for f in expr_fields if f.lower() not in allowed_lower]
             if invalid:
-                raise HypothesisRefinementNeeded(
+                raise HypothesisRefinementNeededError(
                     f"Fields not in whitelist: {', '.join(invalid)}",
                 )
-        except HypothesisRefinementNeeded:
+        except HypothesisRefinementNeededError:
             raise
         except (ValueError, TypeError, RuntimeError) as exc:
             logger.warning("FactorAgent: whitelist validation failed: %s", exc)
@@ -1432,7 +1432,7 @@ class FactorAgent:
                                 raise ValueError("refined Sharpe likelihood too low")
                         except ValueError:
                             raise
-                        except (OSError, ValueError, RuntimeError):
+                        except (OSError, RuntimeError):
                             pass
                         if "ts_decay_linear" not in refined_expression:
                             _auto_wrap_score = None
@@ -1761,7 +1761,7 @@ Consider:
 Return ONLY a JSON object:
 {{"category": "STRONG|MODERATE|WEAK", "reason": "brief justification"}}"""
 
-        _CATEGORY_SCORE_MAP = {"STRONG": 0.85, "MODERATE": 0.55, "WEAK": 0.20}
+        _category_score_map = {"STRONG": 0.85, "MODERATE": 0.55, "WEAK": 0.20}
 
         if not self._llm_generate:
             static_score = self._check_alignment(hypothesis, expression)
@@ -1781,7 +1781,7 @@ Return ONLY a JSON object:
             parsed = _extract_json_from_llm(raw)
             if parsed and isinstance(parsed, dict):
                 category = str(parsed.get("category", "MODERATE")).upper().strip()
-                score = _CATEGORY_SCORE_MAP.get(category, 0.55)
+                score = _category_score_map.get(category, 0.55)
                 return {
                     "alignment_score": score,
                     "reason": parsed.get("reason", ""),
@@ -1789,7 +1789,7 @@ Return ONLY a JSON object:
                 }
         except TimeoutError:
             logger.warning("EvalAgent: LLM align check timed out after 30s")
-        except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
+        except (aiohttp.ClientError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("EvalAgent: LLM align check failed: %s", exc)
 
         static_score = self._check_alignment(hypothesis, expression)
@@ -2537,7 +2537,7 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
             except (OSError, ValueError, RuntimeError):
                 anchor = None
 
-            _MAX_ALIGN_RETRIES = 2
+            _max_align_retries = 2
             (
                 expression,
                 sim_payload,
@@ -2550,14 +2550,14 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 brain_feedback=factor_feedback if factor_feedback else None,
                 rag_context_dict=rag_context_dict,
             )
-            for _align_retry in range(_MAX_ALIGN_RETRIES):
+            for _align_retry in range(_max_align_retries):
                 if align_action != "RETRY":
                     break
                 _retry_fb = (sim_payload.get("metadata") or {}).get("_alignment_retry_feedback", "")
                 logger.info(
                     "MultiAgent: alignment retry %d/%d — R² too low, regenerating (feedback: %s)",
                     _align_retry + 1,
-                    _MAX_ALIGN_RETRIES,
+                    _max_align_retries,
                     (_retry_fb or "")[:120],
                 )
                 if _retry_fb:
@@ -2611,12 +2611,12 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 expression[:80],
             )
 
-            _MAX_LLM_ALIGN_RETRIES = 2
+            _max_llm_align_retries = 2
             best_align_result = None
             best_align_expression = expression
             best_align_sim_payload = sim_payload
             best_align_hypothesis = hypothesis
-            for _align_llm_retry in range(_MAX_LLM_ALIGN_RETRIES + 1):
+            for _align_llm_retry in range(_max_llm_align_retries + 1):
                 align_result = await self._eval_agent._llm_align_check(
                     best_align_hypothesis,
                     best_align_expression,
@@ -2630,7 +2630,7 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 )
                 if best_align_result is None or align_score > best_align_result.get("alignment_score", 0):
                     best_align_result = align_result
-                if not align_result.get("needs_regeneration", False) or _align_llm_retry >= _MAX_LLM_ALIGN_RETRIES:
+                if not align_result.get("needs_regeneration", False) or _align_llm_retry >= _max_llm_align_retries:
                     break
                 align_feedback = (
                     f"Previous hypothesis-expression alignment score was {align_score:.2f} (< 0.6). "
@@ -2755,8 +2755,7 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                     }
                 )
 
-                if not rule_diagnosis or rule_diagnosis.strip() == "":
-                    if settings.DIAGNOSIS_LLM_ENABLED:
+                if (not rule_diagnosis or rule_diagnosis.strip() == "") and settings.DIAGNOSIS_LLM_ENABLED:
                         try:
                             from openalpha_brain.generation.prompts import llm_diagnose_failure
 

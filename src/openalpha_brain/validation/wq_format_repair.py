@@ -557,8 +557,7 @@ class WQFormatRepair:
         repaired = re.sub(decay_pattern, replace_decay_window, expression)
         repaired = repaired.replace("X_PLACEHOLDER", "X")
 
-        if "ts_decay_linear" not in expression and "decay_linear" not in expression:
-            if "group_neutralize" in expression:
+        if "ts_decay_linear" not in expression and "decay_linear" not in expression and "group_neutralize" in expression:  # noqa: E501
                 inner_match = re.search(r"group_neutralize\s*\((.+?)\s*,\s*\w+\s*\)", expression, re.DOTALL)
                 if inner_match:
                     inner_expr = inner_match.group(1)

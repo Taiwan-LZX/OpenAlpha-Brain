@@ -21,12 +21,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from openalpha_brain.cli.algo_monitor import AlgoMonitor
 from openalpha_brain.data import get_data_path
 from openalpha_brain.utils.algo_logger import algo_log, log_call
 from openalpha_brain.validation.ast_validator import ASTValidator
+
+logger = logging.getLogger(__name__)
 
 _monitor = AlgoMonitor.get_instance()
 
@@ -864,7 +864,7 @@ class AlphaLogicLibrary:
         _monitor.record("STEP", "alpha_logics", "get_top_logics", f"n={n}")
         sorted_logics = sorted(
             self._logics.values(),
-            key=lambda l: l.evidence_count,
+            key=lambda logic: logic.evidence_count,
             reverse=True,
         )
         return sorted_logics[:n]

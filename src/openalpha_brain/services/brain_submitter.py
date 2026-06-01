@@ -60,11 +60,7 @@ logger = logging.getLogger(__name__)
 try:
     from openalpha_brain.evolution.ea_search import (
         EAConfig,
-        EAMutationType,
         EASearchStrategy,
-        FactorIndividual,
-        extract_block_a,
-        extract_block_c,
     )
 
     _EA_AVAILABLE = True
@@ -1020,7 +1016,7 @@ async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
                         _delay,
                     )
                     await asyncio.sleep(_delay)
-                except (TimeoutError, aiohttp.ClientError, ConnectionError) as e:
+                except (aiohttp.ClientError, ConnectionError) as e:
                     _auth_attempts += 1
                     if _auth_attempts >= _max_auth_retries:
                         logger.error("[%s] cycle=%d BRAIN_AUTH_FAIL: %s", session_id, cycle_num, e)
@@ -1101,7 +1097,7 @@ async def _submit_to_brain(alpha, session_id: str, cycle_num: int):
                 gate_warnings=[str(e)],
                 brain_checks=[],
             )
-        except (TimeoutError, aiohttp.ClientError, ConnectionError) as e:
+        except (aiohttp.ClientError, ConnectionError) as e:
             _brain_cb.record_failure(f"Submit error: {e}")
             return BrainSubmissionResult(
                 status=BrainSimStatus.ERROR,
@@ -1301,9 +1297,9 @@ async def _brain_improvement_loop(
     _current_exp_card_id: str | None = None
 
     try:
-        from openalpha_brain.knowledge.field_proxy_map import FieldProxyMap as _FPM
+        from openalpha_brain.knowledge.field_proxy_map import FieldProxyMap as _FieldProxyMap
 
-        _fpm_instance = _FPM()
+        _fpm_instance = _FieldProxyMap()
         if not _fpm_instance._loaded:
             _fpm_instance.load()
     except (OSError, FileNotFoundError, ValueError):

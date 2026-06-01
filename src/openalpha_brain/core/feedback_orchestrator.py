@@ -558,8 +558,7 @@ class FeedbackLoopOrchestrator:
                 cycle_result = await self.run_one_cycle(focus_area=focus_area)
                 results.append(cycle_result)
 
-                if cycle_result.best_sharpe is not None:
-                    if cycle_result.best_sharpe > self.stats.best_sharpe_ever:
+                if cycle_result.best_sharpe is not None and cycle_result.best_sharpe > self.stats.best_sharpe_ever:
                         self.stats.best_sharpe_ever = cycle_result.best_sharpe
 
                 if self._running and len(results) < cycle_limit:
@@ -751,9 +750,7 @@ class FeedbackLoopOrchestrator:
         icir_override_reason = ""
         mfr_boost_reason = ""
 
-        if score_report is not None:
-            # 检查 HIGH_ICIR_LOW_FITNESS
-            if hasattr(score_report, "multi_layer_result") and score_report.multi_layer_result:
+        if score_report is not None and hasattr(score_report, "multi_layer_result") and score_report.multi_layer_result:
                 ml_result = score_report.multi_layer_result
                 if ml_result.get("is_high_icir_low_fitness"):
                     is_high_icir_low_fitness = True
@@ -1965,8 +1962,8 @@ class FeedbackLoopOrchestrator:
                 "openalpha_brain.services.brain_submitter",
                 fromlist=["FailureType"],
             )
-            _FailureType = _ft_module.FailureType
-            _failure_value = getattr(_FailureType, "LOW_SHARPE", None)
+            _failure_type = _ft_module.FailureType
+            _failure_value = getattr(_failure_type, "LOW_SHARPE", None)
 
             if decision_type == "WEAK_IMPROVE":
                 failure_type_str = "WEAK_SIGNAL"

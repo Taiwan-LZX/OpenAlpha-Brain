@@ -211,7 +211,7 @@ class ReflectionEngine:
                         duration_ms=ms,
                     )
                 return {}
-            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
+            except (aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 logger.warning("[LLM-DIAG] LLM diagnosis failed with exception", exc_info=True)
                 ms = (time.perf_counter() - t0) * 1000
                 with contextlib.suppress(OSError, ValueError, RuntimeError):
@@ -490,7 +490,7 @@ class ReflectionEngine:
                 logger.warning("ReflectionEngine: self_critique timed out after 15s")
                 result.consistency_score = None
                 result.critique_available = False
-            except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
+            except (aiohttp.ClientError, ValueError, json.JSONDecodeError):
                 logger.warning("ReflectionEngine: self_critique LLM call failed", exc_info=True)
                 result.consistency_score = None
                 result.critique_available = False

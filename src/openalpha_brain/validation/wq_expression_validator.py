@@ -346,8 +346,7 @@ class WQExpressionValidator:
                     actual_value = None
                     if isinstance(window_arg, ast.Constant):
                         actual_value = window_arg.value
-                    elif isinstance(window_arg, ast.UnaryOp) and isinstance(window_arg.op, ast.USub):
-                        if isinstance(window_arg.operand, ast.Constant):
+                    elif isinstance(window_arg, ast.UnaryOp) and isinstance(window_arg.op, ast.USub) and isinstance(window_arg.operand, ast.Constant):
                             actual_value = -window_arg.operand.value
 
                     if actual_value is not None and isinstance(actual_value, (int, float)):
@@ -391,9 +390,7 @@ class WQExpressionValidator:
 
         all_identifiers = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and node.id not in operators_in_expr:
-                # 排除 Python 关键字和内置函数
-                if node.id not in {"True", "False", "None", "nan", "inf", "std"}:
+            if isinstance(node, ast.Name) and node.id not in operators_in_expr and node.id not in {"True", "False", "None", "nan", "inf", "std"}:
                     all_identifiers.add(node.id)
 
         # 排除分组键
@@ -652,8 +649,7 @@ class WQExpressionValidator:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 operators.add(node.func.id)
                 # 收集窗口参数
-                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
-                    if isinstance(node.args[1].value, (int, float)):
+                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, (int, float)):  # noqa: E501
                         windows.append(node.args[1].value)
             elif isinstance(node, ast.Name) and node.id not in operators:
                 if node.id not in GROUP_KEYS and node.id not in {"True", "False", "None", "nan", "inf", "std"}:
@@ -691,8 +687,7 @@ class WQExpressionValidator:
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 operators.add(node.func.id)
-                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
-                    if isinstance(node.args[1].value, (int, float)):
+                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, (int, float)):  # noqa: E501
                         windows.append(node.args[1].value)
 
         tags = []

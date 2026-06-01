@@ -339,8 +339,8 @@ class LoopContext:
 
             async def _integrator_whitelist_update(expression: str, reward: float) -> None:
                 if self._whitelist_mgr and expression:
-                    _FIELDS_RE_LOCAL = re.compile(r"\b([a-z_]\w{2,})\b")
-                    for _f in _FIELDS_RE_LOCAL.findall(expression):
+                    _fields_re_local = re.compile(r"\b([a-z_]\w{2,})\b")
+                    for _f in _fields_re_local.findall(expression):
                         self._whitelist_mgr.update_field_reward(_f.lower(), reward=reward)
 
             async def _integrator_success_lib_add(expression: str, direction: str, sharpe: float) -> None:
@@ -491,9 +491,9 @@ class LoopContext:
                 getattr(_bs_mod, "_DYNAMIC_SKILL_ENABLED", False)
                 and getattr(_bs_mod, "_dynamic_skill_lib", None) is None
             ):
-                from openalpha_brain.knowledge.dynamic_skill_library import DynamicSkillLibrary as _DSL
+                from openalpha_brain.knowledge.dynamic_skill_library import DynamicSkillLibrary as _DynamicSkillLibrary
 
-                _bs_mod._dynamic_skill_lib = _DSL()
+                _bs_mod._dynamic_skill_lib = _DynamicSkillLibrary()
                 logger.info(
                     "DynamicSkillLibrary initialized (instance created, await initialize_from_brain for async init)"
                 )

@@ -194,7 +194,7 @@ async def _post_process_brain_result(
         state = await sm.load_session(session_id)
         if state is None:
             return
-        for i, a in enumerate(state.passed_alphas):
+        for _, a in enumerate(state.passed_alphas):
             if a.alpha_id == alpha_id:
                 alpha = a
                 break
@@ -240,7 +240,7 @@ async def _post_process_brain_result(
             state = await sm.load_session(session_id)
             if state is None:
                 return
-            for i, a in enumerate(state.passed_alphas):
+            for _, a in enumerate(state.passed_alphas):
                 if a.alpha_id == alpha_id:
                     alpha = a
                     break
@@ -346,7 +346,7 @@ async def _post_process_brain_result(
             state = await sm.load_session(session_id)
             if state is None:
                 return
-            for i, a in enumerate(state.passed_alphas):
+            for _, a in enumerate(state.passed_alphas):
                 if a.alpha_id == alpha_id:
                     alpha = a
                     break

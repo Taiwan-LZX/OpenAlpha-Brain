@@ -369,7 +369,7 @@ async def submit_for_review(
         async with _brain_cookies_lock:
             set_brain_cookies(None)
         _log(state, "AUTH", "Cookie expired during review submission")
-    except (TimeoutError, aiohttp.ClientError, ConnectionError) as exc:
+    except (aiohttp.ClientError, ConnectionError) as exc:
         _review_cb.record_failure(str(exc))
         logger.error("[%s] Error submitting alpha for review: %s", session_id, exc)
 

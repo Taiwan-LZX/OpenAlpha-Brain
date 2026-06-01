@@ -105,8 +105,8 @@ from openalpha_brain.learning.reward_updater import (
     _get_operators_from_context,
     _make_tool_executor,
     _refill_eliminated_fields,
-    _sync_mab_bias_from_evidence,
     _run_logic_evolution,
+    _sync_mab_bias_from_evidence,  # noqa: F401 - imported by tests
 )
 from openalpha_brain.services import brain_client, llm_client
 from openalpha_brain.services.brain_result_processor import (
@@ -300,7 +300,7 @@ async def run_loop(session_id: str) -> None:
         logger.info("[%s] GenerationGates initialized (standard loop)", session_id)
 
     _consecutive_errors = 0
-    _MAX_CONSECUTIVE_ERRORS = 3
+    _max_consecutive_errors = 3
     pool = AlphaCachePool()
     _consecutive_rejections: dict[str, int] = {}
     _rotation_threshold = 3
@@ -795,7 +795,7 @@ async def run_loop(session_id: str) -> None:
             except llm_client.LLMError as exc:
                 logger.error("[%s] cycle=%d LLM permanent failure (multi-agent): %s", session_id, global_cycle, exc)
                 _consecutive_errors += 1
-                if _consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                if _consecutive_errors >= _max_consecutive_errors:
                     logger.error(
                         "[%s] cycle=%d %d consecutive LLM errors — aborting",
                         session_id,
@@ -825,7 +825,7 @@ async def run_loop(session_id: str) -> None:
                     "[%s] cycle=%d Multi-agent orchestrator error: %s", session_id, global_cycle, exc, exc_info=True
                 )
                 _consecutive_errors += 1
-                if _consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                if _consecutive_errors >= _max_consecutive_errors:
                     logger.error(
                         "[%s] cycle=%d %d consecutive errors — aborting", session_id, global_cycle, _consecutive_errors
                     )
@@ -2604,7 +2604,7 @@ async def _llm_generator(session_id: str, pool: AlphaCachePool) -> None:
         logger.info("[%s] Multi-agent orchestrator initialized (pipeline)", session_id)
 
     _consecutive_errors = 0
-    _MAX_CONSECUTIVE_ERRORS = 3
+    _max_consecutive_errors = 3
     _pev = get_event_bus()
 
     for global_cycle in range(1, settings.MAX_CYCLES + 1):

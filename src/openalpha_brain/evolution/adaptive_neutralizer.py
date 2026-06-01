@@ -446,7 +446,7 @@ class AdaptiveNeutralizer:
                 reasoning_parts.append(f"Experience-based: {base_confidence:.1%} confidence")
 
             alternatives = sorted(
-                [(l, w) for l, w in weights.items() if l != rec_level],
+                [(level, w) for level, w in weights.items() if level != rec_level],
                 key=lambda x: -x[1],
             )[:3]
 
@@ -621,8 +621,7 @@ class AdaptiveNeutralizer:
             exp = self._tracker.get_experience(category, current_level)
             min_trials = self._config.get("min_trials_for_decision", 3)
 
-            if exp.total_trials >= min_trials and exp.success_rate > self._config.get("success_rate_threshold", 0.5):
-                if sharpe >= 1.0:
+            if exp.total_trials >= min_trials and exp.success_rate > self._config.get("success_rate_threshold", 0.5) and sharpe >= 1.0:  # noqa: E501
                     logger.info(
                         "[ADAPT-NEUT] Upgrade recommended: %s %s→%s (sr=%.2f sharpe=%.2f)",
                         category,

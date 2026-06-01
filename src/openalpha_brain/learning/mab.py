@@ -875,9 +875,9 @@ class AssociationMatrix:
 
         try:
             k = min(5, min(n_ops, n_fields))
-            U, s, Vt = np.linalg.svd(mat, full_matrices=False)
-            U_k, s_k, Vt_k = U[:, :k], s[:k], Vt[:k, :]
-            reconstructed = U_k @ np.diag(s_k) @ Vt_k
+            u, s, vt = np.linalg.svd(mat, full_matrices=False)
+            u_k, s_k, vt_k = u[:, :k], s[:k], vt[:k, :]
+            reconstructed = u_k @ np.diag(s_k) @ vt_k
         except np.linalg.LinAlgError:
             col_means = np.sum(mat, axis=0) / np.maximum(np.sum(mask, axis=0), 1)
             reconstructed = np.where(mask, mat, col_means[np.newaxis, :])

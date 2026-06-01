@@ -124,7 +124,6 @@ class VectorStore:
         vecs_b64 = data.get("vectors_b64", [])
         if vecs_b64:
             store._vectors = np.stack([_decode_vec(v) for v in vecs_b64])
-        store.count
         logger.info("Loaded vector index (%d docs) ← %s", store.count, path)
         return store
 
