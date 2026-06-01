@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import re
@@ -49,12 +48,10 @@ async def _apply_generation_gates(
     operators: list[str] | None = None,
     fields: list[str] | None = None,
 ) -> GenerationGateReport:
-    gates = getattr(_ls, "_generation_gates", None)
+    gates = getattr(_ls, '_generation_gates', None)
     if gates is None:
         return GenerationGateReport(
-            passed=True,
-            results=[],
-            overall_score=1.0,
+            passed=True, results=[], overall_score=1.0,
             correction_prompt="",
         )
     try:
@@ -70,16 +67,14 @@ async def _apply_generation_gates(
     except (ValueError, TypeError, KeyError, RuntimeError) as exc:
         logger.warning("_apply_generation_gates failed: %s", exc)
         return GenerationGateReport(
-            passed=True,
-            results=[],
-            overall_score=1.0,
+            passed=True, results=[], overall_score=1.0,
             correction_prompt="",
         )
 
 
 def _extract_fields(expression: str) -> set[str]:
-    fields = set(re.findall(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()", expression))
-    fields -= {"and", "or", "not", "if", "else", "true", "false", "nan", "inf"}
+    fields = set(re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()', expression))
+    fields -= {'and', 'or', 'not', 'if', 'else', 'true', 'false', 'nan', 'inf'}
     fields -= val.PERMITTED_OPERATORS
     return fields
 
@@ -157,9 +152,7 @@ def _filter_variants_by_field_overlap(
         if overlap >= max_overlap:
             logger.info(
                 "LLM variant rejected: field_overlap=%.2f >= %.2f expr=%s",
-                overlap,
-                max_overlap,
-                v[:60],
+                overlap, max_overlap, v[:60],
             )
             continue
         pair_rejected = False
@@ -169,8 +162,7 @@ def _filter_variants_by_field_overlap(
                 pair_rejected = True
                 logger.info(
                     "LLM variant rejected: pair_overlap=%.2f >= %.2f",
-                    pair_overlap,
-                    max_overlap,
+                    pair_overlap, max_overlap,
                 )
                 break
         if not pair_rejected:
@@ -223,13 +215,15 @@ async def _generate_single_alpha(
             effective_history = list(shared_history)
 
         rag_context = None
+        rag_ops: list = []
+        rag_fields: list = []
         if settings.RAG_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
             try:
                 _ls._algo_tick("rag_retrieve")
                 retrieval = await _ls._rag_engine.retrieve(direction)
                 rag_context = _ls._rag_engine.assemble_context(retrieval)
-                retrieval.get("operators", [])
-                retrieval.get("fields", [])
+                rag_ops = retrieval.get("operators", [])
+                rag_fields = retrieval.get("fields", [])
                 rag_context = await _arbiter_rerank(retrieval, rag_context, direction)
                 _ls._monitor.record("STEP", "rag", "retrieve", f"gen-{gen_idx} dir={direction}", session_id=session_id)
             except (ValueError, KeyError, AttributeError, OSError) as exc:
@@ -242,7 +236,7 @@ async def _generate_single_alpha(
             dyn_prompt += build_dynamic_context(global_blacklist=global_blacklist_entries)
 
         if settings.RAG_TOOL_CALL_ENABLED and _ls._rag_engine and _ls._rag_engine.is_ready:
-            dyn_prompt += "\n\nUse search_operators, search_fields, and search_financial_logic tools to actively retrieve operators and data fields beyond the core set."  # noqa: E501
+            dyn_prompt += "\n\nUse search_operators, search_fields, and search_financial_logic tools to actively retrieve operators and data fields beyond the core set."
 
         if orchestrator is not None:
             try:
@@ -259,38 +253,30 @@ async def _generate_single_alpha(
 
                 logger.info(
                     "[%s] gen-%d cycle=%d orchestrator: iterations=%d converged=%s originality=%.2f",
-                    session_id,
-                    gen_idx,
-                    global_cycle,
-                    orch_result.iterations,
-                    orch_result.converged,
-                    orch_result.originality_score,
+                    session_id, gen_idx, global_cycle,
+                    orch_result.iterations, orch_result.converged, orch_result.originality_score,
                 )
 
-                variants = list(getattr(orch_result, "variants", []))
+                variants = list(getattr(orch_result, 'variants', []))
                 result["variants"] = variants
 
                 try:
                     _ls._algo_tick("llm_multi_candidate")
                     llm_variants = await _generate_llm_variants(
-                        orch_result.expression,
-                        direction,
-                        num_variants=3,
+                        orch_result.expression, direction, num_variants=3,
                     )
                     if llm_variants:
                         valid_variants = _filter_variants_by_field_overlap(
-                            orch_result.expression,
-                            llm_variants,
-                            max_overlap=0.7,
+                            orch_result.expression, llm_variants, max_overlap=0.7,
                         )
                         result["variants"] = list(result["variants"]) + valid_variants
                 except (OSError, ValueError, RuntimeError):
                     pass
 
-                if hasattr(orch_result, "trajectory") and orch_result.trajectory:
+                if hasattr(orch_result, 'trajectory') and orch_result.trajectory:
                     result["trajectory_entry"] = (
                         orch_result.trajectory.model_dump()
-                        if hasattr(orch_result.trajectory, "model_dump")
+                        if hasattr(orch_result.trajectory, 'model_dump')
                         else vars(orch_result.trajectory)
                     )
 
@@ -299,8 +285,8 @@ async def _generate_single_alpha(
                 result["family"] = orch_result.hypothesis.direction
                 result["economic_rationale"] = orch_result.hypothesis.natural_language
 
-                gate_ops = operators_list if "operators_list" in dir() else None
-                gate_fields = fields_list if "fields_list" in dir() else None
+                gate_ops = operators_list if 'operators_list' in dir() else None
+                gate_fields = fields_list if 'fields_list' in dir() else None
                 gate_report = await _apply_generation_gates(
                     expression=expression,
                     hypothesis_direction=orch_result.hypothesis.direction,
@@ -312,20 +298,14 @@ async def _generate_single_alpha(
                 if not gate_report.passed:
                     logger.warning(
                         "[%s] gen-%d cycle=%d GATES FAILED: score=%.3f failed=%s",
-                        session_id,
-                        gen_idx,
-                        global_cycle,
-                        gate_report.overall_score,
-                        gate_report.failed_gates,
+                        session_id, gen_idx, global_cycle,
+                        gate_report.overall_score, gate_report.failed_gates,
                     )
                     result["error_msg"] = f"Generation gates failed: {gate_report.failed_gates}"
                     return result
                 logger.info(
                     "[%s] gen-%d cycle=%d GATES PASSED: score=%.3f",
-                    session_id,
-                    gen_idx,
-                    global_cycle,
-                    gate_report.overall_score,
+                    session_id, gen_idx, global_cycle, gate_report.overall_score,
                 )
 
                 syntax_result = val.validate_syntax(expression)
@@ -342,7 +322,6 @@ async def _generate_single_alpha(
                         if _ls._failure_lib or _ls._success_lib:
                             try:
                                 from openalpha_brain.knowledge.rag_engine import auto_debug_loop as _auto_debug
-
                                 _ls._algo_tick("auto_debug_loop")
                                 debugged, debug_ok = await _auto_debug(
                                     generate_fn=llm_client.generate,
@@ -419,10 +398,7 @@ async def _generate_single_alpha(
                 if semantic_score < 0.3:
                     logger.warning(
                         "[%s] gen-%d cycle=%d low semantic alignment=%.3f",
-                        session_id,
-                        gen_idx,
-                        global_cycle,
-                        semantic_score,
+                        session_id, gen_idx, global_cycle, semantic_score,
                     )
             except (OSError, ValueError, RuntimeError):
                 pass
@@ -480,10 +456,7 @@ async def _generate_one_and_enqueue(
         _diag_sa = gen_result.get("semantic_alignment_score")
         logger.warning(
             "[%s] gen-%d cycle=%d generation failed: %s | expr=%s | decision=%s | semantic_alignment=%s",
-            session_id,
-            gen_idx,
-            global_cycle,
-            _err,
+            session_id, gen_idx, global_cycle, _err,
             _diag_expr[:120] if _diag_expr else "<empty>",
             _diag_decision,
             _diag_sa if _diag_sa is not None else "N/A",
@@ -505,12 +478,12 @@ async def _generate_one_and_enqueue(
     simulation_payload = gen_result.get("simulation_payload")
 
     if gen_result.get("trajectory_entry"):
-        if not hasattr(state, "trajectories"):
+        if not hasattr(state, 'trajectories'):
             state.trajectories = []
         state.trajectories.append(gen_result["trajectory_entry"])
     if gen_result.get("hallucination_entries"):
         for he in gen_result["hallucination_entries"]:
-            if hasattr(state, "hallucination_log"):
+            if hasattr(state, 'hallucination_log'):
                 state.hallucination_log.append(he)
 
     state.conversation_history.append({"role": "user", "content": user_msg})
@@ -543,17 +516,11 @@ async def _generate_one_and_enqueue(
         return
 
     alpha = _build_alpha(
-        state,
-        parsed,
-        expression,
-        fingerprint_dict,
-        str(family),
-        ast_topology,
-        [],
+        state, parsed, expression, fingerprint_dict,
+        str(family), ast_topology, [],
         cast(dict, simulation_payload),
         val.validate_metrics(parsed or {}),
-        global_cycle,
-        decision,
+        global_cycle, decision,
         economic_rationale=gen_result.get("economic_rationale", ""),
     )
     alpha.exploration_direction = gen_direction
@@ -562,31 +529,21 @@ async def _generate_one_and_enqueue(
     alpha.semantic_alignment_score = gen_result.get("semantic_alignment_score")
     alpha.pipeline_status = PipelineStatus.VALIDATED
 
-    with contextlib.suppress(OSError, ValueError, RuntimeError):
+    try:
         _ls._previous_expressions.append(expression)
+    except (OSError, ValueError, RuntimeError):
+        pass
 
     logger.info(
         "[%s] gen-%d cycle=%d STREAMING_ENQUEUE — alpha_id=%s family=%s direction=%s",
-        session_id,
-        gen_idx,
-        global_cycle,
-        alpha.alpha_id,
-        family,
-        gen_direction,
+        session_id, gen_idx, global_cycle, alpha.alpha_id, family, gen_direction,
     )
-    pev.emit(
-        EVENT_ALPHA_VALIDATED,
-        {
-            "session_id": session_id,
-            "cycle": global_cycle,
-            "alpha_id": alpha.alpha_id,
-            "expression": expression[:120],
-            "direction": gen_direction,
-            "family": str(family),
-            "decision": decision,
-            "mode": "pipeline_streaming",
-        },
-    )
+    pev.emit(EVENT_ALPHA_VALIDATED, {
+        "session_id": session_id, "cycle": global_cycle,
+        "alpha_id": alpha.alpha_id, "expression": expression[:120],
+        "direction": gen_direction, "family": str(family),
+        "decision": decision, "mode": "pipeline_streaming",
+    })
 
     state.conversation_history.append({"role": "assistant", "content": raw_response})
 
@@ -637,12 +594,5 @@ async def _generate_one_and_enqueue(
             break
     await sm.save_session(state)
 
-    logger.info(
-        "[%s] gen-%d cycle=%d STREAMING_DONE — alpha %s enqueued, pool_size=%d active=%d",
-        session_id,
-        gen_idx,
-        global_cycle,
-        alpha.alpha_id,
-        len(pool),
-        3 - pool.available_slots(),
-    )
+    logger.info("[%s] gen-%d cycle=%d STREAMING_DONE — alpha %s enqueued, pool_size=%d active=%d",
+                session_id, gen_idx, global_cycle, alpha.alpha_id, len(pool), 3 - pool.available_slots())

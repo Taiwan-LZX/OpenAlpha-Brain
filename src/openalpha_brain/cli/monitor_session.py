@@ -19,7 +19,6 @@ Features:
     - Final summary with best alpha, failure patterns, performance timeline
     - Complete JSON report export for AI analysis
 """
-
 from __future__ import annotations
 
 import argparse
@@ -48,15 +47,10 @@ POLL_INTERVAL = 10
 MAX_POLLS = 600
 
 TERMINAL_STATUS = {
-    "COMPLETED",
-    "ERROR",
-    "FAIL",
-    "STOPPED",
-    "CRASHED",
+    "COMPLETED", "ERROR", "FAIL", "STOPPED", "CRASHED",
 }
 
 # ── Terminal Color Helpers ───────────────────────────────────────────────────
-
 
 class _C:
     GREEN = "\033[92m"
@@ -118,7 +112,6 @@ class Spinner:
 
 
 # ── Data Collection & Formatting ─────────────────────────────────────────────
-
 
 def _ts() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S UTC")
@@ -337,7 +330,6 @@ def _format_verbose_state(state: dict) -> list[str]:
 
 # ── Final Summary Report ─────────────────────────────────────────────────────
 
-
 def generate_final_report(
     session_id: str,
     timeline: list[dict],
@@ -373,17 +365,15 @@ def generate_final_report(
     # Performance timeline (cycle-by-cycle snapshot from polls)
     perf_timeline = []
     for snap in timeline:
-        perf_timeline.append(
-            {
-                "poll": snap.get("poll_num"),
-                "timestamp": snap.get("timestamp"),
-                "status": snap.get("status"),
-                "cycle": snap.get("cycle"),
-                "n_passed": snap.get("n_passed"),
-                "n_failed": snap.get("n_failed"),
-                "n_hall": snap.get("n_hall"),
-            }
-        )
+        perf_timeline.append({
+            "poll": snap.get("poll_num"),
+            "timestamp": snap.get("timestamp"),
+            "status": snap.get("status"),
+            "cycle": snap.get("cycle"),
+            "n_passed": snap.get("n_passed"),
+            "n_failed": snap.get("n_failed"),
+            "n_hall": snap.get("n_hall"),
+        })
 
     report = {
         "session_id": session_id,
@@ -401,9 +391,7 @@ def generate_final_report(
             "fitness": best_alpha.get("brain", {}).get("real_fitness") if best_alpha else None,
             "turnover": best_alpha.get("brain", {}).get("real_turnover") if best_alpha else None,
             "pipeline_status": best_alpha.get("pipeline_status") if best_alpha else None,
-        }
-        if best_alpha
-        else None,
+        } if best_alpha else None,
         "top_failure_patterns": [{"type": t, "count": c} for t, c in top_failures],
         "algorithm_call_counts": algo_counts,
         "performance_timeline": perf_timeline,
@@ -461,7 +449,7 @@ def print_final_summary(report: dict):
     if tl:
         print(f"\n  {_bold('Performance Timeline (cycle-by-cycle):')}")
         print(f"    {'Poll':>5} {'Timestamp':>22} {'Status':>12} {'Cycle':>6} {'Pass':>5} {'Fail':>5} {'Hall':>5}")
-        print(f"    {'-' * 66}")
+        print(f"    {'-'*66}")
         for entry in tl:
             print(
                 f"    {entry['poll']:>5} {entry['timestamp']:>22} "
@@ -473,7 +461,6 @@ def print_final_summary(report: dict):
 
 
 # ── Core Monitoring Loop ─────────────────────────────────────────────────────
-
 
 async def run_monitor(
     session_id: str,
@@ -518,17 +505,15 @@ async def run_monitor(
             hall = state.get("hallucination_log", [])
 
             # Record timeline snapshot
-            timeline.append(
-                {
-                    "poll_num": poll_num,
-                    "timestamp": _ts(),
-                    "status": status,
-                    "cycle": cycle,
-                    "n_passed": n_passed,
-                    "n_failed": n_failed,
-                    "n_hall": len(hall),
-                }
-            )
+            timeline.append({
+                "poll_num": poll_num,
+                "timestamp": _ts(),
+                "status": status,
+                "cycle": cycle,
+                "n_passed": n_passed,
+                "n_failed": n_failed,
+                "n_hall": len(hall),
+            })
 
             # Print detailed snapshot
             spinner.stop()
@@ -552,13 +537,7 @@ async def run_monitor(
         print(f"\n{_fail('Monitoring ended without reaching terminal status.')}")
         print(f"  Total polls: {len(timeline)}")
         # Still generate partial report
-        final_state = {
-            "status": "TIMEOUT",
-            "cycle": 0,
-            "passed_alphas": [],
-            "failure_catalog": [],
-            "_algo_call_counts": {},
-        }
+        final_state = {"status": "TIMEOUT", "cycle": 0, "passed_alphas": [], "failure_catalog": [], "_algo_call_counts": {}}
 
     # Generate & print final report
     report = generate_final_report(session_id, timeline, final_state, final_alphas)
@@ -573,7 +552,6 @@ async def run_monitor(
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -599,15 +577,13 @@ state (COMPLETED/ERROR/FAIL/STOPPED/CRASHED).
         help="Session ID to monitor (required)",
     )
     parser.add_argument(
-        "--verbose",
-        "-v",
+        "--verbose", "-v",
         action="store_true",
         default=False,
         help="Show extra debug info (MAB/RAG/Whitelist/FeatureMap/MarketState internals)",
     )
     parser.add_argument(
-        "--output",
-        "-o",
+        "--output", "-o",
         type=str,
         default=None,
         help="Custom JSON output path (default: session_<id>_report.json)",

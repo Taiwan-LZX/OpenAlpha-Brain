@@ -31,14 +31,12 @@ Usage:
     # parsed_result.is_stable -> 快速判断
     # parsed_result.should_restrict -> 是否需要限制
 """
-
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
 
@@ -70,14 +68,13 @@ class ParsedWQResult:
         processing_time_sec: 处理耗时 (秒)
         error: 解析过程中的错误信息 (如果有)
     """
-
     task_id: str = ""
     expression: str = ""
     raw_sharpe: float = 0.0
     passed: bool = False
 
     wq_metrics: dict = field(default_factory=dict)
-    stability_result: dict | None = None
+    stability_result: Optional[dict] = None
     is_stable: bool = True
     should_restrict: bool = False
 
@@ -94,20 +91,20 @@ class ParsedWQResult:
     is_efficient_alpha: bool = False
 
     processing_time_sec: float = 0.0
-    error: str | None = None
+    error: Optional[str] = None
 
     @property
-    def fitness(self) -> float | None:
+    def fitness(self) -> Optional[float]:
         """快捷访问 Fitness 值"""
         return self.wq_metrics.get("fitness")
 
     @property
-    def turnover(self) -> float | None:
+    def turnover(self) -> Optional[float]:
         """快捷访问 Turnover 值"""
         return self.wq_metrics.get("turnover")
 
     @property
-    def drawdown(self) -> float | None:
+    def drawdown(self) -> Optional[float]:
         """快捷访问 Drawdown 值"""
         return self.wq_metrics.get("drawdown")
 
@@ -149,7 +146,7 @@ class ResultRouter:
         anti_overfit: Any = None,
         scorer: Any = None,
         adaptive_neutralizer: Any = None,
-        telemetry: AlgorithmTelemetryCollector | None = None,
+        telemetry: Optional[AlgorithmTelemetryCollector] = None,
         cycle_num: int = 0,
     ):
         self._stability_guard = stability_guard
@@ -179,20 +176,22 @@ class ResultRouter:
         """
         t0 = time.perf_counter()
         eid = None
-        with contextlib.suppress(OSError, ValueError, RuntimeError):
+        try:
             eid = await self._tel.record_enter(
                 "ResultRouter",
                 cycle_id=str(self._cycle_num),
-                expr_id=str(hash(getattr(slot_info, "expression", "")) % 10000),
+                expr_id=str(hash(getattr(slot_info, 'expression', '')) % 10000),
             )
+        except (OSError, ValueError, RuntimeError):
+            pass
 
         result = ParsedWQResult()
 
         try:
-            result.task_id = getattr(slot_info, "task_name", "") or f"slot_{getattr(slot_info, 'slot_id', '?')}"
-            result.expression = getattr(slot_info, "expression", "")
-            result.raw_sharpe = getattr(brain_result, "sharpe", None) or 0.0
-            result.passed = getattr(brain_result, "passed", False)
+            result.task_id = getattr(slot_info, 'task_name', '') or f"slot_{getattr(slot_info, 'slot_id', '?')}"
+            result.expression = getattr(slot_info, 'expression', '')
+            result.raw_sharpe = getattr(brain_result, 'sharpe', None) or 0.0
+            result.passed = getattr(brain_result, 'passed', False)
 
             logger.info(
                 "[ROUTER] ▶ WQ RESULT RECEIVED | task=%s expr=%.50s... sharpe=%.3f passed=%s",
@@ -204,7 +203,9 @@ class ResultRouter:
 
             result.wq_metrics = self._extract_wq_metrics(brain_result)
 
-            result.stability_result = await self._evaluate_stability(result.expression, result.raw_sharpe)
+            result.stability_result = await self._evaluate_stability(
+                result.expression, result.raw_sharpe
+            )
             if result.stability_result:
                 result.is_stable = result.stability_result.get("is_stable", True)
                 result.should_restrict = result.stability_result.get("should_restrict", False)
@@ -214,17 +215,13 @@ class ResultRouter:
                 if result.stability_result.get("constraints"):
                     result.wq_metrics["stability_constraints"] = result.stability_result["constraints"]
 
-            result.anti_fit_score, result.anti_fit_recommendation = self._detect_overfitting(result.wq_metrics)
+            result.anti_fit_score, result.anti_fit_recommendation = \
+                self._detect_overfitting(result.wq_metrics)
 
-            (
-                result.score_report,
-                result.official_score,
-                result.official_grade,
-                result.icir_info,
-                result.mfr_info,
-                result.is_high_icir_low_fitness,
-                result.is_efficient_alpha,
-            ) = await self._compute_official_score(result.wq_metrics)
+            result.score_report, result.official_score, result.official_grade, \
+                result.icir_info, result.mfr_info, \
+                result.is_high_icir_low_fitness, result.is_efficient_alpha = \
+                    await self._compute_official_score(result.wq_metrics)
 
             logger.info(
                 "[ROUTER] ◆ PARSED | task=%s sharpe=%.3f fitness=%s turnover=%s "
@@ -257,18 +254,18 @@ class ResultRouter:
     def _extract_wq_metrics(self, brain_result: Any) -> dict:
         """从 brain_result 中提取标准化的 WQ 指标"""
         return {
-            "sharpe": getattr(brain_result, "sharpe", None) or 0.0,
-            "turnover": getattr(brain_result, "turnover", None),
-            "fitness": getattr(brain_result, "fitness", None),
-            "drawdown": getattr(brain_result, "drawdown", None),
-            "checks": getattr(brain_result, "brain_checks", []) or [],
+            "sharpe": getattr(brain_result, 'sharpe', None) or 0.0,
+            "turnover": getattr(brain_result, 'turnover', None),
+            "fitness": getattr(brain_result, 'fitness', None),
+            "drawdown": getattr(brain_result, 'drawdown', None),
+            "checks": getattr(brain_result, 'brain_checks', []) or [],
         }
 
     async def _evaluate_stability(
         self,
         expression: str,
         current_sharpe: float,
-    ) -> dict | None:
+    ) -> Optional[dict]:
         """调用 StabilityGuard 评估因子稳定性"""
         if self._stability_guard is None:
             return None
@@ -351,11 +348,8 @@ class ResultRouter:
                 icir_info = score_report.icir_metrics
                 logger.info(
                     "[ROUTER] [ICIR] ic=%.4f ir=%.3f icir=%.3f pred_fitness=%.2f conf=%.2f",
-                    icir_info.ic,
-                    icir_info.ir,
-                    icir_info.icir,
-                    icir_info.predicted_fitness,
-                    icir_info.confidence,
+                    icir_info.ic, icir_info.ir, icir_info.icir,
+                    icir_info.predicted_fitness, icir_info.confidence,
                 )
 
             if score_report.multi_faceted_reward:
@@ -363,12 +357,9 @@ class ResultRouter:
                 logger.info(
                     "[ROUTER] [MULTI-REWARD] signal=%.2f stability=%.2f efficiency=%.2f "
                     "unique=%.2f total=%.2f efficient=%s",
-                    mfr_info.signal_quality,
-                    mfr_info.stability,
-                    mfr_info.efficiency,
-                    mfr_info.uniqueness,
-                    mfr_info.total_reward,
-                    mfr_info.is_efficient_alpha,
+                    mfr_info.signal_quality, mfr_info.stability,
+                    mfr_info.efficiency, mfr_info.uniqueness,
+                    mfr_info.total_reward, mfr_info.is_efficient_alpha,
                 )
 
             if score_report.multi_layer_result:
@@ -403,13 +394,9 @@ class ResultRouter:
             logger.debug("[ROUTER] [OFFICIAL-SCORE] Scoring failed: %s", score_exc)
 
         return (
-            score_report,
-            official_score,
-            official_grade,
-            icir_info,
-            mfr_info,
-            is_high_icir_low_fitness,
-            is_efficient_alpha,
+            score_report, official_score, official_grade,
+            icir_info, mfr_info,
+            is_high_icir_low_fitness, is_efficient_alpha,
         )
 
     def record_neutralizer_outcome(
@@ -432,14 +419,12 @@ class ResultRouter:
 
         try:
             from openalpha_brain.evolution.adaptive_neutralizer import NeutralizationTrial
-
             if NeutralizationTrial is None:
                 return
 
             expr = expression or parsed_result.expression
             outcome = (
-                "success"
-                if parsed_result.passed and parsed_result.raw_sharpe >= 1.0
+                "success" if parsed_result.passed and parsed_result.raw_sharpe >= 1.0
                 else ("partial" if parsed_result.raw_sharpe >= 0.5 else "failure")
             )
 
@@ -457,9 +442,7 @@ class ResultRouter:
             )
             logger.debug(
                 "[ROUTER] [ADAPT-NEUT] Recorded | task=%s cat=%s outcome=%s",
-                parsed_result.task_id,
-                category,
-                outcome,
+                parsed_result.task_id, category, outcome,
             )
 
         except (OSError, ValueError, RuntimeError) as rec_exc:

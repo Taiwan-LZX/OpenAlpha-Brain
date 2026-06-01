@@ -16,19 +16,18 @@ TrajectoryMutationV2 基于 QuantaAlpha (arXiv:2602.07085) 的核心思想：
   Level 3: 参数微调变异（当 AST 也失败时的最后手段）
   Level 4: 返回原始轨迹 + 警告日志（保底方案，绝不返回空）
 """
-
 from __future__ import annotations
 
 import json
 import logging
+import random
 import re
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field as dataclass_field
+from typing import Any, Callable, Awaitable
 
 from openalpha_brain.evolution.evolution_types import AlphaTrajectory
 from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
-from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
+from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +67,10 @@ class TemplateTrajectoryMutation:
                     mutated = last_expr.replace(decision["chosen"], alt, 1)
                     new_trajectory.expression_versions.append(mutated)
                 elif last_expr and decision["type"] == "parameter":
-                    pattern = r"(\d+)"
+                    pattern = r'(\d+)'
                     matches = list(re.finditer(pattern, last_expr))
                     if matches:
-                        mutated = last_expr[: matches[0].start()] + str(alt) + last_expr[matches[0].end() :]
+                        mutated = last_expr[:matches[0].start()] + str(alt) + last_expr[matches[0].end():]
                         new_trajectory.expression_versions.append(mutated)
                     else:
                         new_trajectory.expression_versions.append(last_expr)
@@ -92,7 +91,7 @@ class TemplateTrajectoryMutation:
                 hypothesis_direction=traj_a.hypothesis_direction,
                 hypothesis_mechanism=traj_b.hypothesis_mechanism,
                 expression_versions=list(traj_a.expression_versions[:1]) if traj_a.expression_versions else [],
-                decision_points=traj_a.decision_points[: i + 1] + traj_b.decision_points[i + 1 :],
+                decision_points=traj_a.decision_points[:i + 1] + traj_b.decision_points[i + 1:],
                 final_status="PENDING",
             )
             children.append(child)
@@ -160,13 +159,17 @@ class TrajectoryMutationV2:
             "hypothesis_mechanism": traj.hypothesis_mechanism,
             "final_status": traj.final_status,
             "final_sharpe": traj.final_sharpe,
-            "expression_versions": [{"v": i + 1, "expr": e} for i, e in enumerate(traj.expression_versions)],
+            "expression_versions": [
+                {"v": i + 1, "expr": e} for i, e in enumerate(traj.expression_versions)
+            ],
             "decision_points": [
-                {"step": i, "type": d.get("type"), "chosen": d.get("chosen"), "alternatives": d.get("alternatives", [])}
+                {"step": i, "type": d.get("type"), "chosen": d.get("chosen"),
+                 "alternatives": d.get("alternatives", [])}
                 for i, d in enumerate(traj.decision_points)
             ],
             "brain_feedbacks": [
-                {"sharpe": f.get("sharpe"), "status": f.get("status"), "feedback": str(f.get("feedback", ""))[:200]}
+                {"sharpe": f.get("sharpe"), "status": f.get("status"),
+                 "feedback": str(f.get("feedback", ""))[:200]}
                 for f in traj.brain_feedbacks[-5:]
             ],
         }
@@ -182,7 +185,7 @@ Your task: Diagnose which specific segment of this trajectory is the WEAKEST and
 
 Analyze these four segment types:
 1. **hypothesis** — The economic intuition; was it flawed or not well-matched to the market mechanism?
-2. **factor_structure** — The operator composition and data transformations; was there a better way to capture the hypothesis?  # noqa: E501
+2. **factor_structure** — The operator composition and data transformations; was there a better way to capture the hypothesis?
 3. **parameter_choice** — Lookback windows, thresholds, scaling factors; were suboptimal values chosen?
 4. **repair_behavior** — How failures were diagnosed and fixed; could a different repair strategy have worked?
 
@@ -210,7 +213,7 @@ Output only the JSON, no other text."""
         ser = json.dumps(self._serialize_for_diagnosis(traj), ensure_ascii=False, indent=2)
         diag_json = json.dumps(diagnosis, ensure_ascii=False, indent=2)
 
-        return f"""You are an expert quantitative researcher performing TARGETED REVISION on one segment of an alpha mining trajectory.  # noqa: E501
+        return f"""You are an expert quantitative researcher performing TARGETED REVISION on one segment of an alpha mining trajectory.
 
 **DIAGNOSIS** (the weakest segment has been identified):
 {diag_json}
@@ -243,7 +246,7 @@ Output only the JSON, no other text."""
             input={
                 "steps_count": len(trajectory.decision_points),
                 "expressions_count": len(trajectory.expression_versions),
-                "current_sharpe": getattr(trajectory, "final_sharpe", None),
+                "current_sharpe": getattr(trajectory, 'final_sharpe', None),
                 "direction": trajectory.hypothesis_direction,
                 "mechanism": trajectory.hypothesis_mechanism[:100] if trajectory.hypothesis_mechanism else None,
             },
@@ -285,16 +288,14 @@ Output only the JSON, no other text."""
                     child.add_decision("ast_mutation", "expression_rewritten", [])
                     child.add_decision("fallback_level", "2", [])
 
-                    results.append(
-                        TrajectoryMutationResult(
-                            mutated_trajectory=child,
-                            original_id=original_id,
-                            mutation_type="ast_based_fallback",
-                            weak_segment="expression",
-                            diagnosis=f"Level 2 fallback (AST): {trigger_reason}",
-                            revision_summary=f"AST-based expression mutation: {mutated_expr[:100]}",
-                        )
-                    )
+                    results.append(TrajectoryMutationResult(
+                        mutated_trajectory=child,
+                        original_id=original_id,
+                        mutation_type="ast_based_fallback",
+                        weak_segment="expression",
+                        diagnosis=f"Level 2 fallback (AST): {trigger_reason}",
+                        revision_summary=f"AST-based expression mutation: {mutated_expr[:100]}",
+                    ))
 
                 log_call(
                     "fallback_level2_complete",
@@ -305,8 +306,7 @@ Output only the JSON, no other text."""
 
                 logger.info(
                     "TrajectoryMutationV2: Level 2 fallback 成功 — 生成 %d 个 AST 变体 (原因: %s)",
-                    len(results),
-                    trigger_reason,
+                    len(results), trigger_reason,
                 )
 
         except (ValueError, TypeError, RuntimeError) as exc:
@@ -336,16 +336,16 @@ Output only the JSON, no other text."""
 
             for old_op, new_op in list(operator_swaps.items())[:max_variants]:
                 if old_op in expression.lower():
-                    mutated = re.sub(r"\b" + re.escape(old_op) + r"\b", new_op, expression, count=1)
+                    mutated = re.sub(r'\b' + re.escape(old_op) + r'\b', new_op, expression, count=1)
                     if mutated != expression:
                         variants.append(mutated)
 
             if len(variants) < max_variants:
-                for window in window_adjustments[: max_variants - len(variants)]:
-                    pattern = r"(\d+)(?=\))"
+                for window in window_adjustments[:max_variants - len(variants)]:
+                    pattern = r'(\d+)(?=\))'
                     match = re.search(pattern, expression)
                     if match:
-                        mutated = expression[: match.start()] + window + expression[match.end() :]
+                        mutated = expression[:match.start()] + window + expression[match.end():]
                         if mutated != expression and mutated not in variants:
                             variants.append(mutated)
 
@@ -379,16 +379,14 @@ Output only the JSON, no other text."""
                     tweaked_traj.add_decision("parameter_tweak", "value_adjusted", [])
                     tweaked_traj.add_decision("fallback_level", "3", [])
 
-                    results.append(
-                        TrajectoryMutationResult(
-                            mutated_trajectory=tweaked_traj,
-                            original_id=original_id,
-                            mutation_type="parameter_tweak_fallback",
-                            weak_segment="parameter",
-                            diagnosis=f"Level 3 fallback (参数微调): {trigger_reason}",
-                            revision_summary="Parameter value adjustment based on alternatives",
-                        )
-                    )
+                    results.append(TrajectoryMutationResult(
+                        mutated_trajectory=tweaked_traj,
+                        original_id=original_id,
+                        mutation_type="parameter_tweak_fallback",
+                        weak_segment="parameter",
+                        diagnosis=f"Level 3 fallback (参数微调): {trigger_reason}",
+                        revision_summary="Parameter value adjustment based on alternatives",
+                    ))
 
                 log_call(
                     "fallback_level3_complete",
@@ -399,8 +397,7 @@ Output only the JSON, no other text."""
 
                 logger.info(
                     "TrajectoryMutationV2: Level 3 fallback 成功 — 生成 %d 个参数微调变体 (原因: %s)",
-                    len(results),
-                    trigger_reason,
+                    len(results), trigger_reason,
                 )
 
         except (ValueError, TypeError, RuntimeError) as exc:
@@ -447,10 +444,10 @@ Output only the JSON, no other text."""
                         mutated = last_expr.replace(chosen, alt, 1)
                         new_trajectory.expression_versions.append(mutated)
                     elif last_expr and decision.get("type") == "parameter":
-                        pattern = r"(\d+)"
+                        pattern = r'(\d+)'
                         matches = list(re.finditer(pattern, last_expr))
                         if matches:
-                            mutated = last_expr[: matches[0].start()] + str(alt) + last_expr[matches[0].end() :]
+                            mutated = last_expr[:matches[0].start()] + str(alt) + last_expr[matches[0].end():]
                             new_trajectory.expression_versions.append(mutated)
                         else:
                             new_trajectory.expression_versions.append(last_expr)
@@ -495,23 +492,20 @@ Output only the JSON, no other text."""
         original_copy.add_decision("fallback_level", "4", [])
         original_copy.add_decision("fallback_reason", trigger_reason[:200], [])
 
-        return [
-            TrajectoryMutationResult(
-                mutated_trajectory=original_copy,
-                original_id=original_id,
-                mutation_type="original_preserved_fallback",
-                weak_segment="none",
-                diagnosis=f"Level 4 fallback (保底): {trigger_reason}",
-                revision_summary="Original trajectory preserved due to all mutation strategies failing",
-            )
-        ]
+        return [TrajectoryMutationResult(
+            mutated_trajectory=original_copy,
+            original_id=original_id,
+            mutation_type="original_preserved_fallback",
+            weak_segment="none",
+            diagnosis=f"Level 4 fallback (保底): {trigger_reason}",
+            revision_summary="Original trajectory preserved due to all mutation strategies failing",
+        )]
 
     @algo_log(log_args_to_skip=("self",))
-    async def mutate_trajectory(
-        self,
-        trajectory: AlphaTrajectory,
-        original_id: str = "",
-    ) -> list[TrajectoryMutationResult]:
+    async def mutate_trajectory(self,
+                                trajectory: AlphaTrajectory,
+                                original_id: str = "",
+                                ) -> list[TrajectoryMutationResult]:
         """执行轨迹级定向变异（含多级 Fallback 策略）。
 
         Fallback 层级：
@@ -640,15 +634,11 @@ Output only the JSON, no other text."""
 
             logger.info(
                 "TrajectoryMutationV2: 诊断完成 weakest_segment=%s severity=%s — %s",
-                weak_segment,
-                severity,
-                diag_text[:100],
+                weak_segment, severity, diag_text[:100],
             )
 
             if severity == "minor" and mutation_depth < 0.7:
-                logger.info(
-                    "TrajectoryMutationV2: severity=minor 且 mutation_depth=%.2f < 0.7，跳过重写", mutation_depth
-                )
+                logger.info("TrajectoryMutationV2: severity=minor 且 mutation_depth=%.2f < 0.7，跳过重写", mutation_depth)
                 return []
 
             rewrite_prompt = self._build_rewrite_prompt(trajectory, diagnosis)
@@ -707,16 +697,14 @@ Output only the JSON, no other text."""
                 if revision_desc:
                     child.add_decision("revision_description", revision_desc[:200], [])
 
-                results.append(
-                    TrajectoryMutationResult(
-                        mutated_trajectory=child,
-                        original_id=original_id,
-                        mutation_type=f"targeted_{weak_segment}",
-                        weak_segment=weak_segment,
-                        diagnosis=diag_text,
-                        revision_summary=revision_desc,
-                    )
-                )
+                results.append(TrajectoryMutationResult(
+                    mutated_trajectory=child,
+                    original_id=original_id,
+                    mutation_type=f"targeted_{weak_segment}",
+                    weak_segment=weak_segment,
+                    diagnosis=diag_text,
+                    revision_summary=revision_desc,
+                ))
 
             if results:
                 log_call(
@@ -729,8 +717,7 @@ Output only the JSON, no other text."""
                 )
                 logger.info(
                     "TrajectoryMutationV2: Level 1 成功 — 生成 %d 个定向修订变体 (weak_segment=%s)",
-                    len(results),
-                    weak_segment,
+                    len(results), weak_segment,
                 )
 
         except TimeoutError as exc:
@@ -839,10 +826,7 @@ Output only the JSON, no other text."""
 
         logger.info(
             "TrajectoryMutationV2: 输出摘要 — source=%s, 变体数=%d, 类型=%s, 薄弱段=%s",
-            source,
-            len(results),
-            mutation_types,
-            weak_segments,
+            source, len(results), mutation_types, weak_segments,
         )
 
     @algo_log(log_args_to_skip=("self",))

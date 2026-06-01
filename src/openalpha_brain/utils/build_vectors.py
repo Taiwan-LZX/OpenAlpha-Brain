@@ -54,243 +54,152 @@ FINANCIAL_LOGIC_ENTRIES: list[dict] = [
     },
     {
         "id": "momentum_cross",
-        "text": (
-            "Cross-sectional momentum: rank assets by past returns relative to peers. Use"
-            "rank(ts_delta(close, 20)) with group_neutralize by industry or sector."
-        ),
+        "text": "Cross-sectional momentum: rank assets by past returns relative to peers. Use rank(ts_delta(close, 20)) with group_neutralize by industry or sector.",
         "category": "momentum",
     },
     {
         "id": "mean_reversion_price",
-        "text": (
-            "Mean reversion: prices revert to their historical mean. Use ts_zscore(close, 20-60) to"
-            "identify overbought/oversold conditions. Negative signal when z-score is extreme."
-        ),
+        "text": "Mean reversion: prices revert to their historical mean. Use ts_zscore(close, 20-60) to identify overbought/oversold conditions. Negative signal when z-score is extreme.",
         "category": "mean_reversion",
     },
     {
         "id": "mean_reversion_volume",
-        "text": (
-            "Volume mean reversion: abnormal volume tends to revert. Use ts_zscore(volume, 20) or"
-            "ts_delta(volume, 5) with negative sign. High volume often precedes reversal."
-        ),
+        "text": "Volume mean reversion: abnormal volume tends to revert. Use ts_zscore(volume, 20) or ts_delta(volume, 5) with negative sign. High volume often precedes reversal.",
         "category": "mean_reversion",
     },
     {
         "id": "mean_reversion_spread",
-        "text": (
-            "Spread mean reversion: price spreads between related assets revert. Use subtract(close,"
-            "vwap) or ts_zscore of spread measures."
-        ),
+        "text": "Spread mean reversion: price spreads between related assets revert. Use subtract(close, vwap) or ts_zscore of spread measures.",
         "category": "mean_reversion",
     },
     {
         "id": "volatility_breakout",
-        "text": (
-            "Volatility breakout: low volatility periods precede large moves. Use ts_std_dev(returns,"
-            "20) as regime indicator. Rank by inverse volatility for breakout signals."
-        ),
+        "text": "Volatility breakout: low volatility periods precede large moves. Use ts_std_dev(returns, 20) as regime indicator. Rank by inverse volatility for breakout signals.",
         "category": "volatility",
     },
     {
         "id": "volatility_risk_premium",
-        "text": (
-            "Volatility risk premium: implied volatility typically exceeds realized. Use"
-            "ts_std_dev(returns, 20) vs ts_mean(returns, 20) spread. Low vol assets offer risk"
-            "premium."
-        ),
+        "text": "Volatility risk premium: implied volatility typically exceeds realized. Use ts_std_dev(returns, 20) vs ts_mean(returns, 20) spread. Low vol assets offer risk premium.",
         "category": "volatility",
     },
     {
         "id": "volatility_clustering",
-        "text": (
-            "Volatility clustering: high vol follows high vol. Use"
-            "ts_decay_linear(ts_std_dev(returns, 5), 10) to capture persistent volatility regimes."
-        ),
+        "text": "Volatility clustering: high vol follows high vol. Use ts_decay_linear(ts_std_dev(returns, 5), 10) to capture persistent volatility regimes.",
         "category": "volatility",
     },
     {
         "id": "value_fundamental",
-        "text": (
-            "Value investing: cheap assets outperform. Use fundamental ratios like sales/market_cap,"
-            "equity/debt, revenue/assets. Rank by value metrics with group_neutralize."
-        ),
+        "text": "Value investing: cheap assets outperform. Use fundamental ratios like sales/market_cap, equity/debt, revenue/assets. Rank by value metrics with group_neutralize.",
         "category": "value",
     },
     {
         "id": "value_earnings_yield",
-        "text": (
-            "Earnings yield: inverse P/E ratio as value signal. Use revenue/cap or"
-            "earnings/market_cap measures. Higher earnings yield suggests undervaluation."
-        ),
+        "text": "Earnings yield: inverse P/E ratio as value signal. Use revenue/cap or earnings/market_cap measures. Higher earnings yield suggests undervaluation.",
         "category": "value",
     },
     {
         "id": "value_book_value",
-        "text": (
-            "Book value: assets with low price-to-book outperform. Use equity or assets relative to"
-            "market cap. Fundamental value signal."
-        ),
+        "text": "Book value: assets with low price-to-book outperform. Use equity or assets relative to market cap. Fundamental value signal.",
         "category": "value",
     },
     {
         "id": "quality_profitability",
-        "text": (
-            "Quality factor: profitable, stable companies outperform. Use revenue growth stability,"
-            "low debt/equity, high return on assets. Combine profitability and leverage metrics."
-        ),
+        "text": "Quality factor: profitable, stable companies outperform. Use revenue growth stability, low debt/equity, high return on assets. Combine profitability and leverage metrics.",
         "category": "quality",
     },
     {
         "id": "quality_leverage",
-        "text": (
-            "Leverage risk: high debt companies underperform. Use debt/equity or liabilities/assets"
-            "ratio. Low leverage indicates quality. Inverse signal."
-        ),
+        "text": "Leverage risk: high debt companies underperform. Use debt/equity or liabilities/assets ratio. Low leverage indicates quality. Inverse signal.",
         "category": "quality",
     },
     {
         "id": "quality_earnings_stability",
-        "text": (
-            "Earnings stability: consistent earnings indicate quality. Use ts_std_dev of revenue or"
-            "earnings over long windows. Low volatility of fundamentals is positive."
-        ),
+        "text": "Earnings stability: consistent earnings indicate quality. Use ts_std_dev of revenue or earnings over long windows. Low volatility of fundamentals is positive.",
         "category": "quality",
     },
     {
         "id": "liquidity_amihud",
-        "text": (
-            "Amihud illiquidity: |return|/volume measures price impact. High illiquidity predicts"
-            "higher returns. Use abs(returns)/volume with ts_mean."
-        ),
+        "text": "Amihud illiquidity: |return|/volume measures price impact. High illiquidity predicts higher returns. Use abs(returns)/volume with ts_mean.",
         "category": "liquidity",
     },
     {
         "id": "liquidity_turnover",
-        "text": (
-            "Turnover as liquidity proxy: high turnover indicates liquid assets. Use volume/adv20 or"
-            "volume/cap ratio. Low turnover assets may have liquidity premium."
-        ),
+        "text": "Turnover as liquidity proxy: high turnover indicates liquid assets. Use volume/adv20 or volume/cap ratio. Low turnover assets may have liquidity premium.",
         "category": "liquidity",
     },
     {
         "id": "liquidity_volume_price",
-        "text": (
-            "Volume-price interaction: unusual volume at price extremes signals reversal or"
-            "continuation. Combine ts_delta(volume, 5) with ts_zscore(close, 20)."
-        ),
+        "text": "Volume-price interaction: unusual volume at price extremes signals reversal or continuation. Combine ts_delta(volume, 5) with ts_zscore(close, 20).",
         "category": "liquidity",
     },
     {
         "id": "size_market_cap",
-        "text": (
-            "Size effect: small-cap stocks outperform large-cap. Use cap or log(cap) as size proxy."
-            "Rank by market cap with group_neutralize."
-        ),
+        "text": "Size effect: small-cap stocks outperform large-cap. Use cap or log(cap) as size proxy. Rank by market cap with group_neutralize.",
         "category": "size",
     },
     {
         "id": "size_adv",
-        "text": (
-            "Average daily volume as size proxy: adv20 captures trading size. Use log(adv20) or"
-            "rank(adv20) for size-based signals."
-        ),
+        "text": "Average daily volume as size proxy: adv20 captures trading size. Use log(adv20) or rank(adv20) for size-based signals.",
         "category": "size",
     },
     {
         "id": "industry_rotation",
-        "text": (
-            "Industry rotation: sector-relative momentum. Use ts_delta(close, 20) with"
-            "group_neutralize by industry. Capture sector-specific trends."
-        ),
+        "text": "Industry rotation: sector-relative momentum. Use ts_delta(close, 20) with group_neutralize by industry. Capture sector-specific trends.",
         "category": "industry",
     },
     {
         "id": "industry_relative",
-        "text": (
-            "Relative strength within industry: compare asset to industry average. Use"
-            "subtract(close, group_mean) or rank within industry group."
-        ),
+        "text": "Relative strength within industry: compare asset to industry average. Use subtract(close, group_mean) or rank within industry group.",
         "category": "industry",
     },
     {
         "id": "ts_decay_signal",
-        "text": (
-            "Time-decay weighting: recent data more important. Use ts_decay_linear with windows 5-20."
-            "Exponential decay captures recency bias in signals."
-        ),
+        "text": "Time-decay weighting: recent data more important. Use ts_decay_linear with windows 5-20. Exponential decay captures recency bias in signals.",
         "category": "temporal",
     },
     {
         "id": "ts_rank_signal",
-        "text": (
-            "Temporal ranking: rank current value within historical distribution. Use ts_rank(close,"
-            "20) to measure where current price sits in recent range. Values near 1 = near high."
-        ),
+        "text": "Temporal ranking: rank current value within historical distribution. Use ts_rank(close, 20) to measure where current price sits in recent range. Values near 1 = near high.",
         "category": "temporal",
     },
     {
         "id": "ts_corr_signal",
-        "text": (
-            "Rolling correlation: correlation between two series over time. Use ts_corr(close,"
-            "volume, 20) to detect volume-price relationship changes."
-        ),
+        "text": "Rolling correlation: correlation between two series over time. Use ts_corr(close, volume, 20) to detect volume-price relationship changes.",
         "category": "temporal",
     },
     {
         "id": "ts_regression_signal",
-        "text": (
-            "Time-series regression: factor exposure over time. Use ts_regression(returns,"
-            "market_returns, 20, rettype) for beta, residual, or alpha extraction."
-        ),
+        "text": "Time-series regression: factor exposure over time. Use ts_regression(returns, market_returns, 20, rettype) for beta, residual, or alpha extraction.",
         "category": "temporal",
     },
     {
         "id": "cross_sectional_rank",
-        "text": (
-            "Cross-sectional ranking: rank assets against each other at each point in time. Use"
-            "rank() to normalize distributions. Essential for market-neutral alphas."
-        ),
+        "text": "Cross-sectional ranking: rank assets against each other at each point in time. Use rank() to normalize distributions. Essential for market-neutral alphas.",
         "category": "cross_sectional",
     },
     {
         "id": "cross_sectional_zscore",
-        "text": (
-            "Cross-sectional z-score: standardize across assets. Use zscore() or group_zscore() for"
-            "industry-relative normalization."
-        ),
+        "text": "Cross-sectional z-score: standardize across assets. Use zscore() or group_zscore() for industry-relative normalization.",
         "category": "cross_sectional",
     },
     {
         "id": "cross_sectional_neutralize",
-        "text": (
-            "Group neutralization: remove group effects. Use group_neutralize(expr, industry) to"
-            "create market-neutral signals. Critical for IQC submission."
-        ),
+        "text": "Group neutralization: remove group effects. Use group_neutralize(expr, industry) to create market-neutral signals. Critical for IQC submission.",
         "category": "cross_sectional",
     },
     {
         "id": "interaction_vol_momentum",
-        "text": (
-            "Volatility-conditioned momentum: momentum stronger in low-vol regimes. Combine"
-            "rank(ts_delta(close, 20)) with inverse ts_std_dev(returns, 20)."
-        ),
+        "text": "Volatility-conditioned momentum: momentum stronger in low-vol regimes. Combine rank(ts_delta(close, 20)) with inverse ts_std_dev(returns, 20).",
         "category": "interaction",
     },
     {
         "id": "interaction_liquidity_value",
-        "text": (
-            "Liquidity-conditioned value: value premium stronger in illiquid stocks. Combine"
-            "fundamental ratios with volume/adv20 inverse."
-        ),
+        "text": "Liquidity-conditioned value: value premium stronger in illiquid stocks. Combine fundamental ratios with volume/adv20 inverse.",
         "category": "interaction",
     },
     {
         "id": "interaction_size_quality",
-        "text": (
-            "Size-quality interaction: quality premium concentrated in small caps. Combine quality"
-            "metrics with log(cap) inverse."
-        ),
+        "text": "Size-quality interaction: quality premium concentrated in small caps. Combine quality metrics with log(cap) inverse.",
         "category": "interaction",
     },
 ]

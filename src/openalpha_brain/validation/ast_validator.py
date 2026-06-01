@@ -17,91 +17,37 @@ OpenAlpha-Brain — ASTValidator (AlphaBench ICLR'26 Hard Validation)
   - GenerationGates._check_expression_code() — E↔C 门控硬拦截
   - ThreeBlockTemplate.validate_assembly() — 三段式结构完整性
 """
-
 from __future__ import annotations
 
 import ast
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
-from openalpha_brain.utils.algo_logger import Timer, algo_log, log_call
+from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 
 logger = logging.getLogger(__name__)
 
 EPSILON = 1e-6
 
 # ── WQ 平台 66 个合法算子白名单（来源: brain_operators.json）─────────────────
-OPERATOR_WHITELIST = frozenset(
-    {
-        "add",
-        "sqrt",
-        "log",
-        "subtract",
-        "signed_power",
-        "sign",
-        "reverse",
-        "power",
-        "multiply",
-        "min",
-        "max",
-        "inverse",
-        "densify",
-        "abs",
-        "divide",
-        "and",
-        "equal",
-        "or",
-        "not_equal",
-        "not",
-        "greater",
-        "greater_equal",
-        "less_equal",
-        "is_nan",
-        "if_else",
-        "less",
-        "ts_sum",
-        "ts_zscore",
-        "ts_std_dev",
-        "ts_mean",
-        "ts_scale",
-        "ts_rank",
-        "ts_quantile",
-        "ts_arg_min",
-        "ts_regression",
-        "kth_element",
-        "ts_corr",
-        "ts_count_nans",
-        "ts_covariance",
-        "ts_decay_linear",
-        "ts_product",
-        "ts_delay",
-        "ts_backfill",
-        "ts_av_diff",
-        "hump",
-        "ts_arg_max",
-        "last_diff_value",
-        "ts_step",
-        "ts_delta",
-        "days_from_last_change",
-        "winsorize",
-        "normalize",
-        "quantile",
-        "rank",
-        "scale",
-        "zscore",
-        "vec_sum",
-        "vec_avg",
-        "bucket",
-        "trade_when",
-        "group_scale",
-        "group_neutralize",
-        "group_zscore",
-        "group_backfill",
-        "group_mean",
-        "group_rank",
-    }
-)
+OPERATOR_WHITELIST = frozenset({
+    "add", "sqrt", "log", "subtract", "signed_power", "sign",
+    "reverse", "power", "multiply", "min", "max", "inverse",
+    "densify", "abs", "divide", "and", "equal", "or",
+    "not_equal", "not", "greater", "greater_equal", "less_equal",
+    "is_nan", "if_else", "less",
+    "ts_sum", "ts_zscore", "ts_std_dev", "ts_mean", "ts_scale",
+    "ts_rank", "ts_quantile", "ts_arg_min", "ts_regression",
+    "kth_element", "ts_corr", "ts_count_nans", "ts_covariance",
+    "ts_decay_linear", "ts_product", "ts_delay", "ts_backfill",
+    "ts_av_diff", "hump", "ts_arg_max", "last_diff_value",
+    "ts_step", "ts_delta", "days_from_last_change",
+    "winsorize", "normalize", "quantile", "rank", "scale",
+    "zscore", "vec_sum", "vec_avg", "bucket", "trade_when",
+    "group_scale", "group_neutralize", "group_zscore",
+    "group_backfill", "group_mean", "group_rank",
+})
 
 # 中性化算子集合
 _NEUTRALIZE_OPS = frozenset({"group_neutralize", "group_zscore"})
@@ -116,7 +62,7 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     structure_info: dict[str, Any] = field(default_factory=dict)
-    signal_segment: str | None = None
+    signal_segment: Optional[str] = None
     fix_suggestions: list[str] = field(default_factory=list)
 
 
@@ -158,7 +104,7 @@ class _ExprVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     @staticmethod
-    def _call_name(node: ast.Call) -> str | None:
+    def _call_name(node: ast.Call) -> Optional[str]:
         if isinstance(node.func, ast.Name):
             return node.func.id
         return None
@@ -187,7 +133,7 @@ class ASTValidator:
 
     def __init__(
         self,
-        operator_whitelist: frozenset[str] | None = None,
+        operator_whitelist: Optional[frozenset[str]] = None,
         max_nesting_depth: int = 8,
     ) -> None:
         self._whitelist = operator_whitelist or OPERATOR_WHITELIST
@@ -236,41 +182,57 @@ class ASTValidator:
         # Rule 2: 算子白名单
         if visitor.unknown_operators:
             unknown_set = list(dict.fromkeys(visitor.unknown_operators))
-            errors.append(f"[DEFENSIVE_LOG] 非法算子 detected: {unknown_set}")
-            fix_suggestions.append(f"移除非法算子，仅使用 WQ 平台 {len(self._whitelist)} 个合法算子")
+            errors.append(
+                f"[DEFENSIVE_LOG] 非法算子 detected: {unknown_set}"
+            )
+            fix_suggestions.append(
+                f"移除非法算子，仅使用 WQ 平台 {len(self._whitelist)} 个合法算子"
+            )
 
         # Rule 5: 嵌套深度
         structure_info["nesting_depth"] = visitor.max_nesting_depth
         if visitor.max_nesting_depth > self._max_depth:
-            errors.append(f"[DEFENSIVE_LOG] 嵌套深度超限: {visitor.max_nesting_depth} > {self._max_depth}")
+            errors.append(
+                f"[DEFENSIVE_LOG] 嵌套深度超限: {visitor.max_nesting_depth} > {self._max_depth}"
+            )
         elif visitor.max_nesting_depth == self._max_depth:
-            warnings.append(f"[DEFENSIVE_LOG] 嵌套深度达到上限: {visitor.max_nesting_depth}/{self._max_depth}")
+            warnings.append(
+                f"[DEFENSIVE_LOG] 嵌套深度达到上限: {visitor.max_nesting_depth}/{self._max_depth}"
+            )
 
         # Rule 8: 参数类型 — 字符串字面量警告
         for lineno, sval in visitor.string_literals:
-            warnings.append(f"[DEFENSIVE_LOG] 检测到字符串字面量 (line {lineno}): '{sval[:30]}', 可能是非法参数")
+            warnings.append(
+                f"[DEFENSIVE_LOG] 检测到字符串字面量 (line {lineno}): '{sval[:30]}', 可能是非法参数"
+            )
 
         # Rule 3 & 4 & 7: 三段式结构识别
         three_block = self._analyze_three_block(tree, visitor.root_calls)
-        structure_info.update(
-            {
-                "operators_used": list(dict.fromkeys(visitor.operators_used)),
-                "operator_count": len(visitor.operators_used),
-                "has_neutralize": three_block.has_neutralize,
-                "has_decay": three_block.has_decay,
-                "neutralize_op": three_block.neutralize_op,
-                "decay_op": three_block.decay_op,
-                "is_valid_three_block": three_block.is_valid_three_block,
-                "signal_depth": three_block.signal_depth,
-            }
-        )
+        structure_info.update({
+            "operators_used": list(dict.fromkeys(visitor.operators_used)),
+            "operator_count": len(visitor.operators_used),
+            "has_neutralize": three_block.has_neutralize,
+            "has_decay": three_block.has_decay,
+            "neutralize_op": three_block.neutralize_op,
+            "decay_op": three_block.decay_op,
+            "is_valid_three_block": three_block.is_valid_three_block,
+            "signal_depth": three_block.signal_depth,
+        })
 
         if not three_block.has_neutralize:
-            warnings.append("[DEFENSIVE_LOG] 缺少中性化段 (group_neutralize/group_zscore)")
-            fix_suggestions.append("注入默认 B 段: group_neutralize({signal}, industry)")
+            warnings.append(
+                "[DEFENSIVE_LOG] 缺少中性化段 (group_neutralize/group_zscore)"
+            )
+            fix_suggestions.append(
+                "注入默认 B 段: group_neutralize({signal}, industry)"
+            )
         if not three_block.has_decay:
-            warnings.append("[DEFENSIVE_LOG] 缺少衰减段 (ts_decay_linear)")
-            fix_suggestions.append("注入默认 C 段: ts_decay_linear({neutralized}, 10)")
+            warnings.append(
+                "[DEFENSIVE_LOG] 缺少衰减段 (ts_decay_linear)"
+            )
+            fix_suggestions.append(
+                "注入默认 C 段: ts_decay_linear({neutralized}, 10)"
+            )
 
         signal_seg = self._extract_signal_segment(expr, three_block)
         structure_info["signal_segment"] = signal_seg
@@ -305,17 +267,15 @@ class ASTValidator:
     @staticmethod
     @algo_log(level=logging.DEBUG, label="ASTValidator.try_parse")
     def _try_parse(expr: str) -> tuple[bool, ast.Module | str]:
-        with Timer("ast.parse"):
+        with Timer("ast.parse") as t:
             try:
-                tree = ast.parse(expr, mode="eval")
+                tree = ast.parse(expr, mode='eval')
                 return True, tree
             except SyntaxError as exc:
                 return False, f"{exc.msg} (offset {exc.offset})"
 
     def _analyze_three_block(
-        self,
-        tree: ast.Expression,
-        root_calls: list[str],
+        self, tree: ast.Expression, root_calls: list[str],
     ) -> _ThreeBlockStructure:
         result = _ThreeBlockStructure()
 
@@ -350,7 +310,7 @@ class ASTValidator:
         return result
 
     @staticmethod
-    def _get_first_arg(node: ast.expr) -> ast.expr | None:
+    def _get_first_arg(node: ast.expr) -> Optional[ast.expr]:
         if isinstance(node, ast.Call) and node.args:
             return node.args[0]
         return None
@@ -369,9 +329,8 @@ class ASTValidator:
 
     @staticmethod
     def _extract_signal_segment(
-        expr: str,
-        three_block: _ThreeBlockStructure,
-    ) -> str | None:
+        expr: str, three_block: _ThreeBlockStructure,
+    ) -> Optional[str]:
         if three_block.is_valid_three_block:
             try:
                 gn_start = expr.index(three_block.neutralize_op)
@@ -380,10 +339,10 @@ class ASTValidator:
                 td_paren = expr.index("(", td_start)
                 close_pos = _find_matching_close(expr, td_paren + 1)
                 if close_pos > 0:
-                    decay_inner = expr[td_paren + 1 : close_pos].strip()
+                    decay_inner = expr[td_paren + 1:close_pos].strip()
                     gn_close = _find_matching_close(expr, gn_paren + 1)
                     if gn_close > 0:
-                        neutralize_inner = expr[gn_paren + 1 : gn_close].strip()
+                        neutralize_inner = expr[gn_paren + 1:gn_close].strip()
                         comma_pos = neutralize_inner.rfind(",")
                         if comma_pos > 0:
                             return neutralize_inner[:comma_pos].strip()
@@ -396,9 +355,9 @@ class ASTValidator:
 def _find_matching_close(s: str, open_pos: int) -> int:
     depth = 0
     for i in range(open_pos, len(s)):
-        if s[i] == "(":
+        if s[i] == '(':
             depth += 1
-        elif s[i] == ")":
+        elif s[i] == ')':
             depth -= 1
             if depth == 0:
                 return i

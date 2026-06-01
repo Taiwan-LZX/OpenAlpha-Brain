@@ -3,61 +3,31 @@ OpenAlpha - Quant — IQC Constraint + Syntax Validator
 Two public functions: validate_syntax() and validate_metrics().
 Both return ValidationResult(passed, failures, warnings).
 """
-
 from __future__ import annotations
 
 import logging
 import re
+from typing import Optional
+from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 
-from openalpha_brain.cli.algo_monitor import AlgoMonitor
-from openalpha_brain.config.config import settings
 from openalpha_brain.core.models import ValidationResult
-from openalpha_brain.data import get_data_path
 from openalpha_brain.generation.ast_originality import OriginalityChecker
-from openalpha_brain.utils.algo_logger import algo_log
-from openalpha_brain.validation.complexity_control import ComplexityController
+from openalpha_brain.validation.complexity_control import ComplexityController, ComplexityMetrics
+from openalpha_brain.config.config import settings
+from openalpha_brain.cli.algo_monitor import AlgoMonitor
+from openalpha_brain.data import get_data_path
 
 logger = logging.getLogger(__name__)
 
 # ── Permitted operator whitelist ──────────────────────────────────────────────
 PERMITTED_OPERATORS_FALLBACK: set[str] = {
-    "rank",
-    "ts_rank",
-    "ts_mean",
-    "ts_std_dev",
-    "ts_delta",
-    "ts_zscore",
-    "ts_decay_linear",
-    "group_neutralize",
-    "abs",
-    "log",
-    "signed_power",
-    "max",
-    "min",
-    "scale",
-    "ts_delay",
-    "ts_sum",
-    "ts_corr",
-    "ts_regression",
-    "ts_arg_max",
-    "ts_arg_min",
-    "ts_backfill",
-    "trade_when",
-    "zscore",
-    "normalize",
-    "winsorize",
-    "hump",
-    "group_rank",
-    "group_zscore",
-    "ts_av_diff",
-    "ts_quantile",
-    "quantile",
-    "vec_sum",
-    "vec_avg",
-    "add",
-    "divide",
-    "multiply",
-    "subtract",
+    "rank", "ts_rank", "ts_mean", "ts_std_dev", "ts_delta", "ts_zscore",
+    "ts_decay_linear", "group_neutralize", "abs", "log",
+    "signed_power", "max", "min", "scale", "ts_delay", "ts_sum", "ts_corr",
+    "ts_regression", "ts_arg_max", "ts_arg_min", "ts_backfill", "trade_when",
+    "zscore", "normalize", "winsorize", "hump", "group_rank", "group_zscore",
+    "ts_av_diff", "ts_quantile", "quantile", "vec_sum", "vec_avg",
+    "add", "divide", "multiply", "subtract",
 }
 
 # Regex to find all function-call identifiers: word chars followed by (
@@ -80,50 +50,22 @@ _GN_RE = re.compile(
 # Fundamental/Analyst data uses dataset-specific prefixed names (e.g. fn_sales_q)
 # accessed via the BRAIN Data Explorer — NOT bare names like 'sales' or 'earnings'.
 VALID_BRAIN_VARS_STRICT: set[str] = {
-    "open",
-    "high",
-    "low",
-    "close",
-    "vwap",
-    "volume",
-    "adv20",
-    "returns",
-    "cap",
-    "sales",
-    "assets",
-    "liabilities",
-    "revenue",
-    "equity",
-    "debt",
-    "industry",
-    "subindustry",
-    "sector",
+    "open", "high", "low", "close", "vwap", "volume", "adv20", "returns", "cap",
+    "sales", "assets", "liabilities", "revenue", "equity", "debt",
+    "industry", "subindustry", "sector",
 }
 
 TS_OPS_REQUIRING_LOOKBACK: set[str] = {
-    "ts_mean",
-    "ts_std_dev",
-    "ts_delta",
-    "ts_zscore",
-    "ts_rank",
-    "ts_decay_linear",
-    "ts_delay",
-    "ts_sum",
-    "ts_corr",
-    "ts_arg_max",
-    "ts_arg_min",
-    "ts_av_diff",
-    "ts_quantile",
-    "ts_regression",
+    "ts_mean", "ts_std_dev", "ts_delta", "ts_zscore", "ts_rank",
+    "ts_decay_linear", "ts_delay", "ts_sum", "ts_corr", "ts_arg_max",
+    "ts_arg_min", "ts_av_diff", "ts_quantile", "ts_regression",
 }
-
 
 def _load_operators_from_schema() -> set[str]:
     schema_path = get_data_path("brain_operators.json")
     if not schema_path.exists():
         return PERMITTED_OPERATORS_FALLBACK
     import json
-
     with open(schema_path, encoding="utf-8") as f:
         data = json.load(f)
     names = set()
@@ -139,7 +81,6 @@ def _load_datafields_from_schema() -> set[str]:
     if not schema_path.exists():
         return {v.lower() for v in VALID_BRAIN_VARS_STRICT}
     import json
-
     with open(schema_path, encoding="utf-8") as f:
         data = json.load(f)
     names = set()
@@ -198,7 +139,9 @@ def validate_syntax(expression: str) -> ValidationResult:
     if "group_neutralize" not in expr:
         failures.append("group_neutralize() is missing — required on every alpha")
     elif not _GN_RE.search(expr):
-        warnings.append("group_neutralize found but second arg is not 'sector' or 'industry'")
+        warnings.append(
+            "group_neutralize found but second arg is not 'sector' or 'industry'"
+        )
 
     # 3. Balanced parentheses (stack-based)
     if not _check_parens(expr):
@@ -213,7 +156,7 @@ def validate_syntax(expression: str) -> ValidationResult:
 
     # 4b. Lookback window missing for time-series operators
     ts_call_re = re.compile(
-        r"\b(" + "|".join(re.escape(op) for op in TS_OPS_REQUIRING_LOOKBACK) + r")\s*\(([^()]*)\)",
+        r'\b(' + '|'.join(re.escape(op) for op in TS_OPS_REQUIRING_LOOKBACK) + r')\s*\(([^()]*)\)',
         re.IGNORECASE,
     )
     for m in ts_call_re.finditer(expr):
@@ -222,20 +165,23 @@ def validate_syntax(expression: str) -> ValidationResult:
         depth = 0
         arg_count = 1
         for ch in inner:
-            if ch == "(":
+            if ch == '(':
                 depth += 1
-            elif ch == ")":
+            elif ch == ')':
                 depth -= 1
-            elif ch == "," and depth == 0:
+            elif ch == ',' and depth == 0:
                 arg_count += 1
         if arg_count < 2:
-            failures.append(f"{op_name} requires lookback window (only {arg_count} argument provided)")
+            failures.append(
+                f"{op_name} requires lookback window (only {arg_count} argument provided)"
+            )
 
     # 5. Float window arguments (integers only allowed)
     float_windows = _FLOAT_WINDOW_RE.findall(expr)
     if float_windows:
         failures.append(
-            f"Non-integer lookback window(s) detected: {float_windows} — all window arguments must be strict integers"
+            f"Non-integer lookback window(s) detected: {float_windows} — "
+            "all window arguments must be strict integers"
         )
 
     # 5b. Keyword arguments not allowed in FastExpr
@@ -250,7 +196,9 @@ def validate_syntax(expression: str) -> ValidationResult:
     string_literal_re = re.compile(r'["\'][a-zA-Z_][a-zA-Z0-9_]*["\']')
     string_matches = string_literal_re.findall(expr)
     if string_matches:
-        failures.append("String literals not allowed in FastExpr — use integer rettype values instead")
+        failures.append(
+            "String literals not allowed in FastExpr — use integer rettype values instead"
+        )
 
     # 6. Placeholder syntax check — "..." is never valid in BRAIN expressions
     if "..." in expr:
@@ -274,18 +222,13 @@ def validate_syntax(expression: str) -> ValidationResult:
 
 
 _JSON_ARTIFACT_KEYWORDS = re.compile(
-    r"\b(?:expression|regular|simulation_payload|settings|rationale|decision|"
-    r"fingerprint|family|ast_topology|metrics|mutation_paths|refinement_log)\s*[:=]\s*"
+    r'\b(?:expression|regular|simulation_payload|settings|rationale|decision|'
+    r'fingerprint|family|ast_topology|metrics|mutation_paths|refinement_log)\s*[:=]\s*'
 )
 
 BRAIN_7_STANDARDS = {
-    "sharpe",
-    "fitness",
-    "turnover",
-    "returns",
-    "drawdown",
-    "self_correlation",
-    "low_sub_universe_sharpe",
+    "sharpe", "fitness", "turnover", "returns", "drawdown",
+    "self_correlation", "low_sub_universe_sharpe",
 }
 
 
@@ -375,8 +318,9 @@ def compute_hierarchical_reward(expression: str, brain_result: dict | None = Non
     if "SELF_CORRELATION" in failed_checks:
         reward -= 0.15
 
-    if turnover is not None and (turnover < 1.0 or turnover > 70.0):
-        reward -= 0.10
+    if turnover is not None:
+        if turnover < 1.0 or turnover > 70.0:
+            reward -= 0.10
 
     if drawdown is not None and drawdown > 15.0:
         reward -= 0.08
@@ -423,7 +367,7 @@ def estimate_sharpe_likelihood(expression: str) -> float:
         score += 0.05
     if "subindustry" in expr_lower:
         score += 0.05
-    ops = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*\(", expr_lower))
+    ops = set(re.findall(r'\b([a-z_][a-z0-9_]*)\s*\(', expr_lower))
     if len(ops) >= 3:
         score += 0.05
     if "*" in expression and "rank(" in expr_lower:
@@ -431,6 +375,7 @@ def estimate_sharpe_likelihood(expression: str) -> float:
     if "rank(" in expr_lower and expr_lower.count("rank(") == 1:
         score += 0.05
     return min(score, 1.0)
+
 
 
 def validate_fitness(
@@ -447,7 +392,6 @@ def validate_fitness(
     Sweet spot: Sharpe ~1.4, Returns ~20%, Turnover ~20% → Fitness ~2.0
     """
     import math
-
     failures: list[str] = []
     warnings: list[str] = []
 
@@ -464,7 +408,9 @@ def validate_fitness(
     )
 
     if fitness <= 1.0:
-        failures.append(f"Fitness {fitness:.4f} ≤ 1.0 — gate FAIL. {breakdown}")
+        failures.append(
+            f"Fitness {fitness:.4f} ≤ 1.0 — gate FAIL. {breakdown}"
+        )
     elif fitness < 1.5:
         warnings.append(f"Fitness {fitness:.4f} is below the 1.5 competitive threshold.")
 
@@ -488,22 +434,23 @@ def validate_metrics(parsed: dict) -> ValidationResult:
 
     Returns ValidationResult with any failing gates listed.
     """
+    import math
     failures: list[str] = []
     warnings: list[str] = []
     values: dict = {}
 
     metrics = parsed.get("metrics", {})
 
-    sharpe_min: float | None = metrics.get("sharpe_min")
-    metrics.get("sharpe_max")
-    fitness_min: float | None = metrics.get("fitness_min")
-    turnover_min: float | None = metrics.get("turnover_min")
-    turnover_max: float | None = metrics.get("turnover_max")
-    returns_pct: float | None = metrics.get("returns_pct")
-    corr_risk: str | None = metrics.get("corr_risk")
+    sharpe_min: Optional[float] = metrics.get("sharpe_min")
+    sharpe_max: Optional[float] = metrics.get("sharpe_max")
+    fitness_min: Optional[float] = metrics.get("fitness_min")
+    turnover_min: Optional[float] = metrics.get("turnover_min")
+    turnover_max: Optional[float] = metrics.get("turnover_max")
+    returns_pct: Optional[float] = metrics.get("returns_pct")
+    corr_risk: Optional[str] = metrics.get("corr_risk")
 
-    fitness_computed: float | None = None
-    fitness_breakdown: str | None = None
+    fitness_computed: Optional[float] = None
+    fitness_breakdown: Optional[str] = None
 
     # Sharpe gate ≥ 1.25
     if sharpe_min is None:
@@ -511,7 +458,9 @@ def validate_metrics(parsed: dict) -> ValidationResult:
     else:
         values["sharpe"] = sharpe_min
         if sharpe_min < 1.25:
-            failures.append(f"Sharpe {sharpe_min} < 1.25 — gate FAIL (need ≥ 1.25)")
+            failures.append(
+                f"Sharpe {sharpe_min} < 1.25 — gate FAIL (need ≥ 1.25)"
+            )
         elif sharpe_min < 1.35:
             warnings.append(f"Sharpe {sharpe_min} is marginal — consider pushing above 1.35")
 
@@ -523,9 +472,13 @@ def validate_metrics(parsed: dict) -> ValidationResult:
         hi = turnover_max or turnover_min or 0.0
         values["turnover_range"] = f"{lo}%–{hi}%"
         if lo < 1.0:
-            failures.append(f"Turnover lower bound {lo}% < 1% — gate FAIL (need 1–70%)")
+            failures.append(
+                f"Turnover lower bound {lo}% < 1% — gate FAIL (need 1–70%)"
+            )
         if hi > 70.0:
-            failures.append(f"Turnover upper bound {hi}% > 70% — gate FAIL (need 1–70%)")
+            failures.append(
+                f"Turnover upper bound {hi}% > 70% — gate FAIL (need 1–70%)"
+            )
 
     # Fitness gate: v2 uses exact formula when all inputs are available
     t_min = turnover_min if turnover_min is not None else 0
@@ -542,15 +495,20 @@ def validate_metrics(parsed: dict) -> ValidationResult:
         # Fallback: use LLM-estimated fitness (v1 path)
         values["fitness"] = fitness_min
         if fitness_min <= 1.0:
-            failures.append(f"Fitness {fitness_min} ≤ 1.0 — gate FAIL (need > 1.0) [LLM estimate]")
+            failures.append(
+                f"Fitness {fitness_min} ≤ 1.0 — gate FAIL (need > 1.0) [LLM estimate]"
+            )
     else:
         warnings.append(
-            "Fitness cannot be computed (missing Sharpe, Returns, or Turnover) — and no LLM fitness estimate provided"
+            "Fitness cannot be computed (missing Sharpe, Returns, or Turnover) — "
+            "and no LLM fitness estimate provided"
         )
 
     # Corr Risk — HIGH triggers re-iteration
     if corr_risk == "HIGH":
-        failures.append("Corr Risk is HIGH — alpha too similar to known factor families")
+        failures.append(
+            "Corr Risk is HIGH — alpha too similar to known factor families"
+        )
     elif corr_risk is None:
         warnings.append("Corr Risk field missing")
 
@@ -568,7 +526,11 @@ def fingerprint_collision(new_fp: dict, existing_fps: list[dict]) -> bool:
     """
     keys = ["dataset", "topology", "temporal", "normalization", "direction", "neutral"]
     for fp in existing_fps:
-        matches = sum(1 for k in keys if new_fp.get(k) and fp.get(k) and new_fp[k].lower() == fp[k].lower())
+        matches = sum(
+            1 for k in keys
+            if new_fp.get(k) and fp.get(k)
+            and new_fp[k].lower() == fp[k].lower()
+        )
         if matches >= 2:
             return True
     return False
@@ -606,25 +568,10 @@ def get_originality_checker() -> OriginalityChecker:
 
 
 _FINANCIAL_KEYWORDS: set[str] = {
-    "momentum",
-    "reversal",
-    "mean",
-    "volatility",
-    "risk",
-    "return",
-    "signal",
-    "noise",
-    "correlation",
-    "neutralization",
-    "ranking",
-    "cross-sectional",
-    "time-series",
-    "overreaction",
-    "underreaction",
-    "liquidity",
-    "size",
-    "value",
-    "quality",
+    "momentum", "reversal", "mean", "volatility", "risk", "return",
+    "signal", "noise", "correlation", "neutralization", "ranking",
+    "cross-sectional", "time-series", "overreaction", "underreaction",
+    "liquidity", "size", "value", "quality",
 }
 
 
@@ -641,12 +588,7 @@ def verify_economic_explanation(expression: str, rationale: str, direction: str 
     warnings: list[str] = []
 
     if keyword_hits == 0:
-        return {
-            "valid": False,
-            "reason": "No financial concept keywords found in rationale",
-            "warnings": [],
-            "consistency_score": 0.1,
-        }
+        return {"valid": False, "reason": "No financial concept keywords found in rationale", "warnings": [], "consistency_score": 0.1}
 
     expr_lower = expression.lower()
 
@@ -663,9 +605,7 @@ def verify_economic_explanation(expression: str, rationale: str, direction: str 
     if "group_neutralize" in expr_lower and not any(
         w in rationale_lower for w in ("neutralization", "sector", "industry")
     ):
-        warnings.append(
-            "Expression uses group_neutralize but rationale does not mention neutralization/sector/industry"
-        )
+        warnings.append("Expression uses group_neutralize but rationale does not mention neutralization/sector/industry")
 
     consistency_score = min(1.0, keyword_hits / 5.0)
     if warnings:
@@ -695,40 +635,26 @@ def validate_alpha(alpha_id: str, expression: str) -> ValidationResult:
             else:
                 logger.info(
                     "[ALGO_PASS] module=complexity alpha=%s depth=%d nodes=%d ops=%d",
-                    alpha_id,
-                    metrics.depth,
-                    metrics.node_count,
-                    metrics.operator_count,
+                    alpha_id, metrics.depth, metrics.node_count, metrics.operator_count,
                 )
-                _monitor.record(
-                    "PASS",
-                    "complexity",
-                    "check",
-                    f"depth={metrics.depth} ops={metrics.operator_count}",
-                    alpha_id=alpha_id,
-                )
+                _monitor.record("PASS", "complexity", "check", f"depth={metrics.depth} ops={metrics.operator_count}", alpha_id=alpha_id)
         except (ValueError, TypeError, OSError) as exc:
             logger.warning("Complexity check error for %s: %s", alpha_id, exc)
-            logger.warning(
-                "[DEFENSIVE] validator: complexity_check_skipped alpha=%s error=%s — validation may pass without complexity gate",  # noqa: E501
-                alpha_id,
-                exc,
-            )
+            logger.warning("[DEFENSIVE] validator: complexity_check_skipped alpha=%s error=%s — validation may pass without complexity gate", alpha_id, exc)
 
     if settings.ORIGINALITY_CHECK_ENABLED:
         try:
             from openalpha_brain.core.loop_state import _algo_tick
-
             _algo_tick("originality_check")
             score = _originality_checker.check_originality(alpha_id, expression)
             if score < _originality_checker.ORIGINALITY_THRESHOLD:
                 failures.append(
-                    f"ORIGINALITY_FAIL: score={score:.2f} (threshold={_originality_checker.ORIGINALITY_THRESHOLD})"
+                    f"ORIGINALITY_FAIL: score={score:.2f} "
+                    f"(threshold={_originality_checker.ORIGINALITY_THRESHOLD})"
                 )
                 logger.info(
                     "[ALGO_SKIP] module=originality alpha=%s score=%.2f reason=low_originality",
-                    alpha_id,
-                    score,
+                    alpha_id, score,
                 )
                 _monitor.record("SKIP", "originality", "check", f"score={score:.2f} below_threshold", alpha_id=alpha_id)
             else:
@@ -738,26 +664,13 @@ def validate_alpha(alpha_id: str, expression: str) -> ValidationResult:
                     _originality_checker.register_alpha(alpha_id, expression)
         except (ValueError, TypeError, OSError) as exc:
             logger.warning("Originality check error for %s: %s", alpha_id, exc)
-            logger.warning(
-                "[DEFENSIVE] validator: originality_check_skipped alpha=%s error=%s — validation may pass without originality gate",  # noqa: E501
-                alpha_id,
-                exc,
-            )
+            logger.warning("[DEFENSIVE] validator: originality_check_skipped alpha=%s error=%s — validation may pass without originality gate", alpha_id, exc)
 
     passed = len(failures) == 0
     if passed and (not settings.COMPLEXITY_CHECK_ENABLED or not settings.ORIGINALITY_CHECK_ENABLED):
-        logger.info(
-            "[DEFENSIVE] validator: validate_alpha_passed alpha=%s failures=%d — some gates were disabled or skipped",
-            alpha_id,
-            len(failures),
-        )
+        logger.info("[DEFENSIVE] validator: validate_alpha_passed alpha=%s failures=%d — some gates were disabled or skipped", alpha_id, len(failures))
     elif passed and len(failures) == 0:
         logger.info("[DEFENSIVE] validator: validate_alpha_passed_clean alpha=%s all_gates_checked", alpha_id)
     else:
-        logger.warning(
-            "[DEFENSIVE] validator: validate_alpha_failed alpha=%s failures=%d warnings=%d",
-            alpha_id,
-            len(failures),
-            len(warnings),
-        )
+        logger.warning("[DEFENSIVE] validator: validate_alpha_failed alpha=%s failures=%d warnings=%d", alpha_id, len(failures), len(warnings))
     return ValidationResult(passed=passed, failures=failures, warnings=warnings)

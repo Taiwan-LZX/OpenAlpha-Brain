@@ -182,58 +182,32 @@ async def update_config(req: ConfigUpdateRequest):
         return True
 
     llm_fields = {
-        "LLM_API_KEY",
-        "LLM_BASE_URL",
-        "LLM_MODEL",
-        "LLM_PROVIDER",
-        "LLM_TEMPERATURE",
-        "LLM_MAX_TOKENS",
-        "LLM_MAX_CONCURRENT",
-        "EMBED_MODEL",
-        "EMBED_BASE_URL",
-        "EMBED_MAX_CONCURRENT",
+        "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_PROVIDER",
+        "LLM_TEMPERATURE", "LLM_MAX_TOKENS", "LLM_MAX_CONCURRENT",
+        "EMBED_MODEL", "EMBED_BASE_URL", "EMBED_MAX_CONCURRENT",
     }
     brain_fields = {
-        "BRAIN_EMAIL",
-        "BRAIN_PASSWORD",
-        "BRAIN_SUBMIT_ENABLED",
-        "BRAIN_POLL_TIMEOUT",
-        "AUTOBRAIN_SIM_ENABLED",
+        "BRAIN_EMAIL", "BRAIN_PASSWORD", "BRAIN_SUBMIT_ENABLED",
+        "BRAIN_POLL_TIMEOUT", "AUTOBRAIN_SIM_ENABLED",
     }
     pipeline_fields = {
-        "PIPELINE_MODE",
-        "PIPELINE_MAX_SLOTS",
-        "GENERATOR_PARALLEL_TASKS",
+        "PIPELINE_MODE", "PIPELINE_MAX_SLOTS", "GENERATOR_PARALLEL_TASKS",
     }
     loop_fields = {"MAX_CYCLES", "MAX_MUTATIONS", "LOG_LEVEL"}
     mab_fields = {"MAB_ENABLED", "EVIDENCE_MAB_BIAS_ENABLED"}
     feature_fields = {
-        "RAG_ENABLED",
-        "RAG_TOOL_CALL_ENABLED",
-        "RAG_BUDGET_PER_CYCLE",
-        "RAG_TOP_K_OPS",
-        "RAG_TOP_K_FIELDS",
-        "MULTI_AGENT_ENABLED",
-        "ORIGINALITY_CHECK_ENABLED",
-        "COMPLEXITY_CHECK_ENABLED",
-        "CROSSOVER_ENABLED",
-        "EVIDENCE_RECORDING_ENABLED",
-        "SUCCESS_CASE_LIBRARY_ENABLED",
-        "FAILURE_FIX_LIBRARY_ENABLED",
-        "EXPERIENCE_DISTILLER_ENABLED",
-        "STRATEGY_CLASSIFIER_ENABLED",
-        "FEATURE_MAP_ENABLED",
-        "REFLECTION_ENGINE_ENABLED",
-        "TOOL_FACTORY_ENABLED",
-        "SEMANTIC_MUTATOR_ENABLED",
-        "HYPOTHESIS_ALIGNER_ENABLED",
-        "ADAPTIVE_AGENT_ENABLED",
-        "MARKET_STATE_ENABLED",
-        "PARAM_OPTIMIZATION_ENABLED",
-        "SIGNAL_ARBITER_ENABLED",
-        "FASTEXPR_GRAMMAR_ENABLED",
-        "EVOLUTION_DB_ENABLED",
-        "ALPHA_CHANNEL_ENABLED",
+        "RAG_ENABLED", "RAG_TOOL_CALL_ENABLED", "RAG_BUDGET_PER_CYCLE",
+        "RAG_TOP_K_OPS", "RAG_TOP_K_FIELDS", "MULTI_AGENT_ENABLED",
+        "ORIGINALITY_CHECK_ENABLED", "COMPLEXITY_CHECK_ENABLED",
+        "CROSSOVER_ENABLED", "EVIDENCE_RECORDING_ENABLED",
+        "SUCCESS_CASE_LIBRARY_ENABLED", "FAILURE_FIX_LIBRARY_ENABLED",
+        "EXPERIENCE_DISTILLER_ENABLED", "STRATEGY_CLASSIFIER_ENABLED",
+        "FEATURE_MAP_ENABLED", "REFLECTION_ENGINE_ENABLED",
+        "TOOL_FACTORY_ENABLED", "SEMANTIC_MUTATOR_ENABLED",
+        "HYPOTHESIS_ALIGNER_ENABLED", "ADAPTIVE_AGENT_ENABLED",
+        "MARKET_STATE_ENABLED", "PARAM_OPTIMIZATION_ENABLED",
+        "SIGNAL_ARBITER_ENABLED", "FASTEXPR_GRAMMAR_ENABLED",
+        "EVOLUTION_DB_ENABLED", "ALPHA_CHANNEL_ENABLED",
         "DIAGNOSIS_LLM_ENABLED",
     }
 
@@ -278,7 +252,6 @@ async def _test_llm_connection() -> dict:
         return {"status": "error", "message": "LLM_API_KEY is not set"}
     try:
         from openalpha_brain.services.llm_client import generate
-
         result = await generate(
             system_prompt="You are a test assistant.",
             history=[],
@@ -303,7 +276,6 @@ async def _test_brain_connection() -> dict:
         return {"status": "error", "message": "BRAIN_EMAIL or BRAIN_PASSWORD is not set"}
     try:
         from openalpha_brain.services.http_pool import get_client
-
         client = get_client()
         resp = await client.post(
             "https://api.worldquantbrain.com/authentication",
@@ -327,7 +299,6 @@ async def _test_embed_connection() -> dict:
         return {"status": "error", "message": "EMBED_BASE_URL is not set"}
     try:
         from openalpha_brain.services.llm_client import embed
-
         result = await embed("test connection")
         return {
             "status": "ok",
@@ -347,7 +318,6 @@ async def get_available_models():
     if provider == "lmstudio":
         try:
             from openalpha_brain.services.http_pool import get_client
-
             client = get_client()
             resp = await client.get(
                 f"{settings.LMSTUDIO_API_BASE}/v1/models",

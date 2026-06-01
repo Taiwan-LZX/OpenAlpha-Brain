@@ -9,6 +9,8 @@ from typing import Any
 from fastapi import WebSocket
 
 from openalpha_brain.core.events import AlphaEvent, AlphaEventBus
+from openalpha_brain.cli.event_adapters import EventAdapterFactory
+from openalpha_brain.cli.ws_renderer import get_ws_renderer, render_to_json
 
 logger = logging.getLogger(__name__)
 
@@ -42,37 +44,12 @@ class WSBroadcaster:
         self._connections.discard(websocket)
         logger.info("WebSocket client disconnected, total=%d", len(self._connections))
 
-    async def broadcast(self, event_type: str, data: dict[str, Any], timestamp: float | None = None) -> None:
+    async def broadcast(self, event_data: dict[str, Any]) -> None:
         if not self._connections:
             return
 
-        # Map event types to frontend log modules
-        module_map = {
-            "cycle_complete": "System",
-            "alpha_generated": "FactorAgent",
-            "alpha_passed": "EvalAgent",
-            "alpha_failed": "EvalAgent",
-            "brain_submitted": "BRAIN",
-            "brain_result": "BRAIN",
-            "log": "System",
-            "session_complete": "System",
-            "brain_submit": "BRAIN",
-            "mab_update": "MAB",
-            "generator_update": "FactorAgent",
-            "metrics_update": "System",
-        }
-
         message = json.dumps(
-            {
-                "type": event_type,
-                "module": module_map.get(event_type, "System"),
-                "timestamp": (
-                    datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
-                    if timestamp
-                    else datetime.now(tz=UTC).isoformat()
-                ),
-                "data": data,
-            },
+            event_data,
             default=str,
             ensure_ascii=False,
         )
@@ -88,14 +65,19 @@ class WSBroadcaster:
     def _on_event(self, event: AlphaEvent) -> None:
         if not self._connections:
             return
+
+        adapter = EventAdapterFactory.create(event)
+        renderer = get_ws_renderer()
+        rendered_data = renderer.render(adapter)
+
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(
-                self.broadcast(event.event_type, event.data, event.timestamp),
+                self.broadcast(rendered_data),
             )
         except RuntimeError:
             asyncio.run(
-                self.broadcast(event.event_type, event.data, event.timestamp),
+                self.broadcast(rendered_data),
             )
 
 

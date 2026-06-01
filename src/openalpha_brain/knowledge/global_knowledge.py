@@ -75,7 +75,11 @@ class GlobalKnowledge:
                 )
 
     def get_high_frequency(self, threshold: int = 3) -> list[str]:
-        return [entry.content for entry in self._entries.values() if entry.count >= threshold]
+        return [
+            entry.content
+            for entry in self._entries.values()
+            if entry.count >= threshold
+        ]
 
     def get_all_entries(self) -> list[HallucinationEntry]:
         return sorted(self._entries.values(), key=lambda e: e.count, reverse=True)

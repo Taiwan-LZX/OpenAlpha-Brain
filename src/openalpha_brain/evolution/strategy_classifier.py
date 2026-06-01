@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import math
@@ -40,7 +39,7 @@ _MECHANISM_KEYWORDS: dict[str, list[str]] = {
     "signal": [],
 }
 
-_CLASSIFICATION_CALIBRATION_PROMPT = """You are a quantitative factor strategy classifier. Verify or correct this rule-based classification.  # noqa: E501
+_CLASSIFICATION_CALIBRATION_PROMPT = """You are a quantitative factor strategy classifier. Verify or correct this rule-based classification.
 
 Expression: {expression}
 Rule-based classification: direction="{direction}", confidence={confidence:.2f}
@@ -79,12 +78,7 @@ class StrategyProfile:
 
 
 class StrategyClassifier:
-    def __init__(
-        self,
-        path: str = "runtime/strategy_profiles.json",
-        embed_fn: Callable[..., Awaitable] | None = None,
-        llm_generate_fn: Callable[..., Awaitable] | None = None,
-    ):
+    def __init__(self, path: str = "runtime/strategy_profiles.json", embed_fn: Callable[..., Awaitable] | None = None, llm_generate_fn: Callable[..., Awaitable] | None = None):
         self._path = Path(path)
         self._profiles: list[StrategyProfile] = []
         self._embed_fn = embed_fn
@@ -118,9 +112,7 @@ class StrategyClassifier:
     async def classify(self, expression: str, brain_result: dict | None = None) -> StrategyProfile:
         eid = None
         try:
-            eid = await self._tel.record_enter(
-                "StrategyClassifier", cycle_id="unknown", expr_id=hash(expression) % 10000
-            )
+            eid = await self._tel.record_enter("StrategyClassifier", cycle_id="unknown", expr_id=hash(expression) % 10000)
             t0 = time.perf_counter()
             with Timer("classify"):
                 direction, dir_flags = self._infer_direction(expression)
@@ -142,7 +134,10 @@ class StrategyClassifier:
                     try:
                         vec = await self._embed_fn(expression)
                         if isinstance(vec, list):
-                            embedding = vec[0] if len(vec) > 0 and isinstance(vec[0], list) else vec
+                            if len(vec) > 0 and isinstance(vec[0], list):
+                                embedding = vec[0]
+                            else:
+                                embedding = vec
                         elif isinstance(vec, np.ndarray):
                             embedding = vec.tolist()
                     except (ValueError, TypeError, OSError):
@@ -163,13 +158,15 @@ class StrategyClassifier:
                     profile.sub_universe_sharpe = brain_result.get("sub_universe_sharpe")
 
                 needs_calibration = (
-                    direction_confidence < 0.65 or dir_flags.get("ambiguous", False) or dir_flags.get("tied", False)
+                    direction_confidence < 0.65
+                    or dir_flags.get("ambiguous", False)
+                    or dir_flags.get("tied", False)
                 )
                 llm_calibrated = False
                 if needs_calibration and self._llm_generate_fn is not None:
                     self._calibration_stats["total"] += 1
                     logger.info(
-                        "[STRAT-CLASS-LLM] Triggering LLM calibration: confidence=%.3f, ambiguous=%s, tied=%s, direction='%s'",  # noqa: E501
+                        "[STRAT-CLASS-LLM] Triggering LLM calibration: confidence=%.3f, ambiguous=%s, tied=%s, direction='%s'",
                         direction_confidence,
                         dir_flags.get("ambiguous", False),
                         dir_flags.get("tied", False),
@@ -198,9 +195,7 @@ class StrategyClassifier:
                         "classification_details": {
                             "inferred_direction": profile.direction,
                             "inferred_mechanism": mechanism,
-                            "confidence_level": "high"
-                            if direction_confidence > 0.65
-                            else ("low" if direction_confidence < 0.5 else "boundary"),
+                            "confidence_level": "high" if direction_confidence > 0.65 else ("low" if direction_confidence < 0.5 else "boundary"),
                             "dir_flags": dir_flags,
                             "calibration_applied": profile.calibration_details,
                         }
@@ -211,22 +206,17 @@ class StrategyClassifier:
                 self._save()
 
             ms = (time.perf_counter() - t0) * 1000
-            with contextlib.suppress(OSError, ValueError, RuntimeError):
-                await self._tel.record_exit(
-                    "StrategyClassifier",
-                    eid,
-                    metrics={
-                        "direction": profile.direction,
-                        "confidence": round(direction_confidence, 3),
-                        "llm_calibrated": llm_calibrated,
-                    },
-                    duration_ms=ms,
-                )
+            try:
+                await self._tel.record_exit("StrategyClassifier", eid, metrics={"direction": profile.direction, "confidence": round(direction_confidence, 3), "llm_calibrated": llm_calibrated}, duration_ms=ms)
+            except (OSError, ValueError, RuntimeError):
+                pass
             return profile
         except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError) as e:
             if eid:
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                try:
                     await self._tel.record_error("StrategyClassifier", str(e), type(e).__name__)
+                except (OSError, ValueError, RuntimeError):
+                    pass
             raise
 
     def _calculate_direction_confidence(self, expr: str, inferred_direction: str) -> float:
@@ -286,15 +276,13 @@ class StrategyClassifier:
         return "signal"
 
     def _extract_operators(self, expr: str) -> list[str]:
-        return sorted(set(re.findall(r"\b(ts_\w+|rank|group_neutralize|trade_when|signed_power)\b", expr)))
+        return sorted(set(re.findall(r'\b(ts_\w+|rank|group_neutralize|trade_when|signed_power)\b', expr)))
 
     @algo_log(log_args_to_skip=("self",))
     async def _llm_calibrate_classification(self, expression: str, rule_result: StrategyProfile) -> StrategyProfile:
         eid = None
         try:
-            eid = await self._tel.record_enter(
-                "StrategyClassifier", cycle_id="unknown", expr_id=hash(expression) % 10000
-            )
+            eid = await self._tel.record_enter("StrategyClassifier", cycle_id="unknown", expr_id=hash(expression) % 10000)
             t0 = time.perf_counter()
 
             self._calibration_stats["llm_called"] += 1
@@ -311,46 +299,34 @@ class StrategyClassifier:
                     timeout=12.0,
                 )
             except (TimeoutError, aiohttp.ClientError, ValueError, json.JSONDecodeError):
-                logger.warning(
-                    "[STRAT-CLASS-LLM] LLM call failed or timed out (12s), returning rule-based result unchanged"
-                )
+                logger.warning("[STRAT-CLASS-LLM] LLM call failed or timed out (12s), returning rule-based result unchanged")
                 ms = (time.perf_counter() - t0) * 1000
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
-                    await self._tel.record_exit(
-                        "StrategyClassifier",
-                        eid,
-                        metrics={"agreed": True, "error": "timeout_or_exception"},
-                        duration_ms=ms,
-                    )
+                try:
+                    await self._tel.record_exit("StrategyClassifier", eid, metrics={"agreed": True, "error": "timeout_or_exception"}, duration_ms=ms)
+                except (OSError, ValueError, RuntimeError):
+                    pass
                 return rule_result
             if not isinstance(llm_response, str):
                 logger.warning("[STRAT-CLASS-LLM] LLM returned non-string response, returning rule-based result")
                 ms = (time.perf_counter() - t0) * 1000
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
-                    await self._tel.record_exit(
-                        "StrategyClassifier",
-                        eid,
-                        metrics={"agreed": True, "error": "non_string_response"},
-                        duration_ms=ms,
-                    )
+                try:
+                    await self._tel.record_exit("StrategyClassifier", eid, metrics={"agreed": True, "error": "non_string_response"}, duration_ms=ms)
+                except (OSError, ValueError, RuntimeError):
+                    pass
                 return rule_result
             response_text = llm_response.strip()
             direction_match = re.search(r"DIRECTION:\s*(\w+)", response_text, re.IGNORECASE)
             confidence_match = re.search(r"CONFIDENCE:\s*([\d.]+)", response_text)
-            reasoning_match = re.search(
-                r"REASONING:\s*(.+?)(?:\nAGREE_WITH_RULES:|$)", response_text, re.DOTALL | re.IGNORECASE
-            )
+            reasoning_match = re.search(r"REASONING:\s*(.+?)(?:\nAGREE_WITH_RULES:|$)", response_text, re.DOTALL | re.IGNORECASE)
             agree_match = re.search(r"AGREE_WITH_RULES:\s*(yes|no)", response_text, re.IGNORECASE)
 
             if not direction_match:
-                logger.warning(
-                    "[STRAT-CLASS-LLM] Could not parse DIRECTION from LLM response, keeping rule-based result"
-                )
+                logger.warning("[STRAT-CLASS-LLM] Could not parse DIRECTION from LLM response, keeping rule-based result")
                 ms = (time.perf_counter() - t0) * 1000
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
-                    await self._tel.record_exit(
-                        "StrategyClassifier", eid, metrics={"agreed": True, "error": "parse_failed"}, duration_ms=ms
-                    )
+                try:
+                    await self._tel.record_exit("StrategyClassifier", eid, metrics={"agreed": True, "error": "parse_failed"}, duration_ms=ms)
+                except (OSError, ValueError, RuntimeError):
+                    pass
                 return rule_result
 
             corrected_direction = direction_match.group(1).lower().strip()
@@ -360,27 +336,21 @@ class StrategyClassifier:
 
             valid_directions = set(_DIRECTION_KEYWORDS.keys())
             if corrected_direction not in valid_directions:
-                logger.warning(
-                    "[STRAT-CLASS-LLM] LLM returned unknown direction '%s', keeping rule-based result",
-                    corrected_direction,
-                )
+                logger.warning("[STRAT-CLASS-LLM] LLM returned unknown direction '%s', keeping rule-based result", corrected_direction)
                 ms = (time.perf_counter() - t0) * 1000
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
-                    await self._tel.record_exit(
-                        "StrategyClassifier",
-                        eid,
-                        metrics={"agreed": True, "error": "unknown_direction"},
-                        duration_ms=ms,
-                    )
+                try:
+                    await self._tel.record_exit("StrategyClassifier", eid, metrics={"agreed": True, "error": "unknown_direction"}, duration_ms=ms)
+                except (OSError, ValueError, RuntimeError):
+                    pass
                 return rule_result
 
             if agrees and corrected_direction == rule_result.direction:
                 self._calibration_stats["llm_agreed"] += 1
                 logger.info(
-                    "[STRAT-CLASS-LLM] LLM agreed with rule-based classification (direction='%s', confidence boost +0.10)",  # noqa: E501
+                    "[STRAT-CLASS-LLM] LLM agreed with rule-based classification (direction='%s', confidence boost +0.10)",
                     corrected_direction,
                 )
-                min(1.0, self._calculate_direction_confidence(expression, rule_result.direction) + 0.10)
+                boosted_confidence = min(1.0, self._calculate_direction_confidence(expression, rule_result.direction) + 0.10)
                 result = StrategyProfile(
                     expr=rule_result.expr,
                     direction=rule_result.direction,
@@ -398,10 +368,10 @@ class StrategyClassifier:
                     calibration_details=f"LLM agreed. {reasoning}",
                 )
                 ms = (time.perf_counter() - t0) * 1000
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
-                    await self._tel.record_exit(
-                        "StrategyClassifier", eid, metrics={"agreed": True, "overruled": False}, duration_ms=ms
-                    )
+                try:
+                    await self._tel.record_exit("StrategyClassifier", eid, metrics={"agreed": True, "overruled": False}, duration_ms=ms)
+                except (OSError, ValueError, RuntimeError):
+                    pass
                 return result
 
             self._calibration_stats["llm_overruled"] += 1
@@ -425,18 +395,20 @@ class StrategyClassifier:
                 embedding=list(rule_result.embedding) if rule_result.embedding else None,
                 llm_corrected=True,
                 llm_confidence=llm_confidence_val,
-                calibration_details=f"LLM corrected from '{rule_result.direction}' to '{corrected_direction}'. {reasoning}",  # noqa: E501
+                calibration_details=f"LLM corrected from '{rule_result.direction}' to '{corrected_direction}'. {reasoning}",
             )
             ms = (time.perf_counter() - t0) * 1000
-            with contextlib.suppress(OSError, ValueError, RuntimeError):
-                await self._tel.record_exit(
-                    "StrategyClassifier", eid, metrics={"agreed": False, "overruled": True}, duration_ms=ms
-                )
+            try:
+                await self._tel.record_exit("StrategyClassifier", eid, metrics={"agreed": False, "overruled": True}, duration_ms=ms)
+            except (OSError, ValueError, RuntimeError):
+                pass
             return result
         except (ValueError, TypeError, OSError, RuntimeError, KeyError, AttributeError) as e:
             if eid:
-                with contextlib.suppress(OSError, ValueError, RuntimeError):
+                try:
                     await self._tel.record_error("StrategyClassifier", str(e), type(e).__name__)
+                except (OSError, ValueError, RuntimeError):
+                    pass
             raise
 
     @algo_log()
@@ -445,9 +417,9 @@ class StrategyClassifier:
             if existing is None:
                 existing = self._profiles
 
-            covered_directions = {p.direction for p in existing}
-            covered_mechanisms = {p.mechanism for p in existing}
-            covered_horizons = {p.time_horizon for p in existing}
+            covered_directions = set(p.direction for p in existing)
+            covered_mechanisms = set(p.mechanism for p in existing)
+            covered_horizons = set(p.time_horizon for p in existing)
 
             avg_sharpe = sum(p.sharpe for p in existing) / len(existing) if existing else 0.0
             direction_counts: dict[str, int] = {}
@@ -462,22 +434,18 @@ class StrategyClassifier:
                     direction_score = 0.7
                     if avg_sharpe > 1.0:
                         direction_score += 0.15
-                    count_penalty = min(
-                        direction_counts.get(max(direction_counts, key=direction_counts.get, default=d), 0) * 0.02, 0.1
-                    )
+                    count_penalty = min(direction_counts.get(max(direction_counts, key=direction_counts.get, default=d), 0) * 0.02, 0.1)
                     relevance_score = max(0.0, direction_score - count_penalty)
-                    suggestions.append(
-                        {
-                            "direction": d,
-                            "reason": f"direction '{d}' not yet explored",
-                            "relevance_score": round(relevance_score, 4),
-                            "score_breakdown": {
-                                "base_direction_score": round(0.7, 4),
-                                "sharpe_bonus": round(0.15 if avg_sharpe > 1.0 else 0.0, 4),
-                                "concentration_penalty": round(-count_penalty, 4),
-                            },
+                    suggestions.append({
+                        "direction": d,
+                        "reason": f"direction '{d}' not yet explored",
+                        "relevance_score": round(relevance_score, 4),
+                        "score_breakdown": {
+                            "base_direction_score": round(0.7, 4),
+                            "sharpe_bonus": round(0.15 if avg_sharpe > 1.0 else 0.0, 4),
+                            "concentration_penalty": round(-count_penalty, 4),
                         }
-                    )
+                    })
 
             for m in _MECHANISM_KEYWORDS:
                 if m not in covered_mechanisms:
@@ -487,18 +455,16 @@ class StrategyClassifier:
                     elif m == "conditional" and len(existing) >= 3:
                         mechanism_score += 0.1
                     relevance_score = min(1.0, mechanism_score)
-                    suggestions.append(
-                        {
-                            "direction": "any",
-                            "mechanism": m,
-                            "reason": f"mechanism '{m}' not yet explored",
-                            "relevance_score": round(relevance_score, 4),
-                            "score_breakdown": {
-                                "base_mechanism_score": round(0.5, 4),
-                                "synergy_bonus": round(relevance_score - 0.5, 4),
-                            },
+                    suggestions.append({
+                        "direction": "any",
+                        "mechanism": m,
+                        "reason": f"mechanism '{m}' not yet explored",
+                        "relevance_score": round(relevance_score, 4),
+                        "score_breakdown": {
+                            "base_mechanism_score": round(0.5, 4),
+                            "synergy_bonus": round(relevance_score - 0.5, 4),
                         }
-                    )
+                    })
 
             for h in ["short", "medium", "long"]:
                 if h not in covered_horizons:
@@ -506,27 +472,23 @@ class StrategyClassifier:
                     if h == "long" and "short" in covered_horizons or h == "short" and "long" in covered_horizons:
                         horizon_score += 0.12
                     relevance_score = min(1.0, horizon_score)
-                    suggestions.append(
-                        {
-                            "direction": "any",
-                            "time_horizon": h,
-                            "reason": f"horizon '{h}' not yet explored",
-                            "relevance_score": round(relevance_score, 4),
-                            "score_breakdown": {
-                                "base_horizon_score": round(0.45, 4),
-                                "diversification_bonus": round(relevance_score - 0.45, 4),
-                            },
+                    suggestions.append({
+                        "direction": "any",
+                        "time_horizon": h,
+                        "reason": f"horizon '{h}' not yet explored",
+                        "relevance_score": round(relevance_score, 4),
+                        "score_breakdown": {
+                            "base_horizon_score": round(0.45, 4),
+                            "diversification_bonus": round(relevance_score - 0.45, 4),
                         }
-                    )
+                    })
 
             suggestions.sort(key=lambda x: cast(float, x["relevance_score"]), reverse=True)
 
             top_suggestions = suggestions[:n]
 
             if top_suggestions:
-                max_score = cast(
-                    float, max(top_suggestions, key=lambda x: cast(float, x["relevance_score"]))["relevance_score"]
-                )
+                max_score = cast(float, max(top_suggestions, key=lambda x: cast(float, x["relevance_score"]))["relevance_score"])
                 if max_score < 0.5:
                     logger.warning(
                         "所有互补策略建议的相关性得分均低于阈值 (max_score=%.4f < 0.50)，建议审查现有策略组合",
@@ -546,12 +508,10 @@ class StrategyClassifier:
                     "top_k_returned": len(top_suggestions),
                     "scores": [round(cast(float, s["relevance_score"]), 4) for s in top_suggestions],
                 },
-                extra={
-                    "all_scores_details": [
-                        {"reason": s["reason"], "score": s["relevance_score"], "breakdown": s["score_breakdown"]}
-                        for s in top_suggestions
-                    ]
-                },
+                extra={"all_scores_details": [
+                    {"reason": s["reason"], "score": s["relevance_score"], "breakdown": s["score_breakdown"]}
+                    for s in top_suggestions
+                ]},
             )
 
             return top_suggestions
@@ -590,7 +550,7 @@ class StrategyClassifier:
             for p in profiles_with_emb:
                 if p.embedding is None:
                     continue
-                dot = sum(a * b for a, b in zip(query_vec, p.embedding, strict=False))
+                dot = sum(a * b for a, b in zip(query_vec, p.embedding))
                 norm_a = math.sqrt(sum(a * a for a in query_vec))
                 norm_b = math.sqrt(sum(b * b for b in p.embedding))
                 if norm_a == 0 or norm_b == 0:

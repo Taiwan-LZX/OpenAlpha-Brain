@@ -47,9 +47,7 @@ class ExplorationScheduler:
         self._initialized = True
         logger.info(
             "ExplorationScheduler initialized: %d templates × %d families = %d arms",
-            len(template_ids),
-            len(family_ids),
-            self._bandit.arm_count,
+            len(template_ids), len(family_ids), self._bandit.arm_count,
         )
 
     @property
@@ -85,8 +83,7 @@ class ExplorationScheduler:
     def _get_crossover_proposals(self) -> list[dict[str, Any]]:
         try:
             from openalpha_brain.core import loop_state as _ls
-
-            proposals = getattr(_ls, "_crossover_exploration_proposals", None)
+            proposals = getattr(_ls, '_crossover_exploration_proposals', None)
             if proposals:
                 return proposals[:5]
         except (OSError, ValueError, RuntimeError):
@@ -116,8 +113,7 @@ class ExplorationScheduler:
                     break
                 logger.info(
                     "ExplorationScheduler: direction=%s is blacklisted (%s), retrying",
-                    direction,
-                    reason,
+                    direction, reason,
                 )
                 result = self._bandit.select_with_direction(
                     explore_mode=True,
@@ -131,8 +127,7 @@ class ExplorationScheduler:
                 if blacklisted:
                     logger.warning(
                         "ExplorationScheduler: all %d retries hit blacklisted directions, returning last result dir=%s",
-                        self._BLACKLIST_MAX_RETRIES,
-                        direction,
+                        self._BLACKLIST_MAX_RETRIES, direction,
                     )
         if self._feature_map is not None:
             try:
@@ -142,8 +137,7 @@ class ExplorationScheduler:
                     if unexplored and random.random() < schedule.get("explore_weight", 0.3):
                         alt_dir = unexplored[0]
                         alt_result = self._bandit.select_with_direction(
-                            explore_mode=True,
-                            focus_area=alt_dir,
+                            explore_mode=True, focus_area=alt_dir,
                         )
                         if alt_result and alt_result.get("direction") == alt_dir:
                             result = alt_result
@@ -163,8 +157,7 @@ class ExplorationScheduler:
                     else:
                         for pdir in proposal_dirs:
                             alt_result = self._bandit.select_with_direction(
-                                explore_mode=True,
-                                focus_area=pdir,
+                                explore_mode=True, focus_area=pdir,
                             )
                             if alt_result and alt_result.get("direction") == pdir:
                                 self._bandit.update_by_direction(pdir, reward=0.05)
@@ -201,8 +194,7 @@ class ExplorationScheduler:
         results = self._bandit.select_diverse_directions(num, explore_mode=False)
         if focus_area and focus_area in _TEMPLATE_DIRECTION_MAP.values():
             biased = self._bandit.select_with_direction(
-                explore_mode=False,
-                focus_area=focus_area,
+                explore_mode=False, focus_area=focus_area,
             )
             if biased and biased.get("direction") == focus_area:
                 existing_dirs = {r.get("direction") for r in results}
@@ -218,8 +210,7 @@ class ExplorationScheduler:
                     for i in range(min(len(unexplored), len(results))):
                         if random.random() < explore_weight:
                             alt = self._bandit.select_with_direction(
-                                explore_mode=True,
-                                focus_area=unexplored[i],
+                                explore_mode=True, focus_area=unexplored[i],
                             )
                             if alt:
                                 results[i] = alt
@@ -234,8 +225,7 @@ class ExplorationScheduler:
                     if blacklisted:
                         logger.info(
                             "select_diverse_directions: filtering blacklisted direction=%s (%s)",
-                            direction,
-                            reason,
+                            direction, reason,
                         )
                         continue
                 filtered.append(r)

@@ -12,18 +12,17 @@ Gate Dimensions:
   G2: E↔C — Expression ↔ Code structural consistency via structural heuristics
   G3: H↔E↔C — Three-way holistic consistency via LLM semantic review
 """
-
 from __future__ import annotations
 
+import json
 import logging
 import re
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Awaitable
 
-from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
-from openalpha_brain.utils.algo_logger import algo_log, log_call
+from openalpha_brain.utils.algo_logger import algo_log, Timer, log_call
 from openalpha_brain.validation.ast_validator import ASTValidator
+from openalpha_brain.utils import extract_json_from_llm as _extract_json_from_llm
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +118,7 @@ class GenerationGates:
         )
 
         g1 = self._check_hypothesis_expression(
-            expression,
-            hypothesis_direction,
-            hypothesis_nl,
+            expression, hypothesis_direction, hypothesis_nl,
         )
         results.append(g1)
 
@@ -153,12 +150,8 @@ class GenerationGates:
         )
 
         g3 = await self._check_holistic(
-            expression,
-            hypothesis_direction,
-            hypothesis_mechanism,
-            hypothesis_nl,
-            operators,
-            fields,
+            expression, hypothesis_direction, hypothesis_mechanism, hypothesis_nl,
+            operators, fields,
         )
         results.append(g3)
 
@@ -245,9 +238,7 @@ class GenerationGates:
                 "mismatched_fields": [k for k, v in field_matches.items() if not v],
             }
 
-            enhanced_score = self._compute_enhanced_alignment_score(
-                r2_score, semantic_score, direction_consistent, field_matches
-            )
+            enhanced_score = self._compute_enhanced_alignment_score(r2_score, semantic_score, direction_consistent, field_matches)
 
             passed = enhanced_score >= self._r2_threshold
 
@@ -255,9 +246,7 @@ class GenerationGates:
                 logger.warning(
                     "GenerationGates[H↔E]: ⚠️ 对齐分数处于边界区间 [%.3f]，建议人工审核 | "
                     "R²=%.3f | semantic=%.3f | direction_ok=%s | matched=%s | mismatched=%s",
-                    enhanced_score,
-                    r2_score,
-                    semantic_score or 0,
+                    enhanced_score, r2_score, semantic_score or 0,
                     direction_consistent,
                     alignment_details["matched_fields"],
                     alignment_details["mismatched_fields"],
@@ -319,9 +308,7 @@ class GenerationGates:
             match_ratio = sum(1 for v in field_matches.values() if v) / total_fields
             if match_ratio < 0.5:
                 base_score *= 0.8
-                logger.debug(
-                    "GenerationGates[H↔E]: 字段匹配率低 (%.1f%%)，惩罚后分数 %.3f", match_ratio * 100, base_score
-                )
+                logger.debug("GenerationGates[H↔E]: 字段匹配率低 (%.1f%%)，惩罚后分数 %.3f", match_ratio * 100, base_score)
 
         return max(0.0, min(1.0, base_score))
 
@@ -349,9 +336,9 @@ class GenerationGates:
 
         if ast_result.errors:
             logger.error(
-                "GenerationGates[E↔C]: ❌ [DEFENSIVE_LOG] AST 硬校验拦截 | errors=%s | expr=%s",
-                ast_result.errors,
-                expression[:100],
+                "GenerationGates[E↔C]: ❌ [DEFENSIVE_LOG] AST 硬校验拦截 | "
+                "errors=%s | expr=%s",
+                ast_result.errors, expression[:100],
             )
             log_call(
                 "GenerationGates.E↔C.ast_hard_block",
@@ -424,14 +411,9 @@ class GenerationGates:
             sub_scores.append(("three_block_structure", 0.5))
             hints.append("No three-block structure detected (no neutralize + no decay)")
 
-        effectively_empty = len(expression.strip()) < 10 or expression.strip().lower() in (
-            "none",
-            "null",
-            "false",
-            "true",
-            "1",
-            "0",
-            "-1",
+        effectively_empty = (
+            len(expression.strip()) < 10
+            or expression.strip().lower() in ("none", "null", "false", "true", "1", "0", "-1")
         )
         if effectively_empty:
             sub_scores = [("effectively_empty", 0.1)]
@@ -444,14 +426,16 @@ class GenerationGates:
             for w in ast_result.warnings:
                 hints.append(w)
 
-        borderline_items = [name for name, score in sub_scores if 0.35 <= score <= 0.65 and score != 1.0]
+        borderline_items = [
+            name for name, score in sub_scores
+            if 0.35 <= score <= 0.65 and score != 1.0
+        ]
 
         if borderline_items and passed:
             logger.warning(
-                "GenerationGates[E↔C]: ⚠️ 结构检查通过但存在边界项: %s | 总分=%.3f (阈值=%.2f) | 建议: %s",
-                borderline_items,
-                structural_score,
-                self._structural_threshold,
+                "GenerationGates[E↔C]: ⚠️ 结构检查通过但存在边界项: %s | "
+                "总分=%.3f (阈值=%.2f) | 建议: %s",
+                borderline_items, structural_score, self._structural_threshold,
                 "; ".join(hints[:2]) if hints else "无",
             )
 
@@ -476,7 +460,7 @@ class GenerationGates:
         diagnosis_parts = [
             f"ops={op_count}",
             f"ast_depth={ast_depth}",
-            "balanced=True",
+            f"balanced=True",
             f"neutralize={has_neutralize}",
             f"decay={has_decay}",
             f"score_breakdown={dict(sub_scores)}",
@@ -519,12 +503,8 @@ class GenerationGates:
             )
 
         prompt = self._build_holistic_prompt(
-            expression,
-            hypothesis_direction,
-            hypothesis_mechanism,
-            hypothesis_nl,
-            operators,
-            fields,
+            expression, hypothesis_direction, hypothesis_mechanism,
+            hypothesis_nl, operators, fields,
         )
 
         try:
@@ -552,15 +532,15 @@ class GenerationGates:
             adjusted_score = self._adjust_holistic_score(score, holistic_factors)
 
             borderline_factors = {
-                k: v for k, v in holistic_factors.items() if isinstance(v, dict) and v.get("is_borderline", False)
+                k: v for k, v in holistic_factors.items()
+                if isinstance(v, dict) and v.get("is_borderline", False)
             }
 
             if borderline_factors:
                 logger.warning(
-                    "GenerationGates[H↔E↔C]: ⚠️ 整体检查发现边界风险因子: %s | 原始 LLM 分数=%.3f → 调整后=%.3f",
-                    list(borderline_factors.keys()),
-                    score,
-                    adjusted_score,
+                    "GenerationGates[H↔E↔C]: ⚠️ 整体检查发现边界风险因子: %s | "
+                    "原始 LLM 分数=%.3f → 调整后=%.3f",
+                    list(borderline_factors.keys()), score, adjusted_score,
                 )
 
             passed = adjusted_score >= self._holistic_threshold
@@ -609,7 +589,7 @@ class GenerationGates:
             )
 
     def _assess_complexity(self, expression: str, operators: list[str] | None) -> dict[str, Any]:
-        op_pattern = re.findall(r"\b\w+\(", expression)
+        op_pattern = re.findall(r'\b\w+\(', expression)
         func_count = len(op_pattern)
         nesting = expression.count("(")
 
@@ -634,9 +614,7 @@ class GenerationGates:
         if is_borderline:
             logger.debug(
                 "GenerationGates[H↔E↔C]: 复杂度边界: 函数数=%d, 嵌套=%d, 得分=%.2f",
-                func_count,
-                nesting,
-                complexity_score,
+                func_count, nesting, complexity_score,
             )
 
         return result
@@ -645,22 +623,22 @@ class GenerationGates:
         risk_indicators = []
         risk_score = 0.0
 
-        specific_fields = re.findall(r"\b(volume|vwap|turnover|bid|ask|spread|imbalance)\b", expression.lower())
+        specific_fields = re.findall(r'\b(volume|vwap|turnover|bid|ask|spread|imbalance)\b', expression.lower())
         if len(specific_fields) > 3:
             risk_score += 0.2
             risk_indicators.append(f"过多特定字段({len(specific_fields)})")
 
-        param_counts = re.findall(r"\d+", expression)
+        param_counts = re.findall(r'\d+', expression)
         if len(param_counts) > 5:
             risk_score += 0.15
             risk_indicators.append(f"过多硬编码参数({len(param_counts)})")
 
-        nested_ts = re.findall(r"ts_\w+\([^)]*ts_\w+", expression)
+        nested_ts = re.findall(r'ts_\w+\([^)]*ts_\w+', expression)
         if len(nested_ts) > 2:
             risk_score += 0.2
             risk_indicators.append(f"深层时序嵌套({len(nested_ts)}层)")
 
-        combined_ops = re.findall(r"(rank\s*\(\s*rank|zscore\s*\(\s*zscore)", expression.lower())
+        combined_ops = re.findall(r'(rank\s*\(\s*rank|zscore\s*\(\s*zscore)', expression.lower())
         if combined_ops:
             risk_score += 0.15
             risk_indicators.append("重复标准化操作")
@@ -672,23 +650,20 @@ class GenerationGates:
             "risk_score": round(final_risk_score, 3),
             "indicators": risk_indicators,
             "is_borderline": is_borderline,
-            "verdict": "low_risk"
-            if final_risk_score < 0.3
-            else ("medium_risk" if final_risk_score < 0.5 else "high_risk"),
+            "verdict": "low_risk" if final_risk_score < 0.3 else ("medium_risk" if final_risk_score < 0.5 else "high_risk"),
         }
 
         if is_borderline or final_risk_score >= 0.4:
             logger.debug(
                 "GenerationGates[H↔E↔C]: 过拟合风险评估: 得分=%.3f | 风险因子: %s",
-                final_risk_score,
-                risk_indicators,
+                final_risk_score, risk_indicators,
             )
 
         return result
 
     def _assess_decay_indicator(self, expression: str) -> dict[str, Any]:
-        has_decay_resistance = bool(re.search(r"\b(decay|halflife|ewm|exp_weighted)\b", expression.lower()))
-        uses_long_window = any(int(x) > 60 for x in re.findall(r"\b\d+\b", expression))
+        has_decay_resistance = bool(re.search(r'\b(decay|halflife|ewm|exp_weighted)\b', expression.lower()))
+        uses_long_window = any(int(x) > 60 for x in re.findall(r'\b\d+\b', expression))
 
         decay_score = 1.0
         decay_notes = []
@@ -710,8 +685,7 @@ class GenerationGates:
         if is_borderline:
             logger.debug(
                 "GenerationGates[H↔E↔C]: 衰减指标边界: 得分=%.2f | 说明: %s",
-                decay_score,
-                decay_notes,
+                decay_score, decay_notes,
             )
 
         return result
@@ -720,17 +694,17 @@ class GenerationGates:
         stability_issues = []
         stability_score = 1.0
 
-        division_by_var = re.search(r"/\s*(close|open|high|low|volume)\b", expression, re.IGNORECASE)
+        division_by_var = re.search(r'/\s*(close|open|high|low|volume)\b', expression, re.IGNORECASE)
         if division_by_var:
             stability_score -= 0.15
             stability_issues.append("变量做除数可能导致不稳定")
 
-        extreme_transform = re.search(r"\b(pow|signed_power)\([^,]+,\s*[3-9]", expression)
+        extreme_transform = re.search(r'\b(pow|signed_power)\([^,]+,\s*[3-9]', expression)
         if extreme_transform:
             stability_score -= 0.1
             stability_issues.append("高幂次变换可能放大噪声")
 
-        thin_field_usage = re.search(r"\b(bid_ask_spread|imbalance_ratio)\b", expression.lower())
+        thin_field_usage = re.search(r'\b(bid_ask_spread|imbalance_ratio)\b', expression.lower())
         if thin_field_usage and "mean_reversion" not in hypothesis_direction.lower():
             stability_score -= 0.1
             stability_issues.append("使用薄流动性字段但非均值回归策略")
@@ -748,8 +722,7 @@ class GenerationGates:
         if is_borderline or stability_issues:
             logger.debug(
                 "GenerationGates[H↔E↔C]: 稳定性检查: 得分=%.3f | 问题: %s",
-                final_stability_score,
-                stability_issues,
+                final_stability_score, stability_issues,
             )
 
         return result
@@ -873,18 +846,14 @@ If the expression uses fields that make no sense for the claimed mechanism, redu
             parts = [f"✅ 所有门控通过 (总分={overall_score:.3f})"]
             for r in results:
                 status = "PASS" if r.passed else "FAIL"
-                parts.append(
-                    f"  [{r.gate_name}] {status}: score={r.score:.3f} ≥ {r.threshold:.2f} | {r.diagnosis[:100]}"
-                )
+                parts.append(f"  [{r.gate_name}] {status}: score={r.score:.3f} ≥ {r.threshold:.2f} | {r.diagnosis[:100]}")
             return "\n".join(parts)
         else:
             parts = [f"❌ 门控未通过 (总分={overall_score:.3f}, 失败项: {failed_gates})"]
             for r in results:
                 status = "PASS" if r.passed else "FAIL"
                 icon = "✓" if r.passed else "✗"
-                parts.append(
-                    f"  {icon} [{r.gate_name}] {status}: score={r.score:.3f} {'≥' if r.passed else '<'} {r.threshold:.2f}"  # noqa: E501
-                )
+                parts.append(f"  {icon} [{r.gate_name}] {status}: score={r.score:.3f} {'≥' if r.passed else '<'} {r.threshold:.2f}")
                 if not r.passed and r.fix_hints:
                     parts.append(f"    修复建议: {'; '.join(r.fix_hints[:2])}")
             return "\n".join(parts)
@@ -910,9 +879,7 @@ If the expression uses fields that make no sense for the claimed mechanism, redu
 
         lines.append("")
         lines.append("REQUIRED: Regenerate the alpha factor addressing ALL issues above.")
-        lines.append(
-            "Ensure three-way consistency: the hypothesis, expression formula, and code structure must tell the same story."  # noqa: E501
-        )
+        lines.append("Ensure three-way consistency: the hypothesis, expression formula, and code structure must tell the same story.")
 
         return "\n".join(lines)
 
@@ -955,27 +922,21 @@ If the expression uses fields that make no sense for the claimed mechanism, redu
             if report.passed:
                 logger.info(
                     "GenerationGates: ✅ 所有门控通过 (尝试 %d/%d, 总分=%.3f)%s",
-                    attempt,
-                    self._max_retries,
-                    report.overall_score,
+                    attempt, self._max_retries, report.overall_score,
                     f"\n{report.decision_rationale}" if report.decision_rationale else "",
                 )
                 return current_expr, report
 
             logger.warning(
                 "GenerationGates: ❌ 门控失败 (尝试 %d/%d, 总分=%.3f, 失败项=%s)\n%s",
-                attempt,
-                self._max_retries,
-                report.overall_score,
-                report.failed_gates,
+                attempt, self._max_retries, report.overall_score, report.failed_gates,
                 report.decision_rationale,
             )
 
             if attempt >= self._max_retries:
                 logger.warning(
                     "GenerationGates: ⚠️ 达到最大重试次数 (%d)，接受当前结果 (总分=%.3f)\n%s",
-                    self._max_retries,
-                    report.overall_score,
+                    self._max_retries, report.overall_score,
                     report.decision_rationale,
                 )
                 break
@@ -990,8 +951,7 @@ If the expression uses fields that make no sense for the claimed mechanism, redu
                     current_expr = new_expr
                     logger.info(
                         "GenerationGates: 🔄 已重新生成表达式 (尝试 %d): %s",
-                        attempt + 1,
-                        current_expr[:100],
+                        attempt + 1, current_expr[:100],
                     )
                 else:
                     logger.warning(

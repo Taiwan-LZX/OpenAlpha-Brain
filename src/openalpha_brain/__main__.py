@@ -14,11 +14,11 @@ Options:
   --max-cycles N        Maximum cycles to run (default: from config)
   --web                 Start in web mode (alias for 'monitor')
 """
-
 from __future__ import annotations
 
 import asyncio
 import sys
+from typing import Optional
 
 BANNER = """
 ╔═══════════════════════════════════════════════════════════════════╗
@@ -63,7 +63,7 @@ Examples:
 """)
 
 
-async def cmd_start(focus_area: str | None = None, max_cycles: int | None = None) -> int:
+async def cmd_start(focus_area: Optional[str] = None, max_cycles: Optional[int] = None) -> int:
     """Execute start command - launch the main loop."""
     from openalpha_brain.cli.launcher import BrainLauncher
 
@@ -74,14 +74,13 @@ async def cmd_start(focus_area: str | None = None, max_cycles: int | None = None
 async def cmd_monitor() -> int:
     """Execute monitor command - launch FastAPI dashboard."""
     import uvicorn
-
     from openalpha_brain.cli.main import app
 
     print_banner()
     host = "0.0.0.0"
     port = 8000
     print(f"  🌐  Starting Web Dashboard at http://127.0.0.1:{port}")
-    print("  ▶  Press Ctrl+C to stop\n")
+    print(f"  ▶  Press Ctrl+C to stop\n")
 
     uvicorn.run(app, host=host, port=port, reload=False)
     return 0
@@ -118,7 +117,7 @@ async def cmd_status() -> int:
     return 0 if report.passed else 1
 
 
-def parse_args(args: list[str]) -> tuple[str | None, dict]:
+def parse_args(args: list[str]) -> tuple[Optional[str], dict]:
     """Parse command line arguments."""
     if not args or "--help" in args or "-h" in args:
         return None, {}

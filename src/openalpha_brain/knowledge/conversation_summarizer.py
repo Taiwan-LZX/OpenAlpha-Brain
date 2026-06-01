@@ -7,7 +7,6 @@ When conversation history exceeds a threshold, this module:
 3. Generates an LLM summary of older messages
 4. Returns: brain_feedback + [summary_message] + recent_messages
 """
-
 from __future__ import annotations
 
 import logging
@@ -18,19 +17,11 @@ from openalpha_brain.services import llm_client
 logger = logging.getLogger(__name__)
 
 _BRAIN_KEYWORDS = (
-    "BRAIN PASS",
-    "BRAIN FAIL",
-    "BRAIN check FAILED",
-    "BRAIN SIMULATION ERROR",
-    "GATE FAIL",
-    "GATE PASS",
-    "real_sharpe",
-    "real_fitness",
-    "real_turnover",
-    "mutation_attempt",
-    "brain_alpha_id",
-    "BRAIN improvement",
-    "BRAIN mutation",
+    "BRAIN PASS", "BRAIN FAIL", "BRAIN check FAILED",
+    "BRAIN SIMULATION ERROR", "GATE FAIL", "GATE PASS",
+    "real_sharpe", "real_fitness", "real_turnover",
+    "mutation_attempt", "brain_alpha_id",
+    "BRAIN improvement", "BRAIN mutation",
 )
 
 _OPS_RE = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(")
@@ -144,8 +135,8 @@ class ConversationSummarizer:
         if len(messages) <= self.threshold:
             return messages, False
 
-        recent_messages = messages[-self.keep_recent :]
-        early_messages = messages[: -self.keep_recent]
+        recent_messages = messages[-self.keep_recent:]
+        early_messages = messages[:-self.keep_recent]
 
         brain_feedback = self._extract_brain_feedback(early_messages)
 
@@ -164,7 +155,10 @@ class ConversationSummarizer:
                 f"## Structured Information\n{rule_summary}"
             )
         else:
-            summary_content = f"[CONVERSATION SUMMARY]\n\n{rule_summary}"
+            summary_content = (
+                "[CONVERSATION SUMMARY]\n\n"
+                f"{rule_summary}"
+            )
 
         summary_message = {
             "role": "system",
@@ -175,10 +169,7 @@ class ConversationSummarizer:
 
         logger.info(
             "Conversation summarized: %d early messages → %d brain feedback + 1 summary + %d recent = %d total",
-            len(early_messages),
-            len(brain_feedback),
-            len(recent_messages),
-            len(result),
+            len(early_messages), len(brain_feedback), len(recent_messages), len(result),
         )
 
         return result, True
