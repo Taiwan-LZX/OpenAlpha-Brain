@@ -134,7 +134,7 @@ class RobustnessGate:
     - Audit trail: every decision carries full diagnostic context
 
     Config Parameters (passed via __init__ or evaluate()):
-        min_sharpe:       Minimum Sharpe ratio to pass threshold gate (default 0.5)
+        min_sharpe:       Minimum Sharpe ratio to pass threshold gate (default 1.25)
         min_fitness:      Minimum fitness to pass threshold gate (default 0.3)
         max_correlation:  Maximum allowed correlation with existing pool (default 0.95)
         anti_overfit_weight: Weight for anti-overfit score in composite (default 0.30)
@@ -152,7 +152,7 @@ class RobustnessGate:
     """
 
     DEFAULT_CONFIG: dict[str, Any] = {
-        "min_sharpe": 0.5,
+        "min_sharpe": 1.25,
         "min_fitness": 0.3,
         "max_correlation": 0.95,
         "anti_overfit_weight": 0.30,

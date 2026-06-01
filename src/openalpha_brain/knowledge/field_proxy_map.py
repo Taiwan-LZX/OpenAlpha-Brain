@@ -841,6 +841,38 @@ class FieldProxyMap:
     def is_ready(self) -> bool:
         return self._loaded
 
+    def update_field_retrieval_boost(
+        self,
+        field_ids: list[str],
+        boost_factor: float = 1.2,
+        decay: float = 0.95,
+        max_boost: float = 3.0,
+    ) -> int:
+        _updated = 0
+        for fid in field_ids:
+            entry = self._field_map.get(fid)
+            if entry is None:
+                continue
+            _current = entry.get("retrieval_boost", 1.0)
+            _new_boost = min(max_boost, _current * boost_factor)
+            entry["retrieval_boost"] = _new_boost
+            _updated += 1
+        for fid, entry in self._field_map.items():
+            if fid not in field_ids and entry.get("retrieval_boost", 1.0) > 1.01:
+                entry["retrieval_boost"] = max(1.0, entry.get("retrieval_boost", 1.0) * decay)
+        if _updated > 0:
+            logger.debug(
+                "[DEFENSIVE_LOG] FPM::RETRIEVAL_BOOST updated=%d fields, factor=%.2f",
+                _updated, boost_factor,
+            )
+        return _updated
+
+    def get_field_boost_score(self, field_id: str) -> float:
+        entry = self._field_map.get(field_id)
+        if entry is None:
+            return 1.0
+        return entry.get("retrieval_boost", 1.0)
+
 
 _global_proxy_map: FieldProxyMap | None = None
 

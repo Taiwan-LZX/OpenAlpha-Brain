@@ -438,6 +438,38 @@ class RAGEngine:
                 exc,
             )
 
+    def sync_to_field_proxy_map(self, retrieval_result: dict[str, Any], top_k_fields: int = 10) -> int:
+        try:
+            from openalpha_brain.knowledge.field_proxy_map import get_field_proxy_map
+
+            _fpm = get_field_proxy_map()
+        except (ImportError, AttributeError):
+            return 0
+        _field_ids: list[str] = []
+        _fields = retrieval_result.get("fields", [])
+        if _fields:
+            _sorted = sorted(_fields, key=lambda f: f.get("score", 0), reverse=True)
+            _field_ids = [f.get("id", "") for f in _sorted[:top_k_fields] if f.get("id")]
+        _top_ops = retrieval_result.get("top_ops_detailed", [])
+        if _top_ops and not _field_ids:
+            _op_fields: set[str] = set()
+            for op in _top_ops[:5]:
+                for rf in op.get("related_fields", []):
+                    if isinstance(rf, dict):
+                        _op_fields.add(rf.get("id", ""))
+                    elif isinstance(rf, str):
+                        _op_fields.add(rf)
+            _field_ids = list(_op_fields)[:top_k_fields]
+        if not _field_ids:
+            return 0
+        _updated = _fpm.update_field_retrieval_boost(_field_ids, boost_factor=1.15)
+        if _updated > 0:
+            logger.info(
+                "[DEFENSIVE_LOG] RAG→FPM SYNC synced=%d/%d fields to FPM retrieval_boost",
+                _updated, len(_field_ids),
+            )
+        return _updated
+
     def health_check(self) -> dict[str, Any]:
         return {
             "module": "RAGEngine",

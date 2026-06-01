@@ -2792,6 +2792,36 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                             _algo_tick("specialist_agent_create")
                         except ImportError:
                             pass
+                        try:
+                            _EPSILON = 1e-6
+                            _agent_type = {
+                                "SELF_CORRELATION": "originality",
+                                "LOW_SHARPE": "sharpe_optimizer",
+                            }.get(_ft, "logic_verifier")
+                            _mab_rate = None
+                            _current_regime = ""
+                            _sharpe_trend = 0.0
+                            try:
+                                from openalpha_brain.core import loop_state as _ls
+                                if hasattr(_ls, "_mab") and _ls._mab is not None:
+                                    _dir_stats = getattr(_ls._mab, "get_direction_stats", lambda **k: None)()
+                                    if _dir_stats and direction in _dir_stats:
+                                        _mab_rate = _dir_stats[direction].get("success_rate", None)
+                                if hasattr(_ls, "_market_state_inferencer") and _ls._market_state_inferencer is not None:
+                                    _current_regime = _ls._market_state_inferencer.infer_current_regime() or ""
+                                _recent_sharpe = getattr(_ls, "_recent_sharpe_history", [])
+                                if len(_recent_sharpe) >= 3:
+                                    _sharpe_trend = (_recent_sharpe[-1] - _recent_sharpe[-3]) / max(abs(_recent_sharpe[-3]), _EPSILON)
+                            except (ImportError, AttributeError, TypeError, ZeroDivisionError):
+                                pass
+                            self._agent_factory.update_agent_signals(
+                                agent_type=_agent_type,
+                                mab_success_rate=_mab_rate,
+                                regime=_current_regime,
+                                recent_sharpe_trend=_sharpe_trend,
+                            )
+                        except Exception:
+                            pass
                         _spec_agent = self._agent_factory.create_specialist_agent(_ft, direction)
                         if _spec_agent is not None:
                             _spec_prompt = self._agent_factory.get_specialist_prompt(

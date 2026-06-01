@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+_EPSILON = 1e-6
+
 
 @dataclass
 class SpecialistAgent:
@@ -19,6 +21,10 @@ class SpecialistAgent:
     created_at: float = 0.0
     last_used: float = 0.0
     _consecutive_successes: int = field(default=0, repr=False)
+    dynamic_weight: float = field(default=1.0, repr=False)
+    mab_signal: float = field(default=0.0, repr=False)
+    regime_boost: float = field(default=1.0, repr=False)
+    sharpe_trend: float = field(default=0.0, repr=False)
 
     def __post_init__(self):
         if not self.agent_id:
@@ -81,11 +87,14 @@ class AdaptiveAgentFactory:
 
         matching = [a for a in self._agents.values() if a.agent_type == agent_type]
         if matching:
-            matching.sort(key=lambda a: (a.is_expert, a.success_count), reverse=True)
+            for a in matching:
+                a.dynamic_weight = self._compute_agent_score(a, direction)
+            matching.sort(key=lambda a: a.dynamic_weight, reverse=True)
             best = matching[0]
             if best.is_expert:
                 logger.info(
-                    "Expert agent %s available for %s, reusing instead of creating new", best.agent_id, failure_type
+                    "Expert agent %s available for %s (weight=%.3f), reusing instead of creating new",
+                    best.agent_id, failure_type, best.dynamic_weight,
                 )
             best.last_used = time.time()
             return best
@@ -142,6 +151,47 @@ class AdaptiveAgentFactory:
         for aid in to_remove:
             del self._agents[aid]
         return len(to_remove)
+
+    def _compute_agent_score(self, agent: SpecialistAgent, direction: str = "") -> float:
+        _base = 0.3
+        if agent.is_expert:
+            _base += 0.3
+        if agent.total_tasks > 0:
+            _base += 0.2 * (agent.success_count / max(agent.total_tasks, 1))
+        _consec_bonus = min(0.1, agent._consecutive_successes * 0.03)
+        _base += _consec_bonus
+        _base *= agent.regime_boost
+        _base += agent.mab_signal * 0.15
+        _base += agent.sharpe_trend * 0.10
+        return max(_EPSILON, min(2.0, _base))
+
+    def update_agent_signals(
+        self,
+        agent_type: str,
+        mab_success_rate: float | None = None,
+        regime: str = "",
+        recent_sharpe_trend: float = 0.0,
+    ) -> None:
+        _mab_weight = 1.0
+        if mab_success_rate is not None and mab_success_rate > 0:
+            _mab_weight = 0.5 + min(1.5, mab_success_rate * 2)
+        _regime_map = {
+            "high_volatility": {"sharpe_optimizer": 1.3, "originality": 1.1, "logic_verifier": 1.0},
+            "trending": {"sharpe_optimizer": 1.4, "originality": 0.9, "logic_verifier": 1.1},
+            "low_volatility": {"sharpe_optimizer": 1.0, "originality": 1.2, "logic_verifier": 1.1},
+            "crash_risk": {"sharpe_optimizer": 0.7, "originality": 1.4, "logic_verifier": 1.2},
+        }
+        _regime_boost = _regime_map.get(regime, {}).get(agent_type, 1.0)
+        for agent in self._agents.values():
+            if agent.agent_type == agent_type:
+                agent.mab_signal = mab_success_rate or 0.0
+                agent.regime_boost = _regime_boost
+                agent.sharpe_trend = max(-1.0, min(1.0, recent_sharpe_trend))
+        logger.info(
+            "[DEFENSIVE_LOG] ADAPTIVE_AGENT::SIGNAL_UPDATE type=%s "
+            "mab=%.3f regime=%s boost=%.2f sharpe_trend=%.3f",
+            agent_type, mab_success_rate or 0, regime, _regime_boost, recent_sharpe_trend,
+        )
 
     def get_agent(self, agent_id: str) -> SpecialistAgent | None:
         """Look up a specialist agent by its ID.

@@ -485,6 +485,24 @@ class GenerationPipeline:
         """
         self._check_rag_integrity(rag_context, session_id, cycle_num)
 
+        if rag_context and isinstance(rag_context, dict):
+            try:
+                from openalpha_brain.knowledge.rag_engine import RAGEngine
+
+                _rag = getattr(self, "_rag_engine", None)
+                if _rag is None:
+                    _rag = RAGEngine()
+                    self._rag_engine = _rag
+                _synced = _rag.sync_to_field_proxy_map(rag_context, top_k_fields=8)
+                if _synced > 0:
+                    logger.info(
+                        "[DEFENSIVE_LOG] GENERATION_PIPELINE::RAG_FPM_SYNC "
+                        "session=%s cycle=%d synced_fields=%d",
+                        session_id, cycle_num, _synced,
+                    )
+            except (ImportError, AttributeError, TypeError):
+                pass
+
         if orchestrator is not None:
             _expr, _src, _conf, _raw = await self._generate_via_orchestrator(
                 direction=direction,
