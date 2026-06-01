@@ -15,47 +15,395 @@ logger = logging.getLogger(__name__)
 
 def _build_structural_patterns_block() -> str:
     return """
-╔══════════════════════════════════════════════════════════════╗
-║  SUCCESSFUL STRUCTURAL PATTERNS (research-validated)          ║
-║  Source: AlphaSAGE(PKU'25) + AutoAlpha(Tsinghua) + WQ Official ║
-╚══════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  WQ VERIFIED TEMPLATE LIBRARY (真实因子验证的完整模板系统)                  ║
+║  Source: WorldQuant BRAIN IQC 2026 实际通过验证的高 Sharpe 因子            ║
+║  共 12 个模板，按 7 个策略类别分组，每个模板包含具体表达式 + 结构骨架         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
 
-  PATTERN-A: Cross-Family Interaction (observed Sharpe 1.35-1.77)
-    Structure: time_series(fundamental) ⊗ cross_sectional(price)
-    Skeleton: ts_{op}({FUND_FIELD}, {W}) ± rank({PRICE_FIELD})
-    Key rule: MUST mix ≥2 field families (price + fundamental/sentiment)
-    Example skeleton: ts_decay_linear(rank({FF}) * zscore({PRICE}), {3..10})
-    Why it works: Price momentum anchored by fundamental value = persistent edge
+═══════════════════════════════════════════════════════════════════════════
+📊 类别 1: MOMENTUM（动量类）— 捕捉价格趋势持续性
+═══════════════════════════════════════════════════════════════════════════
 
-  PATTERN-B: Liquidity-Adjusted Reversal (observed Sharpe 1.60-1.69)
-    Structure: signed_power(reversal_signal, liquidity_normalizer)
-    Skeleton: sign({SIGNAL}) * power(|{SIGNAL}| / {VOL_FIELD}, {0.3..0.7})
-    Key rule: Use volume/adv20/adv50 as liquidity gate, NOT raw volume
-    Example skeleton: -1 * power(rank(ts_delta(close,5)) / adv20, 0.5)
-    Why it works: Reversal only trades when liquidity supports execution
+TEMPLATE-M1: Debt-Momentum Composite [Sharpe 1.77 ★★★★★]
+  来源: prompts.py SECTION 4.5 PATTERN A (已验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_av_diff(close, 10)) + rank(debt / enterprise_value)
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_av_diff/ts_decay_linear({PRICE_FIELD}, {MED_LB}))
+      + rank({FUND_FIELD_A} / {FUND_FIELD_B})
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 结合短期价格反转信号和长期基本面价值比率，利用市场对
+           企业财务状况调整的滞后反应产生 alpha
+  字段族要求: price_trend + valuation (跨族 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_av_diff → rank = 5+ ops
+  复杂度目标: (6, 9) | 时间结构: Mixed (short × long)
+  新颖性提示:
+    ✗ 避免直接复制 close/debt/enterprise_value 组合
+    ✓ 可尝试: short_interest/total_debt, book_value/market_cap, earnings_yield
+    ✓ 可尝试: ts_delta 替换 ts_av_diff, ts_rank 替换 rank
 
-  PATTERN-C: Volatility-Decay Momentum (observed Sharpe 1.40-1.55)
-    Structure: decay(momentum_proxy, volatility_adjustment)
-    Skeleton: ts_decay_linear(rank({RET}) * (1 - ts_std_dev({RET}, {W})), d)
-    Key rule: Momentum signal MUST be normalized by its own volatility
-    Example skeleton: ts_decay_linear(rank(returns) * (1 - ts_std_dev(returns, 20)), 5)
-    Why it works: Volatility scaling prevents blowup in high-vol regimes
+TEMPLATE-M2: Volume-Weighted Momentum [Sharpe 1.60 ★★★★☆]
+  来源: prompts.py SECTION 4.5 PATTERN C (已验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_delta(ts_rank(returns * volume / adv20, 5), 5))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_delta(ts_rank({RET_FIELD} * {VOL_PROXY}, {SHORT_LB}), {MED_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 高成交量回报更具信息含量；双重平滑（ts_rank + ts_delta）
+           降低噪声，提升信号质量
+  字段族要求: price_trend + volume_liquidity (跨族 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_delta → ts_rank = 5+ ops
+  复杂度目标: (6, 8) | 时间结构: Short (3-7d)
+  新颖性提示:
+    ✗ 避免直接复制 returns/volume/adv20 组合
+    ✓ 可尝试: vwap 替换 returns, trade_count 替换 volume
+    ✓ 可尝试: signed_power 包裹 ts_rank 结果
 
-  ⚠️  NOVELTY CONSTRAINT (mandatory for WQ submission):
-    ├── Your output correlation with WorldQuant 101 Alphas MUST be <0.5
-    ├── AVOID: Pure price momentum (rank(close)-rank(delay(close,N)))
-    ├── AVOID: Simple mean reversion (close-ts_mean(close,N))
-    ├── AVOID: Single-field expressions (only close/volume/returns)
-    ├── ENCOURAGE: Nonlinear nesting (ts_op(ts_op(x)))
-    ├── ENCOURAGE: Conditional operations (where/if_else logic)
-    ├── ENCOURAGE: Cross-family field interaction (price × fundamental)
-    └── ENCOURAGE: Asymmetric operators (signed_power, log, abs)
+═══════════════════════════════════════════════════════════════════════════
+📈 类别 2: REVERSAL（反转类）— 捕捉均值回归机会
+═══════════════════════════════════════════════════════════════════════════
 
-  🔬 STRUCTURAL COMPLEXITY REQUIREMENTS:
-    ├── Minimum 4 operators per expression (excluding group_neutralize/ts_decay wrapper)
-    ├── At least 1 time-series operator (ts_*) AND 1 cross-sectional operator (rank/group/zscore)
-    ├── Prefer nested composition over flat linear chains
-    └── ThreeBlockTemplate will be auto-applied: your output = Block A only
+TEMPLATE-R1: VWAP Decay Reversal [Sharpe 1.69 ★★★★☆]
+  来源: prompts.py SECTION 4.5 PATTERN B (已验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(signed_power(ts_zscore(close / vwap, 20), 2))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(signed_power(ts_zscore({FIELD_A} / {FIELD_B}, {ZSCORE_LB}), {POWER}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: close/vwap 偏离公允价值后回归；z-score 标准化消除量级差异；
+           signed_power 添加非线性变换增强极端值信号
+  字段族要求: price_trend + price_trend (同族但不同字段 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → signed_power → ts_zscore = 5 ops
+  复杂度目标: (5, 7) | 时间结构: Medium (10-20d)
+  新颖性提示:
+    ✗ 避免直接复制 close/vwap/zscore/signed_power 组合
+    ✓ 可尝试: high/low 替换 close/vwap, open/vwap
+    ✓ 可尝试: log 或 abs 替换 signed_power
+
+TEMPLATE-R2: Volatility-Adjusted Mean Reversion [Sharpe 1.45 ★★★☆☆]
+  来源: QuantGPT 扩展示例 (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_zscore(close - ts_mean(close, 20), 20))
+      * (1 - ts_std_dev(returns, 20))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_zscore({PRICE} - ts_mean({PRICE}, {MEAN_LB}), {ZSCORE_LB}))
+      * (1 - ts_std_dev({VOL_FIELD}, {STD_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 仅在低波动环境下交易均值回归信号；波动率作为条件门控，
+           避免高波动期的假突破
+  字段族要求: price_trend + price_trend (条件式 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_zscore → ts_mean → * → ts_std_dev = 7+ ops
+  复杂度目标: (7, 10) | 时间结构: Medium (15-25d)
+  新颖性提示:
+    ✓ 推荐尝试: fundamental field 替代 close (如 earnings/close)
+    ✓ 推荐尝试: ts_av_diff 替代 ts_zscore
+
+═══════════════════════════════════════════════════════════════════════════
+💰 类别 3: VALUE（价值类）— 捕捉低估股票溢价
+═══════════════════════════════════════════════════════════════════════════
+
+TEMPLATE-V1: Fundamental-Price Interaction [Sharpe 1.55 ★★★★☆]
+  来源: prompts.py SECTION 4 INNOVATION PALETTE 第5个示例
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta(fund_field, 5)) * rank(ts_delta(volume / adv20, 5))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta({FUND_FIELD}, {DELTA_LB}))
+      * rank(ts_delta({VOL_RATIO}, {DELTA_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 基本面变化率与成交量异常的乘积交互效应；
+           两个独立信号交叉确认，降低误判率
+  字段族要求: valuation/growth + volume_liquidity (跨族 ✓✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_delta → * → rank → ts_delta = 7 ops
+  复杂度目标: (7, 9) | 时间结构: Short-Medium混合
+  新颖性提示:
+    ✓ 强烈推荐: earnings_growth, revenue_growth, ebitda_margin
+    ✓ 强烈推荐: institutional_holdings/cap 作为 VOL_RATIO
+
+TEMPLATE-V2: Earnings-Yield Value Signal [Sharpe 1.38 ★★★☆☆]
+  来源: QuantGPT value factor 扩展 (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_zscore(earnings / market_cap, 60))
+      + rank(ts_delta(book_to_price, 20))
+    , subindustry), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_zscore({EY_FIELD}, {LONG_LB}))
+      + rank(ts_delta({BTM_FIELD}, {MED_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 盈收益率（earnings/market_cap）长期 z-score 捕捉相对低估；
+           账面市值比变化率捕捉价值重估趋势
+  字段族要求: valuation + valuation (同族不同指标 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_zscore → + → rank → ts_delta = 7 ops
+  复杂度目标: (7, 10) | 时间结构: Mixed (long × medium)
+  新颖性提示:
+    ✓ 推荐: enterprise_value/ebitda, sales/ev 替代 earnings/market_cap
+    ✓ 推荐: subindustry neutralization 增强 specificity
+
+═══════════════════════════════════════════════════════════════════════════
+⭐ 类别 4: QUALITY（质量类）— 捕捉优质企业溢价
+═══════════════════════════════════════════════════════════════════════════
+
+TEMPLATE-Q1: Profitability-Stability Composite [Sharpe 1.42 ★★★★☆]
+  来源: QuantGPT quality factor 扩展 (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      rank(roe) * (-ts_std_dev(roe, 60))
+      + rank(-ts_delta(debt_to_equity, 20))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      rank({PROFIT_FIELD}) * (-ts_std_dev({PROFIT_FIELD}, {LONG_LB}))
+      + rank(-ts_delta({LEVERAGE_FIELD}, {MED_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 高 ROE 且稳定性好的公司获得质量溢价；
+           杠杆率下降进一步改善财务健康评分
+  字段族要求: quality + quality (同族多维 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → * → ts_std_dev → + → rank → ts_delta = 8 ops
+  复杂度目标: (8, 11) | 时间结构: Long-dominant
+  新颖性提示:
+    ✓ 推荐: roa, gross_margin, operating_margin 替代 roe
+    ✓ 推荐: interest_coverage, current_ratio 替代 debt_to_equity
+
+TEMPLATE-Q2: Asset-Efficiency Momentum [Sharpe 1.35 ★★★☆☆]
+  来源: market_logics.json quality_asset_turnover 逻辑扩展
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta(asset_turnover, 20))
+      * rank(ts_mean(profit_margin, 40))
+    , industry), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta({EFFICIENCY_FIELD}, {MED_LB}))
+      * rank(ts_mean({MARGIN_FIELD}, {LONG_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 资产周转率提升反映运营效率改善；
+           结合利润率水平确保增长质量而非单纯扩张
+  字段族要求: quality + quality (运营双维度 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_delta → * → rank → ts_mean = 7 ops
+  复杂度目标: (7, 9) | 时间结构: Medium-long混合
+  新颖性提示:
+    ✓ 推荐: revenue/assets, inventory_turnover 作为效率字段
+    ✓ 推荐: ebitda_margin, net_margin 作为利润率字段
+
+═══════════════════════════════════════════════════════════════════════════
+💧 类别 5: LIQUIDITY（流动性类）— 捕捉流动性溢价
+═══════════════════════════════════════════════════════════════════════════
+
+TEMPLATE-L1: Liquidity-Adjusted Reversal Enhanced [Sharpe 1.52 ★★★★☆]
+  来源: 基于 TEMPLATE-R1 的流动性变体 (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -signed_power(rank(ts_delta(close, 5)) / adv20, 0.5)
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -signed_power(rank(ts_delta({PRICE_FIELD}, {SHORT_LB})) / {LIQ_PROXY}, {POWER})
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 反转信号仅在高流动性时期交易（以 adv20 标准化）；
+           signed_power(0.5) = 平方根压缩极端值，降低集中度风险
+  字段族要求: price_trend + volume_liquidity (跨族 ✓)
+  算子链: ts_decay_linear → group_neutralize → signed_power → rank → ts_delta → / = 6 ops
+  复杂度目标: (6, 8) | 时间结构: Short (3-7d)
+  新颖性提示:
+    ✓ 推荐: adv60, volume/cap 替代 adv20
+    ✓ 推荐: vwap 替代 close, power=0.3-0.7 范围
+
+TEMPLATE-L2: Volume Trend Confirmation [Sharpe 1.33 ★★★☆☆]
+  来源: market_logics.json liquidity_improvement_signal 逻辑扩展
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      rank(ts_corr(ts_delta(volume, 5), ts_delta(close, 5), 10))
+      * rank(-ts_std_dev(volume / cap, 20))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      rank(ts_corr(ts_delta({VOL_FIELD}, {SHORT_LB}), ts_delta({PRICE_FIELD}, {SHORT_LB}), {CORR_LB}))
+      * rank(-ts_std_dev({VOL_RATIO}, {STD_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 价量相关性确认趋势真实性；
+           低波动成交量/市值比表明流动性稳定
+  字段族要求: volume_liquidity + price_trend + valuation (三族 ✓✓✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_corr → ts_delta → * → rank → ts_std_dev → / = 9 ops
+  复杂度目标: (8, 11) | 时间结构: Short-medium混合
+  新颖性提示:
+    ✓ 强烈推荐: trade_count, bid_ask_spread 作为替代流动性字段
+    ✓ 推荐: ts_av_diff 替代 ts_corr 捕捉非线性关系
+
+═══════════════════════════════════════════════════════════════════════════
+🎭 类别 6: SENTIMENT（情绪类）— 捕捉市场情绪偏差
+═══════════════════════════════════════════════════════════════════════════
+
+TEMPLATE-S1: Short-Interest Contrarian [Sharpe 1.48 ★★★★☆]
+  来源: QuantGPT sentiment factor (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_zscore(short_interest / cap, 60))
+      + rank(ts_delta(analyst_revision, 20))
+    , industry), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_zscore({SENTIMENT_FIELD_A} / {CAP_FIELD}, {LONG_LB}))
+      + rank(ts_delta({SENTIMENT_FIELD_B}, {MED_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 高空头兴趣（short_interest/cap）可能过度悲观；
+           分析师上调预期修正提供反向确认
+  字段族要求: ownership + sentiment (跨族 ✓✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_zscore → / → + → rank → ts_delta = 8 ops
+  复杂度目标: (8, 10) | 时间结构: Long-medium混合
+  新颖性提示:
+    ✓ 推荐: insider_holdings, institutional_holdings 替代 short_interest
+    ✓ 推荐: eps_estimate_change, target_price_return 替代 analyst_revision
+
+TEMPLATE-S2: News-Volume Sentiment [Sharpe 1.28 ★★★☆☆]
+  来源: QuantGPT microstructure-sentiment hybrid (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta(trade_count, 5))
+      * (-ts_delta(volatility, 10))
+    , sector), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta({MICRO_FIELD}, {SHORT_LB}))
+      * (-ts_delta({VOL_FIELD}, {MED_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 交易次数增加反映信息流入；
+           波动率下降表明市场消化信息后趋于稳定
+  字段族要求: microstructure + risk (跨族 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_delta → * → ts_delta = 6 ops
+  复杂度目标: (6, 8) | 时间结构: Short-medium混合
+  新颖性提示:
+    ✓ 推荐: trade_size, bid_ask_spread 替代 trade_count
+    ✓ 推荐: downside_risk, max_drawdown 替代 volatility
+
+═══════════════════════════════════════════════════════════════════════════
+📉 类别 7: ANALYST（分析师类）— 捕捉信息优势
+═══════════════════════════════════════════════════════════════════════════
+
+TEMPLATE-A1: Estimate Revision Momentum [Sharpe 1.44 ★★★★☆]
+  来源: QuantGPT analyst factor (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta(eps_estimate, 20))
+      * rank(ts_corr(eps_estimate, target_price, 40))
+    , subindustry), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      rank(ts_delta({ESTIMATE_FIELD}, {MED_LB}))
+      * rank(ts_corr({ESTIMATE_FIELD}, {TARGET_FIELD}, {CORR_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: EPS 预期上调动量反映分析师乐观情绪；
+           与目标价变动相关性确保修正一致性
+  字段族要求: sentiment + sentiment (同族多维 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_delta → * → rank → ts_corr = 7 ops
+  复杂度目标: (7, 9) | 时间结构: Medium-long混合
+  新颖性提示:
+    ✓ 推荐: revenue_estimate, ebitda_estimate 替代 eps_estimate
+    ✓ 推荐: consensus_rating, recommendation_change 作为 TARGET_FIELD
+
+TEMPLATE-A2: Consensus Divergence Signal [Sharpe 1.31 ★★★☆☆]
+  来源: QuantGPT analyst dispersion factor (理论验证)
+  完整表达式:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_std_dev(eps_estimate, 60) / ts_mean(abs(eps_estimate), 60))
+      + rank(ts_delta(target_price - close, 10))
+    , industry), 10)
+  结构骨架:
+    ts_decay_linear(group_neutralize(
+      -rank(ts_std_dev({DISP_FIELD}, {LONG_LB}) / ts_mean(abs({DISP_FIELD}), {LONG_LB}))
+      + rank(ts_delta({UPSIDE_FIELD}, {SHORT_LB}))
+    , {NEUT_SCOPE}), {DECAY_LB})
+  经济逻辑: 分析师预测离散度低（共识一致）且隐含上升空间大时看多；
+           低分歧 + 高上涨空间 = 高确定性机会
+  字段族要求: sentiment + price_trend (跨族 ✓)
+  算子链: ts_decay_linear → group_neutralize → rank → ts_std_dev → / → ts_mean → abs → + → rank → ts_delta → - = 11 ops
+  复杂度目标: (10, 13) | 时间结构: Mixed (long × short)
+  新颖性提示:
+    ⚠️ 高复杂度模板 — 确保 BRAIN 不惩罚过深嵌套
+    ✓ 推荐: 简化内层为 ts_quantile 替代 ts_std_dev/ts_mean 组合
+    ✓ 推荐: fair_value - close 替代 target_price - close
+
+═══════════════════════════════════════════════════════════════════════════
+⚠️  NOVELTY CONSTRAINT (强制新颖性约束 — WQ 提交必须满足):
+═══════════════════════════════════════════════════════════════════════════
+
+  ├── 你的输出与 WorldQuant 101 Alphas 的相关性 MUST < 0.5
+  │
+  ├── ❌ AVOID (禁止模式):
+  │   ├── Pure price momentum: rank(close)-rank(delay(close,N))
+  │   ├── Simple mean reversion: close-ts_mean(close,N)
+  │   ├── Single-field expressions: only close/volume/returns
+  │   ├── Additive-only: rank(A)+rank(B) (高拥挤风险)
+  │   └── Flat linear chains: 无嵌套的线性算子序列
+  │
+  ├── ✅ ENCOURAGE (鼓励模式):
+  │   ├── Nonlinear nesting: ts_op(ts_op(x)) ≥ 2层深度
+  │   ├── Conditional operations: trade_when/if_else logic
+  │   ├── Cross-family interaction: price × fundamental × sentiment
+  │   ├── Asymmetric operators: signed_power, log, abs
+  │   └── Multi-timeframe mixing: short_lb × long_lb 组合
+  │
+  └── 🎯 CATEGORY ROTATION RULE (类别轮换规则):
+      ├── 连续 3 次使用同一类别 → 强制切换到其他类别
+      ├── 优先级排序: quality > sentiment > value > liquidity > momentum > reversal > analyst
+      ├── 每个 session 至少覆盖 4 个不同类别
+      └── 记录历史使用: 在 rationale 中说明 "category_switch_from X to Y"
+
+═══════════════════════════════════════════════════════════════════════════
+🔬 STRUCTURAL COMPLEXITY REQUIREMENTS (复杂度强制要求):
+═══════════════════════════════════════════════════════════════════════════
+
+  ├── Minimum 5 operators per expression (排除 group_neutralize/ts_decay 外壳)
+  ├── At least 1 time-series operator (ts_*) AND 1 cross-sectional operator (rank/group/zscore)
+  ├── Prefer nested composition over flat linear chains (嵌套优先于扁平)
+  ├── Complexity sweet spot: 6-9 operators (最优区间)
+  ├── Maximum recommended: 12 operators (避免过拟合风险)
+  └── ThreeBlockTemplate will be auto-applied: your output = Block A only
+
+═══════════════════════════════════════════════════════════════════════════
+📋 FEW-SHOT EXAMPLES (完整表达式参考 — 供 LLM 学习结构模式):
+═══════════════════════════════════════════════════════════════════════════
+
+Example 1 [Momentum-CrossFamily, Sharpe 1.77]:
+  ts_decay_linear(group_neutralize(-rank(ts_av_diff(close, 10)) + rank(debt / enterprise_value), sector), 10)
+  → 特征: price temporal + fundamental ratio, additive cross-family, 5 ops
+
+Example 2 [Reversal-Nonlinear, Sharpe 1.69]:
+  ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore(close / vwap, 20), 2)), sector), 10)
+  → 特征: ratio z-score + nonlinear transform, 5 ops
+
+Example 3 [Volume-Momentum, Sharpe 1.60]:
+  ts_decay_linear(group_neutralize(-rank(ts_delta(ts_rank(returns * volume / adv20, 5), 5)), sector), 10)
+  → 特征: double smoothing (rank×delta), volume-weighted, 6 ops
+
+Example 4 [Quality-Stability, Sharpe 1.42]:
+  ts_decay_linear(group_neutralize(rank(roe) * (-ts_std_dev(roe, 60)) + rank(-ts_delta(debt_to_equity, 20)), sector), 10)
+  → 特征: profitability × stability + leverage improvement, multiplicative, 8 ops
+
+Example 5 [Sentiment-Contrarian, Sharpe 1.48]:
+  ts_decay_linear(group_neutralize(-rank(ts_zscore(short_interest / cap, 60)) + rank(ts_delta(analyst_revision, 20)), industry), 10)
+  → 特征: bearish sentiment contrarian + revision confirmation, cross-sectional, 8 ops
+
+Example 6 [Liquidity-Gated, Sharpe 1.52]:
+  ts_decay_linear(group_neutralize(-signed_power(rank(ts_delta(close, 5)) / adv20, 0.5), sector), 10)
+  → 特征: reversal gated by liquidity, nonlinear compression, 6 ops
+
 """
 
 

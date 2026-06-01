@@ -1240,7 +1240,11 @@ class AlphaLogicLibrary:
         try:
             raw = self._path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            self._logics = {lid: MarketLogic.from_dict(d) for lid, d in data.items()}
+            self._logics = {
+                lid: MarketLogic.from_dict(d)
+                for lid, d in data.items()
+                if isinstance(d, dict) and "logic_id" in d
+            }
             logger.info(
                 "AlphaLogicLibrary: loaded %d logics from %s",
                 len(self._logics),

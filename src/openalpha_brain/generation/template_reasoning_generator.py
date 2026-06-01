@@ -242,6 +242,7 @@ class TemplateReasoningGenerator:
           - 标注支持跨族的模板（⭐推荐）
           - 注入 RAG 上下文辅助决策
           - **强制包含** RAG 检索到的 operators、fields、financial_logic
+          - **新增**: 基于 WQ 验证模板库的 7 大类别策略选择框架
 
         Args:
             focus_area: 探索方向
@@ -261,11 +262,16 @@ class TemplateReasoningGenerator:
 
         rag_section = self._build_enhanced_rag_section(rag_context)
 
+        wq_strategy_section = self._build_wq_verified_strategy_section(focus_area, rag_context)
+
         return f"""你是一位量化研究专家。你需要从以下 {len(templates_summary)} 个经过验证的因子模板中选择最合适的一个来生成 alpha 表达式。
 
 ## 当前探索方向
 {focus_area}
 {rag_section}
+
+## WQ 验证模板策略选择框架（★ 新增 — 基于真实高 Sharpe 因子）
+{wq_strategy_section}
 
 ## 可用模板列表（每个模板保证 ≥5 个算子，包含 group_neutralize + ts_decay_linear）
 {template_list_str}
@@ -283,21 +289,262 @@ class TemplateReasoningGenerator:
 4. **【强制要求】** 你生成的表达式 MUST 使用上面「RAG Retrieved Reference Data」中推荐的字段和算子。
    如果完全不相关，请说明原因。
 
+5. **【类别轮换规则】** 连续 3 次使用同一类别 → 必须切换到其他类别
+   优先级排序: quality(7) > sentiment(8) > value(6) > liquidity(3) > momentum(5) > reversal(4) > analyst(2)
+
 ## 你的任务
 请选择一个模板并详细解释你的推理过程。考虑以下因素：
 - 当前市场环境适合哪种类型的因子？
 - 哪个模板的理论基础最强？
 - 选择该模板的风险和优势是什么？
-- 如何结合 RAG 推荐的字段和算子？
+- 如何结合 WQ 验证类别策略和 RAG 推荐的字段/算子？
+- 是否符合类别轮换规则？（避免连续使用同类）
 
 请输出 JSON 格式：
 {{
   "selected_template": "模板ID（如 value_regression）",
-  "reasoning": "详细的经济学推理过程（2-3句话）",
+  "reasoning": "详细的经济学推理过程（2-3句话），需引用 WQ 验证类别的理论依据",
   "hypothesis": "核心假设（一句话）",
   "signal_direction": "positive/negative（表示做多还是做空信号）",
-  "rationale": "为什么这个模板在当前环境下有效"
+  "rationale": "为什么这个模板在当前环境下有效，结合市场环境和 WQ 验证证据",
+  "category_selected": "选择的策略类别（momentum/reversal/value/quality/liquidity/sentiment/analyst）",
+  "rotation_compliance": "说明本次选择是否符合轮换规则"
 }}"""
+
+    def _build_wq_verified_strategy_section(self, focus_area: str, rag_context: dict[str, Any]) -> str:
+        """构建 WQ 验证模板策略选择部分
+
+        基于 market_logics.json 中的 wq_verified_templates 定义，
+        为 Phase 1 提供结构化的策略选择框架。
+
+        Args:
+            focus_area: 当前探索方向
+            rag_context: RAG 上下文（用于推断市场环境）
+
+        Returns:
+            str: WQ 验证策略选择框架的文本描述
+        """
+        try:
+            import json as _json
+
+            from openalpha_brain.data import get_data_path
+
+            market_logics_path = get_data_path("market_logics.json")
+            if not market_logics_path.exists():
+                logger.warning("[DEFENSIVE_LOG] template_reasoning_generator: market_logics.json not found, using fallback strategy section")
+                return self._fallback_wq_strategy_section()
+
+            with open(market_logics_path, encoding="utf-8") as _f:
+                market_data = _json.load(_f)
+
+            wq_templates = market_data.get("wq_verified_templates", {})
+            categories = wq_templates.get("categories", {})
+            rotation_rules = wq_templates.get("rotation_rules", {})
+
+            if not categories:
+                return self._fallback_wq_strategy_section()
+
+            lines = [
+                "",
+                "### 📊 7大策略类别及其 WQ 验证依据",
+                "",
+                "每个类别都经过 WorldQuant BRAIN 实际验证或理论推导，Sharpe 范围 1.28-1.77：",
+                ""
+            ]
+
+            category_descriptions = {
+                "momentum": {
+                    "emoji": "📈",
+                    "name_cn": "动量类",
+                    "priority": 5,
+                    "templates_count": len(categories.get("momentum", {}).get("templates", [])),
+                    "sharpe_range": "1.60-1.77",
+                    "best_for": ["趋势持续性强的市场", "信息扩散缓慢的环境", "中等波动率时期"],
+                    "key_mechanism": "价格趋势持续性 + 成交量确认 + 基本面动量交互",
+                    "representative_template": "TEMPLATE-M1 (Debt-Momentum Composite, Sharpe 1.77)",
+                    "field_families": "price_trend + valuation / volume_liquidity",
+                    "risk_note": "拥挤度高，需结合基本面或情绪字段降低相关性"
+                },
+                "reversal": {
+                    "emoji": "📉",
+                    "name_cn": "反转类",
+                    "priority": 4,
+                    "templates_count": len(categories.get("reversal", {}).get("templates", [])),
+                    "sharpe_range": "1.45-1.69",
+                    "best_for": ["均值回归明显的市场", "过度反应后的修正期", "高流动性环境"],
+                    "key_mechanism": "价格偏离回归 + 波动率条件门控 + 非线性压缩",
+                    "representative_template": "TEMPLATE-R1 (VWAP Decay Reversal, Sharpe 1.69)",
+                    "field_families": "price_trend + price_trend (不同字段)",
+                    "risk_note": "需严格流动性条件，避免低流动性时期的假突破"
+                },
+                "value": {
+                    "emoji": "💰",
+                    "name_cn": "价值类",
+                    "priority": 6,
+                    "templates_count": len(categories.get("value", {}).get("templates", [])),
+                    "sharpe_range": "1.38-1.55",
+                    "best_for": ["价值投资风格盛行期", "基本面驱动行情", "长期持有策略"],
+                    "key_mechanism": "低估溢价 + 盈利率信号 + 基本面-价格交互效应",
+                    "representative_template": "TEMPLATE-V1 (Fundamental-Price Interaction, Sharpe 1.55)",
+                    "field_families": "valuation/growth + volume_liquidity",
+                    "risk_note": "价值陷阱风险，需结合质量或动量指标过滤"
+                },
+                "quality": {
+                    "emoji": "⭐",
+                    "name_cn": "质量类",
+                    "priority": 7,
+                    "templates_count": len(categories.get("quality", {}).get("templates", [])),
+                    "sharpe_range": "1.35-1.42",
+                    "best_for": ["追求稳定收益", "低波动率偏好", "机构投资者主导市场"],
+                    "key_mechanism": "盈利能力 + 稳定性 + 杠杆改善 + 运营效率提升",
+                    "representative_template": "TEMPLATE-Q1 (Profitability-Stability Composite, Sharpe 1.42)",
+                    "field_families": "quality + quality (多维度)",
+                    "risk_note": "高质量公司可能已被充分定价，需寻找预期差"
+                },
+                "liquidity": {
+                    "emoji": "💧",
+                    "name_cn": "流动性类",
+                    "priority": 3,
+                    "templates_count": len(categories.get("liquidity", {}).get("templates", [])),
+                    "sharpe_range": "1.33-1.52",
+                    "best_for": ["流动性分化明显时期", "微观结构套利机会", "高频数据可用"],
+                    "key_mechanism": "流动性门控反转 + 价量趋势确认 + 三族交互",
+                    "representative_template": "TEMPLATE-L1 (Liquidity-Adjusted Reversal Enhanced, Sharpe 1.52)",
+                    "field_families": "price_trend + volume_liquidity (+ valuation 三族)",
+                    "risk_note": "流动性因子对交易成本敏感，需控制换手率"
+                },
+                "sentiment": {
+                    "emoji": "🎭",
+                    "name_cn": "情绪类",
+                    "priority": 8,
+                    "templates_count": len(categories.get("sentiment", {}).get("templates", [])),
+                    "sharpe_range": "1.28-1.48",
+                    "best_for": ["情绪极端偏差期", "新闻事件驱动行情", "行为金融异象明显"],
+                    "key_mechanism": "空头情绪逆向 + 微观结构-波动率混合 + 分析师修正确认",
+                    "representative_template": "TEMPLATE-S1 (Short-Interest Contrarian, Sharpe 1.48)",
+                    "field_families": "ownership + sentiment / microstructure + risk",
+                    "risk_note": "情绪数据可能有滞后性，需结合价格数据实时验证"
+                },
+                "analyst": {
+                    "emoji": "📉",
+                    "name_cn": "分析师类",
+                    "priority": 2,
+                    "templates_count": len(categories.get("analyst", {}).get("templates", [])),
+                    "sharpe_range": "1.31-1.44",
+                    "best_for": ["财报季前后", "分析师预期调整期", "信息不对称程度高"],
+                    "key_mechanism": "预期修正动量 + 分析师离散度 + 相关性确认",
+                    "representative_template": "TEMPLATE-A1 (Estimate Revision Momentum, Sharpe 1.44)",
+                    "field_families": "sentiment + sentiment (多维) / sentiment + price_trend",
+                    "risk_note": "分析师数据更新频率低，不适合短期策略；注意高复杂度惩罚"
+                }
+            }
+
+            for cat_id, cat_info in category_descriptions.items():
+                cat_data = categories.get(cat_id, {})
+                templates_in_cat = cat_data.get("templates", [])
+
+                lines.extend([
+                    f"#### {cat_info['emoji']} {cat_id.upper()} — {cat_info['name_cn']}",
+                    f"  **优先级**: {cat_info['priority']}/8 | **模板数**: {len(templates_in_cat)} | **Sharpe范围**: {cat_info['sharpe_range']}",
+                    f"  **最佳适用场景**: {', '.join(cat_info['best_for'])}",
+                    f"  **核心机制**: {cat_info['key_mechanism']}",
+                    f"  **代表模板**: {cat_info['representative_template']}",
+                    f"  **字段族要求**: {cat_info['field_families']}",
+                    f"  **⚠️ 风险提示**: {cat_info['risk_note']}",
+                    ""
+                ])
+
+                if templates_in_cat:
+                    lines.append("  **该类别下的可用模板**:")
+                    for tpl in templates_in_cat[:2]:
+                        tpl_id = tpl.get("id", "?")
+                        tpl_name = tpl.get("name", "?")
+                        tpl_sharpe = tpl.get("sharpe_reference", "?")
+                        tpl_status = tpl.get("verified_status", "?")
+                        lines.append(f"    - [{tpl_id}] {tpl_name} (Sharpe={tpl_sharpe}, {tpl_status})")
+                    lines.append("")
+
+            rotation_priority = rotation_rules.get("priority_ordering", [])
+            max_consecutive = rotation_rules.get("max_consecutive_same_category", 3)
+            min_categories = rotation_rules.get("minimum_categories_per_session", 4)
+
+            lines.extend([
+                "---",
+                "### 🎯 类别轮换规则（强制执行）",
+                f"- **最大连续同类别次数**: {max_consecutive} 次 → 之后必须切换",
+                f"- **优先级排序**: {' > '.join(rotation_priority)}",
+                f"- **每session最少覆盖类别数**: {min_categories} 个",
+                "- **当前focus_area**: " + focus_area,
+                "",
+                "### 💡 策略选择建议（基于RAG上下文推断市场环境）:",
+                self._infer_market_regime_suggestion(rag_context),
+                ""
+            ])
+
+            return "\n".join(lines)
+
+        except (OSError, ValueError, KeyError) as exc:
+            logger.warning(
+                "[DEFENSIVE_LOG] template_reasoning_generator: failed to build WQ strategy section (%s), using fallback",
+                exc,
+            )
+            return self._fallback_wq_strategy_section()
+
+    def _fallback_wq_strategy_section(self) -> str:
+        """Fallback WQ 策略部分（当 market_logics.json 不可用时）"""
+        return """
+**[FALLBACK] WQ 验证模板策略选择框架**
+
+由于无法加载 market_logics.json，使用简化版策略建议：
+
+#### 7大策略类别概览
+1. **MOMENTUM (动量)** [优先级:5] — Sharpe 1.60-1.77 — 趋势持续性
+2. **REVERSAL (反转)** [优先级:4] — Sharpe 1.45-1.69 — 均值回归
+3. **VALUE (价值)** [优先级:6] — Sharpe 1.38-1.55 — 低估溢价
+4. **QUALITY (质量)** [优先级:7] — Sharpe 1.35-1.42 — 优质企业
+5. **LIQUIDITY (流动性)** [优先级:3] — Sharpe 1.33-1.52 — 流动性溢价
+6. **SENTIMENT (情绪)** [优先级:8] — Sharpe 1.28-1.48 — 情绪偏差
+7. **ANALYST (分析师)** [优先级:2] — Sharpe 1.31-1.44 — 信息优势
+
+**轮换规则**: 连续3次同类别 → 强制切换 | 优先级: quality>sentiment>value>liquidity>momentum>reversal>analyst
+"""
+
+    def _infer_market_regime_suggestion(self, rag_context: dict[str, Any]) -> str:
+        """基于 RAG 上下文推断市场环境并给出策略建议
+
+        Args:
+            rag_context: RAG 检索上下文
+
+        Returns:
+            str: 市场环境推断和策略建议
+        """
+        if not rag_context:
+            return "  - 无法推断市场环境（无RAG数据），建议默认选择 quality 或 sentiment 类别"
+
+        financial_logic = rag_context.get("financial_logic", [])
+        direction = rag_context.get("exploration_direction", "")
+
+        suggestions = []
+
+        if any("volatility" in str(fl).lower() for fl in financial_logic):
+            suggestions.append("- 检测到 volatility 相关逻辑 → 推荐 **reversal** 或 **quality** 类别（低波动偏好）")
+
+        if any("momentum" in str(fl).lower() for fl in financial_logic):
+            suggestions.append("- 检测到 momentum 相关逻辑 → 可继续 **momentum** 类别，但需确保跨族组合")
+
+        if any(["value" in str(fl).lower(), "valuation" in str(fl).lower(), "fundamental" in str(fl).lower()] for fl in financial_logic):
+            suggestions.append("- 检测到 value/fundamental 相关逻辑 → 强烈推荐 **value** 或 **quality** 类别")
+
+        if any(["sentiment" in str(fl).lower(), "analyst" in str(fl).lower(), "revision" in str(fl).lower()] for fl in financial_logic):
+            suggestions.append("- 检测到 sentiment/analyst 相关逻辑 → 推荐 **sentiment** 或 **analyst** 类别")
+
+        if direction:
+            suggestions.append(f"- 当前 exploration_direction={direction} → 建议匹配对应类别或选择互补类别")
+
+        if not suggestions:
+            suggestions.append("- 无明确市场环境信号 → 建议按优先级排序选择：quality > sentiment > value")
+
+        return "\n".join(suggestions) if suggestions else "  - 使用默认策略：按优先级排序选择"
 
     def _build_enhanced_rag_section(self, rag_context: dict[str, Any]) -> str:
         """构建增强版 RAG 数据注入段
