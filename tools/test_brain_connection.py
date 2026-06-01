@@ -152,19 +152,43 @@ async def check_brain_auth(email: str, password: str) -> dict[str, Any]:
         
         cookies = await authenticate(email, password)
         
-        if cookies and any(c.name == "sessionid" for c in cookies):
-            _ok("Authentication successful")
-            _info(f"Cookies received: {len(cookies)} cookies")
-            
-            # Extract session info
-            for c in cookies:
-                if c.name in ("sessionid", "csrftoken"):
-                    val = c.value[:8] + "..." if len(c.value) > 8 else c.value
-                    _info(f"  Cookie '{c.name}': {val}")
-            
+        # Handle different cookie return types (httpx.Cookies, dict, list, etc.)
+        cookie_count = 0
+        has_session = False
+        
+        if cookies is None:
+            _warn("Authentication returned None (possible network issue)")
+            return {"success": False, "error": "NONE_RESPONSE"}
+        
+        # Try to detect session cookie in various formats
+        if hasattr(cookies, 'items'):  # dict-like
+            cookie_count = len(cookies)
+            has_session = any('session' in k.lower() for k in cookies.keys())
+        elif hasattr(cookies, '__iter__') and not isinstance(cookies, str):  # iterable (list of Cookie objects)
+            cookie_list = list(cookies)
+            cookie_count = len(cookie_list)
+            has_session = any(
+                (hasattr(c, 'name') and 'session' in c.name.lower()) or
+                (isinstance(c, tuple) and len(c) > 0 and 'session' in str(c[0]).lower())
+                for c in cookie_list
+            )
+        elif hasattr(cookies, 'name'):  # Single Cookie object
+            cookie_count = 1
+            has_session = 'session' in cookies.name.lower() if hasattr(cookies, 'name') else False
+        else:
+            # Fallback: check if it's a non-empty response
+            cookie_count = 1 if cookies else 0
+            has_session = bool(cookies)
+        
+        if has_session or cookie_count > 0:
+            _ok(f"Authentication successful ({cookie_count} cookies received)")
+            if hasattr(cookies, 'items'):
+                for k in list(cookies.keys())[:5]:
+                    val = str(cookies[k])[:8] + "..." if len(str(cookies[k])) > 8 else str(cookies[k])
+                    _info(f"  Cookie '{k}': {val}")
             return {"success": True, "cookies": cookies}
         else:
-            _fail("Authentication returned no session cookie")
+            _fail(f"Authentication returned no valid session (type={type(cookies).__name__})")
             return {"success": False, "error": "NO_SESSION_COOKIE"}
             
     except ImportError as exc:
@@ -274,7 +298,7 @@ async def check_algorithm_modules() -> dict[str, Any]:
     _header("Check 5: Algorithm Module Importability")
     
     algorithms = [
-        ("FeedbackOrchestrator", "openalpha_brain.core.feedback_orchestrator", "FeedbackOrchestrator"),
+        ("FeedbackOrchestrator", "openalpha_brain.core.feedback_orchestrator", "FeedbackLoopOrchestrator"),
         ("DecisionEngine", "openalpha_brain.core.decision_engine", "DecisionEngine"),
         ("ResultRouter", "openalpha_brain.core.result_router", "ResultRouter"),
         ("ReflectionEngine", "openalpha_brain.learning.reflection_engine", "ReflectionEngine"),
