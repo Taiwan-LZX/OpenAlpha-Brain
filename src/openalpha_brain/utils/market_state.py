@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 _STATE_PATH = Path(__file__).resolve().parent / "market_state.json"
 
+_garch_cache: dict[str, tuple] = {}
+
 
 @dataclass
 class MarketState:
@@ -509,7 +511,7 @@ class MarketStateInferencer:
         """
         return dict(self._yearly_states)
 
-    def infer_current_regime(self) -> str:
+    def infer_current_regime(self, returns_20d: list[float] | None = None) -> str:
         """Infer the current market regime based on accumulated state data.
 
         Returns one of: 'high_volatility', 'trending', 'low_volatility',
@@ -521,6 +523,10 @@ class MarketStateInferencer:
           - low_volatility: all Sharpes < 0.5 AND quality/value dominant
           - crash_risk: momentum collapsing (< 0.2) with high vol dominance
           - unknown: insufficient data or unclear signal
+
+        AE-3 Enhancement: GARCH(1,1) volatility clustering detection.
+        If returns_20d is provided and GARCH detects volatility clustering,
+        upgrade regime to 'crash_risk' when already in high-volatility/trending state.
         """
         avg_sharpes: dict[str, float] = {}
         for d, sharpes in self._direction_sharpes.items():
@@ -538,19 +544,45 @@ class MarketStateInferencer:
 
         # Crash risk: momentum very weak + volatility elevated
         if mom_sharpe < 0.2 and vol_sharpe > 0.5:
-            return "crash_risk"
-
+            regime = "crash_risk"
         # High volatility regime
-        if vol_sharpe > 0.6 or mr_sharpe > 0.8:
-            return "high_volatility"
-
+        elif vol_sharpe > 0.6 or mr_sharpe > 0.8:
+            regime = "high_volatility"
         # Trending regime: strong momentum
-        if mom_sharpe > 1.0:
-            return "trending"
-
+        elif mom_sharpe > 1.0:
+            regime = "trending"
         # Low volatility: modest Sharpes across board, quality/value lead
-        max_sharpe = max(avg_sharpes.values()) if avg_sharpes else 0.0
-        if max_sharpe < 0.7 and (qual_sharpe >= val_sharpe >= mr_sharpe):
-            return "low_volatility"
+        else:
+            max_sharpe = max(avg_sharpes.values()) if avg_sharpes else 0.0
+            if max_sharpe < 0.7 and (qual_sharpe >= val_sharpe >= mr_sharpe):
+                regime = "low_volatility"
+            else:
+                regime = "unknown"
 
-        return "unknown"
+        # ── AE-3: GARCH Volatility Clustering Detection ──
+        if returns_20d and len(returns_20d) >= 20:
+            try:
+                from openalpha_brain.utils.volatility_detector import estimate_garch11
+
+                cache_key = "garch"
+                cached, cache_time = _garch_cache.get(cache_key, (None, 0))
+                if cached and (time.time() - cache_time) < 3600:
+                    garch_result = cached
+                else:
+                    garch_result = estimate_garch11(returns_20d)
+                    _garch_cache[cache_key] = (garch_result, time.time())
+
+                if garch_result and getattr(garch_result, "is_clustering", False):
+                    if regime in ("high_volatility", "trending"):
+                        _old_regime = regime
+                        regime = "crash_risk"
+                        logger.info(
+                            "[GARCH] Volatility clustering detected! persistence=%.3f "
+                            "→ upgrading %s → crash_risk",
+                            getattr(garch_result, "persistence", 0),
+                            _old_regime,
+                        )
+            except (ImportError, ValueError, TypeError, OSError) as _garch_exc:
+                logger.debug("[GARCH] Volatility detector unavailable: %s", _garch_exc)
+
+        return regime

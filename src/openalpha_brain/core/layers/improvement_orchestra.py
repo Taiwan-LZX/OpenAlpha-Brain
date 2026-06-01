@@ -105,6 +105,7 @@ class ImprovementOrchestra:
         self._experience_distiller: Any = None
         self._semantic_mutator: Any = None
         self._quality_diversity: Any = None
+        self._graph_exp_db: Any = None
         self._stats: dict[str, int] = {
             "total_calls": 0,
             "fo_success": 0,
@@ -122,6 +123,38 @@ class ImprovementOrchestra:
         except (ImportError, AttributeError, RuntimeError) as exc:
             logger.warning("[ORCH] ⚠ TOT init failed: %s", exc)
             self._tot_engine = None
+
+    def _load_experience_cards(self, n=5):
+        """加载历史成功经验卡片并格式化为 prompt 注入
+
+        Returns:
+            tuple: (formatted_text: str, cards_data: list[dict])
+                   - formatted_text: 可直接注入 prompt 的文本
+                   - cards_data: 原始卡片字典列表（用于 metadata 记录）
+        """
+        try:
+            from openalpha_brain.core import loop_state as _ls
+
+            distiller = getattr(_ls, '_experience_distiller', None)
+            if distiller is None:
+                return "", []
+
+            cards = distiller.get_top_cards(n)
+            if not cards:
+                return [], []
+
+            formatted = "\n\n[HISTORICAL SUCCESS PATTERNS — Your own data, zero overlap risk]\n"
+            for i, card in enumerate(cards[:n], 1):
+                formatted += f"\nPattern {i} (confidence={card.get('confidence', 0):.2f}):\n"
+                formatted += f"  - Logic: {card.get('logic_summary', 'N/A')}\n"
+                formatted += f"  - Key fields: {card.get('key_fields', [])}\n"
+                formatted += f"  - Sharpe achieved: {card.get('best_sharpe', 0):.2f}\n"
+
+            logger.debug("[IMPROVE] Loaded %d experience cards for context", len(cards))
+            return formatted, cards
+        except (ImportError, AttributeError) as exc:
+            logger.debug("[IMPROVE] ExperienceCards loading failed: %s", exc)
+            return "", []
 
     async def analyze_and_improve(
         self,
@@ -164,10 +197,69 @@ class ImprovementOrchestra:
         t_start = time.monotonic()
         result = ImprovementResult()
 
+        if expression:
+            try:
+                from openalpha_brain.generation.alpha_parser import AlphaParser
+
+                parser = AlphaParser()
+                parse_result = parser.parse(expression)
+                result.metadata["parsed_expression"] = {
+                    "operators": parse_result.get("operators", []),
+                    "fields": parse_result.get("fields", []),
+                    "complexity": parse_result.get("complexity", 0),
+                }
+                logger.debug(
+                    "[IO] AlphaParser | operators=%d fields=%d complexity=%d",
+                    len(result.metadata["parsed_expression"]["operators"]),
+                    len(result.metadata["parsed_expression"]["fields"]),
+                    result.metadata["parsed_expression"]["complexity"],
+                )
+            except (ImportError, ValueError):
+                pass
+
+        # ── AE-5: Graph-based experience retrieval (lazy initialization) ──
+        if self._graph_exp_db is None:
+            try:
+                import pickle
+
+                from openalpha_brain.knowledge.graph_experience_db import GraphBasedExperienceDB
+
+                self._graph_exp_db = GraphBasedExperienceDB("data/experience_graph.pkl")
+                logger.info("[ORCH] ✓ GraphExperienceDB initialized")
+            except (OSError, pickle.PickleError, ImportError, Exception) as exc:
+                logger.warning("[ORCH] ⚠ GraphExperienceDB init failed: %s", exc)
+                self._graph_exp_db = None
+
+        if self._graph_exp_db is not None and expression:
+            try:
+                similar_exps = self._graph_exp_db.query_similar_expressions(expression, top_k=3)
+                if similar_exps:
+                    best = similar_exps[0]
+                    result.metadata["historical_similar_expr"] = best.content
+                    result.metadata["similarity_score"] = best.metadata.get("similarity", 0)
+                    improvement_path = self._graph_exp_db.get_improvement_path(best.node_id)
+                    if improvement_path:
+                        result.metadata["suggested_improvement_path"] = improvement_path
+                    logger.info(
+                        "[IMPROVE] Found %d similar expressions (best score=%.2f)",
+                        len(similar_exps),
+                        result.metadata.get("similarity_score", 0),
+                    )
+            except (ValueError, KeyError, Exception) as exc:
+                logger.debug("[IMPROVE] Graph query failed: %s", exc)
+
         sharpe = getattr(brain_result, "real_sharpe", None) or getattr(brain_result, "sharpe", 0) or 0.0
         fitness = getattr(brain_result, "real_fitness", None) or getattr(brain_result, "fitness", 0) or 0.0
         result.sharpe = float(sharpe) if sharpe else 0.0
         result.fitness = float(fitness) if fitness else 0.0
+
+        experience_context, experience_cards_data = self._load_experience_cards(5)
+        if experience_context:
+            result.metadata["experience_cards_injected"] = True
+            result.metadata["experience_cards_count"] = len(experience_cards_data)
+            result.metadata["experience_cards_data"] = experience_cards_data
+            logger.info("[IMPROVE] Loaded %d experience cards for LLM improvement context",
+                        len(experience_cards_data))
 
         fo = feedback_orch or self._feedback_orch
         if fo is not None:
@@ -177,6 +269,7 @@ class ImprovementOrchestra:
                     expression=expression,
                     session_id=session_id,
                     cycle_num=cycle_num,
+                    experience_context=experience_context or None,
                 )
                 result.action = getattr(fo_out, "action", None)
                 result.action_reason = getattr(fo_out, "action_reason", "") or ""
@@ -186,6 +279,12 @@ class ImprovementOrchestra:
                 result.reflection_diagnosis = getattr(fo_out, "reflection_diagnosis", None)
                 result.near_pass_analysis = getattr(fo_out, "near_pass_analysis", None)
                 result.turnover_analysis = getattr(fo_out, "turnover_analysis", None)
+
+                if hasattr(fo_out, 'experience_context') and fo_out.experience_context:
+                    result.metadata["fo_experience_context_passed"] = True
+                    logger.debug("[IO] FO confirmed experience context receipt (%d chars)",
+                                 len(fo_out.experience_context))
+
                 self._stats["fo_success"] += 1
                 logger.info(
                     "[IO] FO done | action=%s variants=%d sources=%s",
@@ -468,6 +567,25 @@ class ImprovementOrchestra:
             self._stats.get("qd_success", 0),
             self._stats.get("tot_success", 0),
         )
+
+        # ── AE-5: Store successful improvements to graph experience DB ──
+        if self._graph_exp_db is not None and result.improved_expressions:
+            try:
+                for improved_expression in result.improved_expressions[:1]:
+                    if improved_expression and improved_expression != expression:
+                        node_id = self._graph_exp_db.add_factor_expression(
+                            expression=improved_expression,
+                            wq_feedback={
+                                "sharpe": result.sharpe,
+                                "turnover": getattr(brain_result, "real_turnover", None) or getattr(brain_result, "turnover", None) or 0.0,
+                            },
+                            category="improved" if result.sharpe > 0.5 else "failed_improvement",
+                        )
+                        logger.debug("[IMPROVE] Stored experience node=%s", node_id)
+                        result.metadata["graph_experience_node_id"] = node_id
+            except (ValueError, KeyError, OSError, Exception) as exc:
+                logger.debug("[IMPROVE] Experience storage failed: %s", exc)
+
         return result
 
     def set_feedback_orchestrator(self, fo: Any) -> None:

@@ -1618,6 +1618,7 @@ class FeedbackLoopOrchestrator:
         expression: str,
         session_id: str = "",
         cycle_num: int = 0,
+        experience_context: str | None = None,
     ) -> Any:
         """Public facade for loop_engine integration.
 
@@ -1628,13 +1629,15 @@ class FeedbackLoopOrchestrator:
           - AdaptiveNeutralizer → neutralization recommendation
           - NearPassImprover → near-pass variant generation
           - FitnessBoost → low-fitness variant generation
-          - TurnoverOptimizer → high-TO analysis
+          - TurnoverOptimizer → high-turnover analysis
 
         Args:
             brain_result: Raw WQ brain result object.
             expression: The alpha expression that was submitted.
             session_id: Session identifier for logging.
             cycle_num: Current cycle number.
+            experience_context: Optional pre-loaded experience cards text from
+                               ExperienceDistiller for LLM improvement injection.
 
         Returns:
             FOAnalysisResult with action, improved expressions, and metadata.
@@ -1654,6 +1657,8 @@ class FeedbackLoopOrchestrator:
             reflection_diagnosis: dict | None = None
             near_pass_analysis: dict | None = None
             turnover_analysis: dict | None = None
+            experience_context: str | None = None
+            metadata: dict = field(default_factory=dict)
 
         result = FOAnalysisResult()
         sharpe = getattr(brain_result, "real_sharpe", None) or getattr(brain_result, "sharpe", 0) or 0.0
@@ -1662,6 +1667,12 @@ class FeedbackLoopOrchestrator:
         result.sharpe = sharpe
         result.fitness = fitness
         result.turnover = turnover
+
+        if experience_context:
+            result.experience_context = experience_context
+            result.metadata["experience_cards_injected"] = True
+            logger.info("[FO-ANALYZE] Experience context received (%d chars), available for LLM injection",
+                        len(experience_context))
 
         wq_feedback = {
             "sharpe": sharpe,

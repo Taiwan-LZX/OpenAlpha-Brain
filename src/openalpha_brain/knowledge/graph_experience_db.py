@@ -1046,6 +1046,147 @@ class GraphBasedExperienceDB:
         matches = sum(1 for a, b in zip(norm_a, norm_b, strict=False) if a == b)
         return matches / max(len(norm_a), len(norm_b))
 
+    @algo_log()
+    def query_similar_expressions(
+        self, current_expression: str, top_k: int = 5, min_similarity: float = 0.3
+    ) -> list[ExperienceNode]:
+        """Query for structurally similar expressions (returns ExperienceNode objects).
+
+        This is a convenience wrapper around query_similar_experiences() that returns
+        ExperienceNode objects directly for use by ImprovementOrchestra.
+
+        Args:
+            current_expression: The query expression to find similarities for
+            top_k: Maximum number of results to return
+            min_similarity: Minimum similarity threshold (0-1)
+
+        Returns:
+            List of ExperienceNode objects with similarity score in metadata
+        """
+        experiences = self.query_similar_experiences(
+            current_expression=current_expression,
+            top_k=top_k,
+            min_similarity=min_similarity,
+        )
+        nodes = []
+        for exp in experiences:
+            node = self.graph.get_node(exp.get("node_id", ""))
+            if node is not None:
+                node.metadata["similarity"] = exp.get("similarity", 0)
+                nodes.append(node)
+        return nodes
+
+    @algo_log()
+    def get_improvement_path(self, node_id: str) -> list[dict] | None:
+        """Get the improvement path from an expression node.
+
+        Traverses the graph to find: expression → feedback → improvement → new_expression
+
+        Args:
+            node_id: The expression node ID to start from
+
+        Returns:
+            List of dicts representing the improvement path steps, or None if no path found
+        """
+        if not node_id:
+            return None
+
+        feedback_nodes = self.graph.get_successors(node_id)
+        if not feedback_nodes:
+            return None
+
+        path = []
+        for fb_node in feedback_nodes:
+            if fb_node.node_type != self.NODE_TYPES["feedback"]:
+                continue
+
+            imp_nodes = self.graph.get_successors(fb_node.node_id)
+            for imp_node in imp_nodes:
+                if imp_node.node_type != self.NODE_TYPES["improvement"]:
+                    continue
+
+                path_step = {
+                    "feedback": fb_node.content if isinstance(fb_node.content, dict) else {},
+                    "improvement": imp_node.content if isinstance(imp_node.content, dict) else {},
+                    "strategy": imp_node.content.get("strategy", "unknown")
+                    if isinstance(imp_node.content, dict)
+                    else "unknown",
+                }
+
+                new_expr_nodes = self.graph.get_successors(imp_node.node_id)
+                for new_node in new_expr_nodes:
+                    if new_node.node_type == self.NODE_TYPES["expression"]:
+                        path_step["result_expression"] = new_node.content
+                        path_step["result_node_id"] = new_node.node_id
+
+                path.append(path_step)
+
+        return path if path else None
+
+    @algo_log()
+    def add_factor_expression(
+        self,
+        expression: str,
+        wq_feedback: dict | None = None,
+        category: str = "general",
+    ) -> str:
+        """Add a factor expression node (lightweight version of add_factor_experience).
+
+        Creates only the expression + feedback nodes without requiring full improvement data.
+        Used by ImprovementOrchestra to quickly store new experiences.
+
+        Args:
+            expression: WQ BRAIN alpha expression string
+            wq_feedback: Optional dict with keys {sharpe, turnover, fitness}
+            category: One of CATEGORIES (near_pass/success/fail/noise/general/improved/failed_improvement)
+
+        Returns:
+            The expression node ID
+
+        Raises:
+            ValueError: If expression is empty or invalid
+        """
+        if not expression or not isinstance(expression, str):
+            raise ValueError("Expression must be a non-empty string")
+
+        if wq_feedback is None:
+            wq_feedback = {}
+
+        features = self._extract_features(expression)
+
+        expr_node = ExperienceNode(
+            node_type=self.NODE_TYPES["expression"],
+            content=expression,
+            features=features,
+            metadata={"category": category},
+        )
+        self.graph.add_node(expr_node)
+        self.node_counter += 1
+
+        if wq_feedback:
+            feedback_node = ExperienceNode(
+                node_type=self.NODE_TYPES["feedback"],
+                content=wq_feedback,
+                metadata={"category": category},
+            )
+            self.graph.add_node(feedback_node)
+            self.node_counter += 1
+
+            expr_feedback_edge = ExperienceEdge(
+                source_id=expr_node.node_id,
+                target_id=feedback_node.node_id,
+                edge_type=self.EDGE_TYPES["produces"],
+            )
+            self.graph.add_edge(expr_feedback_edge)
+
+        logger.info(
+            "[GRAPH-DB] Added expression: %s category=%s node=%s",
+            expression[:50],
+            category,
+            expr_node.node_id,
+        )
+        return expr_node.node_id
+
 
 def create_graph_db(db_path: str = "data/experience_graph.pkl", auto_load: bool = True) -> GraphBasedExperienceDB:
     """Factory function to create and optionally load a GraphBasedExperienceDB instance.

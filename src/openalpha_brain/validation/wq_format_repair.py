@@ -1013,6 +1013,42 @@ def _ensure_three_block_template(expr: str) -> tuple[str, list[str]]:
     return result, repairs
 
 
+def _extract_operators(expression: str) -> list[str]:
+    """从表达式中提取所有操作符名称"""
+    import ast
+
+    try:
+        tree = ast.parse(expression, mode="eval")
+        operators = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                operators.append(node.func.id)
+        return operators
+    except (SyntaxError, ValueError):
+        return re.findall(r"\b([a-z_][a-z0-9_]*)\s*\(", expression, re.IGNORECASE)
+
+
+def _check_operator_validity(expression: str) -> list[str]:
+    """检查表达式中的操作符是否合法"""
+    try:
+        from openalpha_brain.knowledge.operator_registry import OperatorRegistry
+
+        op_reg = OperatorRegistry()
+        valid_ops = set(op_reg.get_all_operators())
+        extracted_ops = _extract_operators(expression)
+        invalid = [op for op in extracted_ops if op not in valid_ops]
+        if invalid:
+            logger.info(
+                "[DEFENSIVE_LOG] operator_validity_check: found %d invalid operators: %s",
+                len(invalid),
+                invalid[:10],
+            )
+        return invalid
+    except ImportError:
+        logger.debug("[COMPLIANCE] OperatorRegistry not available, skipping operator validity check")
+        return []
+
+
 def enforce_compliance(expression: str) -> ComplianceResult:
     """强制表达式合规：验证 + 自动修复。
 
@@ -1051,6 +1087,16 @@ def enforce_compliance(expression: str) -> ComplianceResult:
     # Step 4: 确保 ThreeBlockTemplate
     current, template_repairs = _ensure_three_block_template(current)
     all_repairs.extend(template_repairs)
+
+    # Step 4.5: 操作符合法性检查（OperatorRegistry 联动）
+    invalid_operators = _check_operator_validity(current)
+    if invalid_operators:
+        errors.append(f"使用未注册操作符: {invalid_operators[:8]}")
+        logger.warning(
+            "[DEFENSIVE_LOG] enforce_compliance: INVALID_OPERATORS detected=%d operators=%s",
+            len(invalid_operators),
+            invalid_operators[:8],
+        )
 
     # Step 5: 完整验证
     validation = validate_expression_wq(current)

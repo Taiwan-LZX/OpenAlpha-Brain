@@ -10,8 +10,8 @@
       "-ts_zscore(ts_delta({price_field}, {short_lb}), {zscore_lb})"
     ],
     "time_horizon": "short",
-    "evidence_count": 79,
-    "last_updated": 1780333919.6822171,
+    "evidence_count": 82,
+    "last_updated": 1780337437.063504,
     "evidence_records": [
       {
         "expression": "group_neutralize(rank(ts_decay_linear(close - vwap, 5)), industry)",
@@ -664,6 +664,24 @@
       }
     ],
     "accumulated_diagnoses": [
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
+      {
+        "failure_type": "signal_too_weak",
+        "root_cause": "momentum signal arbitraged away",
+        "suggested_fix": "use ts_zscore instead of ts_delta",
+        "confidence": 0.8
+      },
       {
         "failure_type": "signal_too_weak",
         "root_cause": "momentum signal arbitraged away",

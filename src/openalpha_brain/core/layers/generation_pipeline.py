@@ -146,6 +146,7 @@ class GenerationPipeline:
         self.config: dict[str, Any] = {**self.DEFAULT_CONFIG, **(config or {})}
         self._generation_count: int = 0
         _source_stats: dict[str, int] = {}
+        self._template_reasoning_gen: Any = None
 
     async def generate(
         self,
@@ -497,18 +498,77 @@ class GenerationPipeline:
             )
             return _expr, _src, _conf, _raw, None
 
+        if llm_client is not None:
+            try:
+                _expr, _src, _conf, _raw = await self._generate_via_template_reasoning(
+                    focus_area=direction or "",
+                    cycle_num=cycle_num,
+                    llm_client=llm_client,
+                    rag_context=rag_context,
+                    mab_top_fields=mab_top_fields,
+                )
+                if _expr and _conf > 0:
+                    logger.info(
+                        "[GEN] ✓ Path-1 TemplateReasoning SUCCEEDED (source=%s conf=%.2f) — using CoT reasoning as primary",
+                        _src,
+                        _conf,
+                    )
+                    result_metadata = {"generation_method": "template_reasoning_cot"}
+                    if isinstance(_raw, dict):
+                        result_metadata.update(_raw)
+                    return _expr, _src, _conf, _raw, None
+                else:
+                    logger.info(
+                        "[GEN] Path-1 TemplateReasoning returned empty/low-conf (source=%s conf=%.2f) — falling back to Path-2 Ensemble",
+                        _src,
+                        _conf,
+                    )
+            except Exception as e:
+                logger.warning("[GEN] Path-1 TemplateReasoning FAILED with exception: %s, fallback to Path-2", e)
+
         if llm_client is not None and user_msg:
-            _expr, _src, _conf, _raw = await self._ensemble_generate(
-                direction=direction,
-                session_id=session_id,
-                cycle_num=cycle_num,
-                llm_client=llm_client,
-                base_user_msg=user_msg,
-                effective_history=effective_history,
-                mab_recommendation=mab_recommendation,
-                mab_top_fields=mab_top_fields,
-            )
-            return _expr, _src, _conf, _raw, None
+            try:
+                _expr, _src, _conf, _raw = await self._ensemble_generate(
+                    direction=direction,
+                    session_id=session_id,
+                    cycle_num=cycle_num,
+                    llm_client=llm_client,
+                    base_user_msg=user_msg,
+                    effective_history=effective_history,
+                    mab_recommendation=mab_recommendation,
+                    mab_top_fields=mab_top_fields,
+                    previous_expressions=previous_expressions,
+                )
+                if _expr:
+                    logger.info("[GEN] Path-2 Ensemble SUCCEEDED (source=%s conf=%.2f) — using multi-variant generation", _src, _conf)
+                    return _expr, _src, _conf, _raw, None
+                else:
+                    logger.info("[GEN] Path-2 Ensemble returned empty — falling back to Path-3 Direct LLM")
+            except Exception as e:
+                logger.warning("[GEN] Path-2 Ensemble FAILED with exception: %s, fallback to Path-3", e)
+
+        if llm_client is not None:
+            try:
+                _expr, _src, _conf, _raw = await self._generate_via_llm_direct(
+                    direction=direction,
+                    session_id=session_id,
+                    cycle_num=cycle_num,
+                    llm_client=llm_client,
+                    user_msg=user_msg,
+                    effective_history=effective_history,
+                    rag_context=rag_context,
+                    operators=operators,
+                    fields=fields,
+                    mab_recommendation=mab_recommendation,
+                    mab_top_fields=mab_top_fields,
+                )
+                if _expr:
+                    logger.info("[GEN] Path-3 Direct LLM SUCCEEDED (source=%s conf=%.2f) — last resort path used", _src, _conf)
+                    return _expr, _src, _conf, _raw, None
+                else:
+                    logger.warning("[GEN] Path-3 Direct LLM also returned empty — all LLM paths exhausted")
+            except Exception as e:
+                logger.error("[GEN] Path-3 Direct LLM FAILED with exception: %s", e)
 
         if alpha_generator is not None:
             _expr, _src, _conf, _raw = await self._generate_via_template(
@@ -704,13 +764,72 @@ class GenerationPipeline:
         ])
         formatted_block = "\n".join(line for line in lines if line is not None)
 
-        return {
+        whitelist_metadata = {
             "core_fields": core_fields,
             "dynamic_fields": dynamic_fields,
             "all_fields": all_fields,
             "formatted_block": formatted_block,
             "source": source,
         }
+
+        try:
+            from openalpha_brain.knowledge.operator_registry import OperatorRegistry
+
+            op_reg = OperatorRegistry()
+            allowed_ops = (
+                op_reg.get_operators_for_family(direction)
+                if direction
+                else op_reg.get_all_operators()
+            )
+            whitelist_metadata["allowed_operators"] = allowed_ops[:20]
+            logger.info(
+                "[DEFENSIVE_LOG] GENERATION_PIPELINE::OPERATOR_REGISTRY "
+                "session=%s direction=%s operators_retrieved=%d",
+                getattr(self, '_current_session_id', 'unknown'),
+                direction,
+                len(allowed_ops[:20]),
+            )
+        except (ImportError, AttributeError) as exc:
+            logger.debug("[GEN] OperatorRegistry not available: %s", exc)
+            whitelist_metadata["allowed_operators"] = []
+
+        return whitelist_metadata
+
+    def _get_negative_constraints(self) -> tuple[str, dict]:
+        """从 ErrorPatternDB 获取负面约束并格式化为 prompt 注入
+
+        实现数据流闭环：L4 (Validation) → L2 (Generation)
+        将历史错误模式作为负面约束传递给 LLM，避免重复犯错。
+
+        Returns:
+            tuple: (formatted_constraint_text, constraints_dict)
+                   - formatted_constraint_text: 可直接追加到 user_msg 的文本
+                   - constraints_dict: 原始约束字典（用于日志记录）
+        """
+        try:
+            error_db = getattr(_ls_module._ls, "_error_pattern_db", None)
+            if error_db is None:
+                return "", {}
+
+            if not hasattr(error_db, "build_negative_constraints"):
+                return "", {}
+
+            constraints = error_db.build_negative_constraints()
+            if not constraints:
+                return "", {}
+
+            formatted = "\n\n[ERROR PATTERN CONSTRAINTS — Avoid these common mistakes]\n"
+            for pattern_type, examples in constraints.items():
+                if examples:
+                    sample_examples = examples[:3]
+                    formatted += f"- {pattern_type}: {', '.join(str(ex) for ex in sample_examples)}\n"
+
+            logger.debug("[GEN] Retrieved %d negative constraint types from ErrorPatternDB", len(constraints))
+            return formatted, constraints
+
+        except (ImportError, AttributeError, TypeError, OSError) as exc:
+            logger.debug("[GEN] ErrorPatternDB unavailable for negative constraints: %s", exc)
+            return "", {}
 
     async def _generate_via_llm_direct(
         self,
@@ -750,6 +869,62 @@ class GenerationPipeline:
                     len(fw["dynamic_fields"]),
                 )
 
+            try:
+                from openalpha_brain.utils.paper_edge_enhancements import build_grammar_fallback_chain
+
+                grammar_chain = build_grammar_fallback_chain(strict_grammar="")
+                if grammar_chain:
+                    enhanced_user_msg += (
+                        f"\n\n[GRAMMAR FALLBACK] Available relaxation levels: {len(grammar_chain)}"
+                    )
+                    logger.info(
+                        "[DEFENSIVE_LOG] GENERATION_PIPELINE::GRAMMAR_FALLBACK_CHAIN "
+                        "session=%s cycle=%d levels=%d",
+                        session_id,
+                        cycle_num,
+                        len(grammar_chain),
+                    )
+            except (ImportError, ValueError) as _exc:
+                logger.debug("[GEN] Grammar fallback chain not available: %s", _exc)
+
+            # RAG 工具集增强（字段语义扩展 + 同义词展开）
+            try:
+                from openalpha_brain.knowledge.rag_tools import enrich_context, expand_field_synonyms
+
+                if rag_context:
+                    enhanced_rag = enrich_context(rag_context, top_k=10)
+                    if enhanced_rag.get("expanded_fields"):
+                        enhanced_user_msg += "\n\n[RAG ENHANCED] Additional field suggestions: "
+                        enhanced_user_msg += ", ".join(enhanced_rag["expanded_fields"][:8])
+                        logger.info(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE::RAG_ENHANCEMENT "
+                            "session=%s cycle=%d expanded_fields=%d",
+                            session_id,
+                            cycle_num,
+                            len(enhanced_rag["expanded_fields"][:8]),
+                        )
+
+                    synonyms = expand_field_synonyms(direction or "momentum")
+                    if synonyms:
+                        enhanced_user_msg += f"\n[RAG SYNONYMS] Related concepts: {', '.join(synonyms[:6])}"
+                        logger.info(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE::RAG_SYNONYMS "
+                            "session=%s cycle=%d synonyms=%d",
+                            session_id,
+                            cycle_num,
+                            len(synonyms[:6]),
+                        )
+            except (ImportError, ValueError) as exc:
+                logger.debug("[GEN] RAG tools enhancement failed: %s", exc)
+
+            negative_constraints, constraints_dict = self._get_negative_constraints()
+            if negative_constraints:
+                enhanced_user_msg += negative_constraints
+                logger.debug(
+                    "[GEN] Injected %d negative constraint types into prompt (L4→L2 feedback loop)",
+                    len(constraints_dict),
+                )
+
             raw_response = await llm_client.generate(
                 system_prompt="",
                 history=effective_history or [],
@@ -782,6 +957,95 @@ class GenerationPipeline:
             )
             raise
 
+    async def _generate_via_template_reasoning(
+        self,
+        focus_area: str,
+        cycle_num: int,
+        llm_client=None,
+        rag_context: dict[str, Any] | None = None,
+        mab_top_fields: list[tuple[str, float]] | None = None,
+    ) -> tuple[str, str, float, str | None]:
+        """使用 4 阶段 CoT 深度推理生成高质量 alpha 表达式
+
+        通过 TemplateReasoningGenerator 的结构化推理流程：
+          Phase 1: Economic Reasoning — 根据市场状态选择最佳策略模板
+          Phase 2: Field Mapping — 确保跨族字段选择（price+fundamental+volume）
+          Phase 3: Expression Assembly — 自动组装三段式（Block A/B/C）
+          Phase 4: Self-Critique — LLM 自我批判检查质量
+
+        Args:
+            focus_area: 当前探索方向
+            cycle_num: 当前循环编号
+            llm_client: LLM 客户端实例（用于构造 llm_call_fn）
+            rag_context: RAG 检索上下文
+            mab_top_fields: MAB 推荐的 top 字段
+
+        Returns:
+            tuple: (expression, source_label, confidence, raw_output)
+        """
+        if self._template_reasoning_gen is None:
+            try:
+                from openalpha_brain.generation.alpha_logics import AlphaLogicLibrary
+                from openalpha_brain.generation.template_reasoning_generator import TemplateReasoningGenerator
+                from openalpha_brain.knowledge.field_proxy_map import FieldProxyMap
+
+                if llm_client is None:
+                    logger.warning("[GEN] TemplateReasoning skipped: no llm_client available")
+                    return "", "template_reasoning", 0.0, None
+
+                async def _llm_call_wrapper(**kwargs) -> str:
+                    return await llm_client.generate(**kwargs)
+
+                _fpm = FieldProxyMap()
+                _lib = AlphaLogicLibrary()
+
+                self._template_reasoning_gen = TemplateReasoningGenerator(
+                    llm_call_fn=_llm_call_wrapper,
+                    field_proxy_map=_fpm,
+                    alpha_logic_lib=_lib,
+                )
+                logger.info("[GEN] TemplateReasoningGenerator initialized successfully")
+            except (ImportError, AttributeError, TypeError) as exc:
+                logger.warning("[GEN] TemplateReasoningGenerator init failed: %s", exc)
+                return "", "template_reasoning", 0.0, None
+
+        try:
+            reasoning_result = await self._template_reasoning_gen.generate(
+                focus_area=focus_area or "momentum",
+                cycle=cycle_num,
+                rag_context=rag_context or {},
+            )
+
+            if reasoning_result.approved and reasoning_result.final_expression:
+                metadata = {
+                    "reasoning_phases": 4,
+                    "phase1_template": reasoning_result.phase1_reasoning.get("selected_template", ""),
+                    "phase2_fields_used": len(reasoning_result.phase2_mapping.get("field_mapping", {})),
+                    "phase4_confidence": reasoning_result.phase4_critique.get("critique", {}).get("confidence", 0),
+                    "generation_method": "template_reasoning",
+                }
+                logger.info(
+                    "[GEN] ✓ TemplateReasoning generated expr with %d phases (template=%s, fields=%d)",
+                    metadata["reasoning_phases"],
+                    metadata["phase1_template"],
+                    metadata["phase2_fields_used"],
+                )
+                return (
+                    reasoning_result.final_expression,
+                    "template_reasoning",
+                    metadata.get("phase4_confidence", 0.7) or 0.7,
+                    None,
+                )
+            else:
+                logger.info(
+                    "[GEN] TemplateReasoning rejected (approved=%s)", reasoning_result.approved
+                )
+                return "", "template_reasoning_rejected", 0.0, None
+
+        except (TimeoutError, ValueError, KeyError, ConnectionError, OSError) as exc:
+            logger.warning("[GEN] TemplateReasoning generate() failed: %s", exc)
+            return "", "template_reasoning_error", 0.0, None
+
     async def _ensemble_generate(
         self,
         direction: str,
@@ -793,6 +1057,7 @@ class GenerationPipeline:
         mab_recommendation: str = "",
         mab_top_fields: list[tuple[str, float]] | None = None,
         n_variants: int = 3,
+        previous_expressions: list | None = None,
     ) -> tuple[str, str, float, str | None]:
         """Ensemble Generation — 多 Prompt 变体并行生成
 
@@ -911,7 +1176,31 @@ class GenerationPipeline:
             ]
 
             if valid_results:
-                best_expr, best_conf, best_raw, best_variant = max(valid_results, key=lambda x: x[1])
+                try:
+                    from openalpha_brain.utils.paper_edge_enhancements import compute_structural_novelty_score
+
+                    _recent_exprs = previous_expressions or []
+                    final_scores: list[float] = []
+                    for idx, (_vexpr, _vconf, _vraw, _vname) in enumerate(valid_results):
+                        try:
+                            _novelty = compute_structural_novelty_score(_vexpr, history=_recent_exprs)
+                            _final_score = _vconf * 0.6 + _novelty * 0.4
+                        except (ValueError, TypeError):
+                            _final_score = _vconf
+                        final_scores.append(_final_score)
+
+                    _best_idx = max(range(len(final_scores)), key=lambda i: final_scores[i])
+                    best_expr, best_conf, best_raw, best_variant = valid_results[_best_idx]
+                    logger.info(
+                        "[DEFENSIVE_LOG] ENSEMBLE_GENERATE::NOVELTY_SCORING "
+                        "session=%s cycle=%d winner=%s novelty_enabled=True scores=%s",
+                        session_id,
+                        cycle_num,
+                        best_variant,
+                        [f"{s:.3f}" for s in final_scores],
+                    )
+                except (ImportError, ValueError):
+                    best_expr, best_conf, best_raw, best_variant = max(valid_results, key=lambda x: x[1])
                 logger.info(
                     "[%s] ENSEMBLE_GENERATE: SUCCESS variant=%s won (conf=%.2f) | "
                     "variants_tested=%d valid_count=%d expr=%s…",

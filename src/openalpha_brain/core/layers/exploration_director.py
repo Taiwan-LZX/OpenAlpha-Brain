@@ -319,6 +319,32 @@ class ExplorationDirector:
                     exc,
                 )
 
+        try:
+            from openalpha_brain.utils.paper_edge_enhancements import CrossAttemptTracker
+
+            if not hasattr(self, "_cross_attempt_tracker"):
+                self._cross_attempt_tracker = CrossAttemptTracker()
+
+            _is_stuck, _progress_pct = self._cross_attempt_tracker.check(current_direction)
+            if _is_stuck:
+                logger.info(
+                    "[EXPLORE] Direction stuck at %.1f%% progress — forcing switch",
+                    _progress_pct,
+                )
+                directions_to_consider = [d for d in unexplored if d != current_direction]
+                if directions_to_consider:
+                    exploration_direction = random.choice(directions_to_consider)
+                    method = "cross_attempt_forced_switch"
+                    logger.info(
+                        "[%s] CROSS_ATTEMPT: forced switch %s → %s (progress=%.1f%%)",
+                        session_id,
+                        current_direction,
+                        exploration_direction,
+                        _progress_pct,
+                    )
+        except Exception as _exc:
+            logger.debug("[EXPLORE] CrossAttemptTracker error: %s", _exc)
+
         # ── Regime-Aware Template Selection (AI-3) ──
         _regime_weights: dict[str, dict[str, float]] = {
             "high_volatility": {

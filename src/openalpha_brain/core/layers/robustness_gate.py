@@ -171,6 +171,7 @@ class RobustnessGate:
 
     def __init__(self, config: dict | None = None):
         self.config: dict[str, Any] = {**self.DEFAULT_CONFIG, **(config or {})}
+        self._statistical_overfit_checker: Any = None
 
     async def evaluate(
         self,
@@ -255,6 +256,32 @@ class RobustnessGate:
         warnings.extend(ao_warnings)
         rejection_reasons.extend(ao_rejections)
         metadata["anti_overfit"] = ao_meta
+
+        if self._statistical_overfit_checker is None:
+            try:
+                from openalpha_brain.validation.overfit_detector import OverfitDetector
+
+                self._statistical_overfit_checker = OverfitDetector()
+                logger.debug("[ROBUST-GATE] OverfitDetector initialized (statistical method)")
+            except (ImportError, AttributeError) as exc:
+                logger.warn("[ROBUST-GATE] OverfitDetector init failed: %s", exc)
+                self._statistical_overfit_checker = None
+
+        if self._statistical_overfit_checker is not None and metrics is not None:
+            try:
+                stat_result = self._statistical_overfit_checker.check(metrics)
+                if stat_result.get("is_overfitted"):
+                    logger.warning(
+                        "[ROBUST-GATE] ⚠ Statistical overfit detected! metrics=%s",
+                        stat_result.get("metrics", {}),
+                    )
+                    metadata["statistical_overfit"] = {
+                        "is_overfitted": True,
+                        "details": stat_result.get("metrics", {}),
+                    }
+                    warnings.append("statistical_overfit_risk")
+            except (ValueError, TypeError) as exc:
+                logger.debug("[ROBUST-GATE] Statistical overfit check failed: %s", exc)
 
         decay_score, decay_warnings, decay_meta = await self._run_decay_prescreen(
             decay_detector,

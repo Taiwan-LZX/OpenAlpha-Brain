@@ -60,6 +60,26 @@ logger = logging.getLogger(__name__)
 _EPSILON = 1e-6
 
 
+def _preprocess_expression(expression: str) -> dict:
+    """使用 AlphaParser 统一解析表达式"""
+    try:
+        from openalpha_brain.generation.alpha_parser import AlphaParser
+
+        parser = AlphaParser()
+        ast = parser.parse(expression)
+        return {
+            "parsed": True,
+            "ast": ast,
+            "operators": parser.extract_operators(),
+            "fields": parser.extract_fields(),
+            "complexity": parser.compute_complexity(),
+            "is_valid_syntax": parser.validate_syntax(),
+        }
+    except (ImportError, ValueError, SyntaxError) as exc:
+        logger.debug("[EVAL] AlphaParser failed: %s — using fallback", exc)
+        return {"parsed": False, "expression": expression}
+
+
 @dataclass
 class EvaluationResult:
     """单次 BRAIN 评估的完整结果
@@ -188,6 +208,17 @@ class EvaluationGateway:
             )
 
         result = EvaluationResult(metadata={"session_id": session_id, "expression_preview": expression[:80]})
+
+        parse_info = _preprocess_expression(expression)
+        result.metadata["alpha_parser"] = parse_info
+        if parse_info.get("parsed"):
+            logger.debug(
+                "[EVAL] AlphaParser OK | operators=%d fields=%d complexity=%d",
+                len(parse_info.get("operators", [])),
+                len(parse_info.get("fields", [])),
+                parse_info.get("complexity", 0),
+            )
+
         self._stats["total"] += 1
 
         try:
@@ -335,7 +366,44 @@ class EvaluationGateway:
             result.fitness,
             result.duration_sec,
         )
+
+        self._trigger_mab_feedback(result, result.metadata.get("exploration_direction", ""))
         return result
+
+    def _trigger_mab_feedback(self, eval_result, direction):
+        """将评估结果同步到 MAB 以更新方向权重 (L3 → L1 反馈闭环)"""
+        try:
+            from openalpha_brain.learning.reward_updater import _apply_mab_feedback
+
+            sharpe = eval_result.sharpe or 0.0
+            expression = eval_result.metadata.get("expression_preview", "")
+
+            if not direction or sharpe is None:
+                return
+
+            if sharpe > 0.5:
+                reward = 1.0
+            elif sharpe > 0:
+                reward = 0.5
+            else:
+                reward = -0.3
+
+            penalty = 0.0
+            if eval_result.status == "FAIL":
+                penalty = 0.5
+            elif eval_result.status == "ERROR":
+                penalty = 0.8
+
+            asyncio.create_task(_apply_mab_feedback(
+                exploration_direction=direction,
+                expression=expression,
+                reward=reward,
+                penalty=penalty,
+            ))
+            logger.debug("[EVAL→L1] MAB feedback triggered: dir=%s sharpe=%.3f reward=%.2f penalty=%.2f",
+                         direction, sharpe, reward, penalty)
+        except (ImportError, AttributeError) as exc:
+            logger.debug("[EVAL→L1] MAB feedback failed: %s", exc)
 
     @staticmethod
     def classify_status(evaluation: EvaluationResult) -> str:

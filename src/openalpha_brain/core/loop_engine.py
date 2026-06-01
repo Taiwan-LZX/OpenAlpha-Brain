@@ -58,6 +58,7 @@ from openalpha_brain.core.models import (
     AlphaMetrics,
     AlphaResult,
     BrainSimStatus,
+    BrainSubmissionResult,
     PipelineStatus,
     SessionStatus,
 )
@@ -196,6 +197,43 @@ def _family_locked(state) -> bool:
 
 def _last_family(state) -> str:
     return state.family_run_tracker[-1] if state.family_run_tracker else "Unknown"
+
+
+async def _ensure_post_processing(
+    worker_id: int,
+    session_id: str,
+    pool: AlphaCachePool,
+    alpha_id: str,
+    brain_result: BrainSubmissionResult,
+) -> None:
+    """Ensure complete BRAIN post-processing pipeline is triggered.
+
+    Wraps _post_process_brain_result with defensive error handling and
+    ensures the full 6-step post-processing pipeline runs for every BRAIN result:
+      1. Record Alpha Outcome → CrossoverEngine (evolution feedback)
+      2. Strategy classification → StrategyClassifier (feature learning)
+      3. Hypothesis alignment → HypothesisAligner (consistency check)
+      4. Alpha Channel submission → AlphaChannel (streaming)
+      5. Parameter optimization → ParamOptimizer (shortcut optimization)
+      6. Improvement round management → ImprovementOrchestra (iterative improvement)
+
+    Runs as fire-and-forget via asyncio.create_task to avoid blocking the main loop.
+    """
+    try:
+        await _post_process_brain_result(
+            worker_id=worker_id,
+            session_id=session_id,
+            pool=pool,
+            alpha_id=alpha_id,
+            brain_result=brain_result,
+        )
+        logger.info(
+            "[LOOP] ✓ Post-processing complete for alpha=%s status=%s",
+            alpha_id,
+            brain_result.status,
+        )
+    except Exception as exc:
+        logger.warning("[LOOP] Post-processing failed (non-blocking): %s", exc)
 
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
@@ -1826,6 +1864,18 @@ async def run_loop(session_id: str) -> None:
                 except Exception:
                     logger.warning("[%s] L3 EvaluationGateway failed, using inline logic", session_id)
 
+            # ── AE-4: Trigger complete post-processing pipeline (fire-and-forget) ──
+            _worker_id = getattr(_ls, "_worker_id", 0)
+            asyncio.create_task(
+                _ensure_post_processing(
+                    worker_id=_worker_id,
+                    session_id=session_id,
+                    pool=pool,
+                    alpha_id=alpha.alpha_id,
+                    brain_result=brain_result,
+                )
+            )
+
             logger.info(
                 "[%s] MONITOR: brain_submit: status=%s sharpe=%s fitness=%s turnover=%s direction=%s alpha_id=%s",
                 session_id,
@@ -1928,11 +1978,12 @@ async def run_loop(session_id: str) -> None:
                         penalty=_hmab_penalty,
                     )
                     logger.info(
-                        "[%s] MAB-HIER-UPDATE: direction=%s reward=%.3f penalty=%.3f",
+                        "[LOOP→L1] ✓ MAB reward updated: dir=%s sharpe=%.3f penalty=%.3f status=%s",
                         session_id,
                         exploration_direction,
                         _hmab_reward,
                         _hmab_penalty,
+                        brain_result.status.value if brain_result.status else "UNKNOWN",
                     )
                 except (OSError, ValueError, RuntimeError):
                     logger.debug("[%s] HierarchicalMAB.update failed", session_id, exc_info=True)
@@ -2889,6 +2940,10 @@ async def run_loop(session_id: str) -> None:
             logger.info("[%s] cycle=%d FeatureMap generation advanced to %d", session_id, global_cycle, _new_gen)
 
         _merge_session_hallucinations(session_id, state)
+
+        if hasattr(_ls, '_mab') and _ls._mab is not None:
+            top_directions = _ls._mab.get_top_k_directions(k=3)
+            logger.debug("[LOOP] MAB top directions for next cycle: %s", top_directions)
 
         await asyncio.sleep(3)
 
