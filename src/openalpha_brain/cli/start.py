@@ -12,6 +12,7 @@ Usage:
     python start.py --run        # 直接開採 (非阻塞)
     python start.py --help       # 幫助
 """
+
 from __future__ import annotations
 
 import os
@@ -35,6 +36,7 @@ def _print_banner():
 def launch_web(host: str = "0.0.0.0", port: int = 8000, open_browser: bool = True):
     """啟動 FastAPI 伺服器 + 自動打開瀏覽器"""
     import uvicorn
+
     _print_banner()
     url = f"http://127.0.0.1:{port}"
     print(f"  🌐  Web Mode  —  {url}")

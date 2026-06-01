@@ -31,9 +31,9 @@ from typing import Any
 import aiohttp
 import numpy as np
 
+from openalpha_brain.data import VEC_STORE_DIR as _DEFAULT_VEC_DIR
 from openalpha_brain.knowledge.vector_index import VectorStore
 from openalpha_brain.utils.algo_logger import Timer, algo_log
-from openalpha_brain.data import VEC_STORE_DIR as _DEFAULT_VEC_DIR
 
 logger = logging.getLogger(__name__)
 

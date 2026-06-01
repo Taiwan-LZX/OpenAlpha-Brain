@@ -2756,31 +2756,31 @@ Return ONLY a JSON: {{"semantically_equivalent": true/false, "reason": "brief ju
                 )
 
                 if (not rule_diagnosis or rule_diagnosis.strip() == "") and settings.DIAGNOSIS_LLM_ENABLED:
-                        try:
-                            from openalpha_brain.generation.prompts import llm_diagnose_failure
+                    try:
+                        from openalpha_brain.generation.prompts import llm_diagnose_failure
 
-                            llm_result = await llm_diagnose_failure(
-                                brain_checks=eval_result["brain_checks"],
-                                expression=expression,
-                                hypothesis_text=hypothesis.natural_language or hypothesis.direction,
-                                llm_call_fn=self._idea_agent._llm_generate
-                                if hasattr(self._idea_agent, "_llm_generate")
-                                else None,
+                        llm_result = await llm_diagnose_failure(
+                            brain_checks=eval_result["brain_checks"],
+                            expression=expression,
+                            hypothesis_text=hypothesis.natural_language or hypothesis.direction,
+                            llm_call_fn=self._idea_agent._llm_generate
+                            if hasattr(self._idea_agent, "_llm_generate")
+                            else None,
+                        )
+                        if llm_result:
+                            idea_feedback.append(
+                                {
+                                    "iteration": iteration,
+                                    "diagnosis_source": "llm_diagnosis",
+                                    "diagnosis": f"LLM诊断: {llm_result['root_cause']}. 建议: {llm_result['suggested_fix']}",  # noqa: E501
+                                    "llm_result": llm_result,
+                                }
                             )
-                            if llm_result:
-                                idea_feedback.append(
-                                    {
-                                        "iteration": iteration,
-                                        "diagnosis_source": "llm_diagnosis",
-                                        "diagnosis": f"LLM诊断: {llm_result['root_cause']}. 建议: {llm_result['suggested_fix']}",  # noqa: E501
-                                        "llm_result": llm_result,
-                                    }
-                                )
-                                logic_lib = getattr(self._idea_agent, "_logic_library", None)
-                                if logic_lib:
-                                    logic_lib.accumulate_diagnosis(hypothesis.direction, llm_result)
-                        except (ValueError, TypeError, RuntimeError):
-                            pass
+                            logic_lib = getattr(self._idea_agent, "_logic_library", None)
+                            if logic_lib:
+                                logic_lib.accumulate_diagnosis(hypothesis.direction, llm_result)
+                    except (ValueError, TypeError, RuntimeError):
+                        pass
 
                 _failed_checks = [c.get("name", "") for c in eval_result["brain_checks"] if c.get("result") == "FAIL"]
                 _failure_str = "; ".join(_failed_checks)

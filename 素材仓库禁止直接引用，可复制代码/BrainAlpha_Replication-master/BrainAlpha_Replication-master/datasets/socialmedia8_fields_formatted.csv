@@ -1,3 +1,0 @@
-Field,Description,Type,Coverage,Users,Alphas
-snt_social_value,Z-score of sentiment,MATRIX,86%,2228,4869
-snt_social_volume,Normalized tweet volume,MATRIX,86%,1983,4795

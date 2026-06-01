@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 
 def _get_ctx():
     from openalpha_brain.core.loop_state import _ctx
+
     return _ctx
 
 
@@ -26,13 +27,15 @@ async def get_mab_status():
     direction_stats = mab.get_direction_stats()
     arms: list[dict[str, Any]] = []
     for arm_id, stats in direction_stats.items():
-        arms.append({
-            "direction": arm_id,
-            "alpha": stats.get("alpha", 1.0),
-            "beta": stats.get("beta", 1.0),
-            "expectation": stats.get("expectation", 0.5),
-            "ucb_score": stats.get("expectation", 0.5),
-        })
+        arms.append(
+            {
+                "direction": arm_id,
+                "alpha": stats.get("alpha", 1.0),
+                "beta": stats.get("beta", 1.0),
+                "expectation": stats.get("expectation", 0.5),
+                "ucb_score": stats.get("expectation", 0.5),
+            }
+        )
 
     outer_stats = mab._outer.get_stats() if hasattr(mab, "_outer") else {}
     for arm_id, arm_data in outer_stats.items():
@@ -67,18 +70,20 @@ async def get_feature_map_status():
     cells: list[dict[str, Any]] = []
     with fm._lock:
         for key, cell in fm._cells.items():
-            cells.append({
-                "key": key,
-                "direction": cell.direction,
-                "time_horizon": cell.time_horizon,
-                "mechanism": cell.mechanism,
-                "best_fitness": cell.best_fitness,
-                "best_sharpe": cell.best_sharpe,
-                "update_count": cell.update_count,
-                "elite_count": len(cell.elites),
-                "decay_state": cell.decay_state,
-                "admission_paused": cell.admission_paused,
-            })
+            cells.append(
+                {
+                    "key": key,
+                    "direction": cell.direction,
+                    "time_horizon": cell.time_horizon,
+                    "mechanism": cell.mechanism,
+                    "best_fitness": cell.best_fitness,
+                    "best_sharpe": cell.best_sharpe,
+                    "update_count": cell.update_count,
+                    "elite_count": len(cell.elites),
+                    "decay_state": cell.decay_state,
+                    "admission_paused": cell.admission_paused,
+                }
+            )
 
     return {
         "initialized": True,
@@ -104,17 +109,19 @@ async def get_strategy_status():
     top_profiles = sc.get_top_profiles(n=10)
     profiles_data = []
     for p in top_profiles:
-        profiles_data.append({
-            "expr": p.expr[:120] if p.expr else "",
-            "direction": p.direction,
-            "time_horizon": p.time_horizon,
-            "mechanism": p.mechanism,
-            "sharpe": p.sharpe,
-            "fitness": p.fitness,
-            "turnover": p.turnover,
-            "complexity": p.complexity,
-            "operators": p.operators,
-        })
+        profiles_data.append(
+            {
+                "expr": p.expr[:120] if p.expr else "",
+                "direction": p.direction,
+                "time_horizon": p.time_horizon,
+                "mechanism": p.mechanism,
+                "sharpe": p.sharpe,
+                "fitness": p.fitness,
+                "turnover": p.turnover,
+                "complexity": p.complexity,
+                "operators": p.operators,
+            }
+        )
 
     direction_dist: dict[str, int] = {}
     for p in sc._profiles:
@@ -144,29 +151,33 @@ async def get_decay_status():
     records_summary: list[dict[str, Any]] = []
     if hasattr(dd, "_records"):
         for aid, rec in dd._records.items():
-            records_summary.append({
-                "alpha_id": aid,
-                "direction": rec.direction,
-                "decay_level": rec.decay_level.value if hasattr(rec.decay_level, "value") else str(rec.decay_level),
-                "ewma_sharpe": rec.ewma_sharpe,
-                "composite_score": rec.composite_score,
-                "initial_sharpe": rec.initial_sharpe,
-                "peak_sharpe": rec.peak_sharpe,
-                "garch_anomaly": rec.garch_anomaly,
-                "consecutive_decay_checks": rec.consecutive_decay_checks,
-            })
+            records_summary.append(
+                {
+                    "alpha_id": aid,
+                    "direction": rec.direction,
+                    "decay_level": rec.decay_level.value if hasattr(rec.decay_level, "value") else str(rec.decay_level),
+                    "ewma_sharpe": rec.ewma_sharpe,
+                    "composite_score": rec.composite_score,
+                    "initial_sharpe": rec.initial_sharpe,
+                    "peak_sharpe": rec.peak_sharpe,
+                    "garch_anomaly": rec.garch_anomaly,
+                    "consecutive_decay_checks": rec.consecutive_decay_checks,
+                }
+            )
 
     fingerprints: list[dict[str, Any]] = []
     if hasattr(dd, "_decay_fingerprints"):
         for fp in dd._decay_fingerprints:
-            fingerprints.append({
-                "direction": fp.direction,
-                "topology": fp.topology,
-                "temporal": fp.temporal,
-                "decay_level": fp.decay_level,
-                "reason": fp.reason,
-                "is_permanent": fp.is_permanent,
-            })
+            fingerprints.append(
+                {
+                    "direction": fp.direction,
+                    "topology": fp.topology,
+                    "temporal": fp.temporal,
+                    "decay_level": fp.decay_level,
+                    "reason": fp.reason,
+                    "is_permanent": fp.is_permanent,
+                }
+            )
 
     return {
         "initialized": True,
@@ -187,17 +198,19 @@ async def get_experience_status():
 
     cards: list[dict[str, Any]] = []
     for c in ed._cards:
-        cards.append({
-            "rule_id": c.rule_id,
-            "failure_pattern": c.failure_pattern,
-            "fix_strategy": c.fix_strategy,
-            "applicable_conditions": c.applicable_conditions,
-            "confidence": c.confidence,
-            "usage_count": c.usage_count,
-            "success_count": c.success_count,
-            "last_used": c.last_used,
-            "created_at": c.created_at,
-        })
+        cards.append(
+            {
+                "rule_id": c.rule_id,
+                "failure_pattern": c.failure_pattern,
+                "fix_strategy": c.fix_strategy,
+                "applicable_conditions": c.applicable_conditions,
+                "confidence": c.confidence,
+                "usage_count": c.usage_count,
+                "success_count": c.success_count,
+                "last_used": c.last_used,
+                "created_at": c.created_at,
+            }
+        )
 
     return {
         "initialized": True,

@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 def _load_operator_list() -> str:
     schema_path = get_data_path("brain_operators.json")
     fallback = (
-                       "rank ts_rank ts_mean ts_std_dev ts_delta ts_zscore ts_decay_linear group_neutralize"
-                       "abs log signed_power max min scale ts_delay ts_sum ts_corr ts_regression ts_arg_max"
-                       "ts_arg_min ts_backfill trade_when zscore normalize winsorize hump group_rank"
-                       "group_zscore ts_av_diff ts_quantile quantile vec_sum vec_avg"
-       )
+        "rank ts_rank ts_mean ts_std_dev ts_delta ts_zscore ts_decay_linear group_neutralize"
+        "abs log signed_power max min scale ts_delay ts_sum ts_corr ts_regression ts_arg_max"
+        "ts_arg_min ts_backfill trade_when zscore normalize winsorize hump group_rank"
+        "group_zscore ts_av_diff ts_quantile quantile vec_sum vec_avg"
+    )
     if not schema_path.exists():
         return fallback
     try:

@@ -12,17 +12,18 @@ OpenAlpha-Brain — Template-Guided Reasoning Generator (模板引导式深度�
 
 Fallback机制：任何阶段失败时自动使用模板默认参数，保证鲁棒性。
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 from openalpha_brain.generation.alpha_logics import (
     AlphaLogicLibrary,
-    ThreeBlockTemplate,
 )
 from openalpha_brain.knowledge.field_proxy_map import FieldProxyMap
 
@@ -122,7 +123,7 @@ class TemplateReasoningGenerator:
             )
             selected_template_id = phase1_result.get("selected_template", "")
             logger.info("[REASONING] Phase 1 complete: selected_template=%s", selected_template_id)
-        except (ConnectionError, OSError, TimeoutError) as exc:
+        except (ConnectionError, OSError, TimeoutError):
             phase1_result = self._fallback_phase1(templates_info)
             selected_template_id = phase1_result.get("selected_template", "")
 
@@ -209,7 +210,7 @@ class TemplateReasoningGenerator:
 
         parsed = self._parse_json_response(raw_response)
         if not parsed or "selected_template" not in parsed:
-            raise ValueError(f"Invalid Phase 1 response: missing 'selected_template'")
+            raise ValueError("Invalid Phase 1 response: missing 'selected_template'")
 
         template_id = parsed["selected_template"]
         if template_id not in [t["id"] for t in templates_info]:
@@ -246,11 +247,13 @@ class TemplateReasoningGenerator:
         Returns:
             str: 完整的 CoT prompt
         """
-        template_list_str = "\n".join([
-            f"{i+1}. [{t['id']}] {t['name']} — BlockA: {t['signal_example']} "
-            f"{'⭐ 推荐（跨族）' if t.get('is_cross_family') else ''}"
-            for i, t in enumerate(templates_summary)
-        ])
+        template_list_str = "\n".join(
+            [
+                f"{i + 1}. [{t['id']}] {t['name']} — BlockA: {t['signal_example']} "
+                f"{'⭐ 推荐（跨族）' if t.get('is_cross_family') else ''}"
+                for i, t in enumerate(templates_summary)
+            ]
+        )
 
         rag_section = ""
         if rag_context:
@@ -330,7 +333,7 @@ class TemplateReasoningGenerator:
 
         parsed = self._parse_json_response(raw_response)
         if not parsed or "field_mapping" not in parsed:
-            raise ValueError(f"Invalid Phase 2 response: missing 'field_mapping'")
+            raise ValueError("Invalid Phase 2 response: missing 'field_mapping'")
 
         field_mapping = parsed["field_mapping"]
 
@@ -388,8 +391,8 @@ class TemplateReasoningGenerator:
 4. 数值参数（如 decay_lb, medium_lb）建议范围：5-30
 
 ## 阶段1的推理参考
-- 假设: {reasoning.get('hypothesis', 'N/A')}
-- 方向: {reasoning.get('signal_direction', 'N/A')}
+- 假设: {reasoning.get("hypothesis", "N/A")}
+- 方向: {reasoning.get("signal_direction", "N/A")}
 
 ## 你的任务
 为每个参数选择合适的字段值。确保字段选择的多样性和独特性。
@@ -435,7 +438,9 @@ class TemplateReasoningGenerator:
 
         logger.warning(
             "[REASONING] Expression complexity too low (%d ops < %d), enriching | template=%s",
-            op_count, min_ops, template_id,
+            op_count,
+            min_ops,
+            template_id,
         )
 
         price = field_mapping.get("price_field", "close")
@@ -475,7 +480,9 @@ class TemplateReasoningGenerator:
         enriched_ops = self._extract_operators(enriched)
         logger.info(
             "[REASONING] Enriched expression: %d → %d operators | %s",
-            op_count, len(enriched_ops), enriched[:100],
+            op_count,
+            len(enriched_ops),
+            enriched[:100],
         )
         return enriched
 
@@ -517,7 +524,7 @@ class TemplateReasoningGenerator:
 
         parsed = self._parse_json_response(raw_response)
         if not parsed or "critique" not in parsed:
-            raise ValueError(f"Invalid Phase 4 response: missing 'critique'")
+            raise ValueError("Invalid Phase 4 response: missing 'critique'")
 
         critique = parsed["critique"]
         overall = critique.get("overall_verdict", "REJECT")
@@ -525,7 +532,9 @@ class TemplateReasoningGenerator:
         if overall == "APPROVE":
             logger.info("[REASONING] Phase 4: EXPRESSION APPROVED ✓")
         else:
-            logger.warning("[REASONING] Phase 4: EXPRESSION REJECTED ✗ - reason: %s", critique.get("rejection_reason", ""))
+            logger.warning(
+                "[REASONING] Phase 4: EXPRESSION REJECTED ✗ - reason: %s", critique.get("rejection_reason", "")
+            )
 
         return {
             "critique": critique,
@@ -563,7 +572,7 @@ class TemplateReasoningGenerator:
 ## 生成元信息
 - 使用模板: {template_id}
 - 字段映射: {json.dumps(field_mapping, ensure_ascii=False)}
-- 检测到的算子 ({op_count}个): {', '.join(operators_used)}
+- 检测到的算子 ({op_count}个): {", ".join(operators_used)}
 
 ## 质量检查清单
 请逐项检查并给出 PASS/FAIL：
@@ -608,27 +617,32 @@ class TemplateReasoningGenerator:
             return []
 
         summaries = []
-        templates_attr = getattr(self._lib, '_three_block_templates', {})
+        templates_attr = getattr(self._lib, "_three_block_templates", {})
         for template_id, template in templates_attr.items():
             signal_example = template.block_a.template_str[:80]
 
             is_cross_family = False
             params = template.block_a.editable_params
-            if "price_field" in params and "fundamental_field" in params:
-                is_cross_family = True
-            elif "price_field" in params and any(p in params for p in ["earnings_field", "revenue_field", "asset_field"]):
-                is_cross_family = True
-            elif "volume_field" in params and any(p in params for p in ["cap_field", "fundamental_field"]):
+            if (
+                "price_field" in params
+                and "fundamental_field" in params
+                or "price_field" in params
+                and any(p in params for p in ["earnings_field", "revenue_field", "asset_field"])
+                or "volume_field" in params
+                and any(p in params for p in ["cap_field", "fundamental_field"])
+            ):
                 is_cross_family = True
 
-            summaries.append({
-                "id": template_id,
-                "name": template.name,
-                "category": template.category,
-                "signal_example": signal_example,
-                "editable_params": params,
-                "is_cross_family": is_cross_family,
-            })
+            summaries.append(
+                {
+                    "id": template_id,
+                    "name": template.name,
+                    "category": template.category,
+                    "signal_example": signal_example,
+                    "editable_params": params,
+                    "is_cross_family": is_cross_family,
+                }
+            )
 
         return sorted(summaries, key=lambda x: x["id"])
 
@@ -689,18 +703,20 @@ class TemplateReasoningGenerator:
                 for fid in fields[:3]:
                     finfo = self._fpm.get_field_info(fid)
                     if finfo:
-                        recommended.append({
-                            "field_id": fid,
-                            "family_id": family_id,
-                            "coverage": finfo.get("coverage", 0),
-                            "for_param": param,
-                        })
+                        recommended.append(
+                            {
+                                "field_id": fid,
+                                "family_id": family_id,
+                                "coverage": finfo.get("coverage", 0),
+                                "for_param": param,
+                            }
+                        )
 
                 if fields:
                     seen_families.add(family_id)
                     break
 
-        return recommended[:top_k * 2]
+        return recommended[: top_k * 2]
 
     def _validate_cross_family(self, template_id: str, field_mapping: dict) -> dict:
         """验证字段映射是否满足跨族要求
@@ -745,7 +761,7 @@ class TemplateReasoningGenerator:
         Returns:
             list[str]: 使用的算子名称列表
         """
-        operator_pattern = r'\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b'
+        operator_pattern = r"\b(ts_\w+|group_\w+|rank|signed_power|zscore|normalize|winsorize)\b"
         operators = re.findall(operator_pattern, expression)
         return list(dict.fromkeys(operators))
 
@@ -768,13 +784,13 @@ class TemplateReasoningGenerator:
         if text.startswith("```"):
             first_nl = text.find("\n")
             if first_nl >= 0:
-                text = text[first_nl + 1:]
+                text = text[first_nl + 1 :]
             if text.endswith("```"):
                 text = text[:-3]
             text = text.strip()
 
-        text = re.sub(r'//[^\n]*', '', text)
-        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        text = re.sub(r"//[^\n]*", "", text)
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
 
         if text.startswith("{"):
             try:
@@ -784,11 +800,11 @@ class TemplateReasoningGenerator:
             except json.JSONDecodeError:
                 pass
 
-        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        json_match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
         if json_match:
             try:
-                cleaned = re.sub(r'//[^\n]*', '', json_match.group())
-                cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+                cleaned = re.sub(r"//[^\n]*", "", json_match.group())
+                cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
                 return json.loads(cleaned)
             except json.JSONDecodeError:
                 pass
@@ -862,10 +878,7 @@ class TemplateReasoningGenerator:
         if self._lib:
             template = self._lib.get_three_block_template(template_id)
             if template:
-                field_mapping = {
-                    param: defaults.get(param, "close")
-                    for param in template.block_a.editable_params
-                }
+                field_mapping = {param: defaults.get(param, "close") for param in template.block_a.editable_params}
             else:
                 field_mapping = {"price_field": "close"}
         else:

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class MutationStrategy(Enum):
     """Mutation strategy types for factor improvement."""
+
     MUTATE_WINDOW = "mutate_window"
     MUTATE_OPERATOR = "mutate_operator"
     MUTATE_NORMALIZATION = "mutate_normalization"
@@ -35,6 +36,7 @@ class MutationStrategy(Enum):
 @dataclass
 class Diagnosis:
     """Diagnosis result with recommended strategy."""
+
     strategy: MutationStrategy
     reason: str
     details: dict
@@ -65,9 +67,7 @@ class BrainAwareMutationEngine:
     def __init__(self):
         self._operator_replacements = _OPERATOR_REPLACEMENTS
         self._nonlinear_ops = {"tanh", "sigmoid", "sign_power", "log", "sqrt"}
-        self._normalization_ops = {
-            "rank", "zscore", "scale", "group_zscore", "group_rank"
-        }
+        self._normalization_ops = {"rank", "zscore", "scale", "group_zscore", "group_rank"}
 
     def diagnose(
         self,
@@ -93,9 +93,13 @@ class BrainAwareMutationEngine:
         has_nonlinear = self.has_nonlinear(expression)
 
         logger.debug(
-            "[MUTATION-ENGINE] Diagnosing | score=%.1f ic=%.4f ir=%.2f "
-            "nesting=%d norm=%s nonlinear=%s",
-            score, ic_mean, ic_ir, nesting, has_norm, has_nonlinear,
+            "[MUTATION-ENGINE] Diagnosing | score=%.1f ic=%.4f ir=%.2f nesting=%d norm=%s nonlinear=%s",
+            score,
+            ic_mean,
+            ic_ir,
+            nesting,
+            has_norm,
+            has_nonlinear,
         )
 
         if score < 20:
@@ -196,10 +200,10 @@ class BrainAwareMutationEngine:
             "- 鼓励使用非线性变换（tanh, sigmoid, power）",
             "- 鼓励组合多个信号源（量价交互、动量+波动等）",
             "",
-            f"## 当前因子",
+            "## 当前因子",
             f"{expression}",
             "",
-            f"## 诊断结果",
+            "## 诊断结果",
             f"策略: {strategy.value}",
             f"原因: {diagnosis.reason}",
             "",
@@ -207,108 +211,128 @@ class BrainAwareMutationEngine:
 
         if strategy == MutationStrategy.MUTATE_WINDOW:
             windows = diagnosis.details.get("current_windows", [])
-            parts.extend([
-                "## 突变指令: 调整时序窗口",
-                f"当前窗口参数: {windows}",
-                "请尝试不同的窗口长度（5/10/20/40/60），保留核心算子结构。",
-                "建议:",
-                "- 短期动量: ts_delta(close, 5) → ts_delta(close, 10)",
-                "- 中期趋势: ts_mean(volume, 20) → ts_mean(volume, 40)",
-                "- 波动率: ts_std_dev(close, 20) → ts_std_dev(close, 60)",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 调整时序窗口",
+                    f"当前窗口参数: {windows}",
+                    "请尝试不同的窗口长度（5/10/20/40/60），保留核心算子结构。",
+                    "建议:",
+                    "- 短期动量: ts_delta(close, 5) → ts_delta(close, 10)",
+                    "- 中期趋势: ts_mean(volume, 20) → ts_mean(volume, 40)",
+                    "- 波动率: ts_std_dev(close, 20) → ts_std_dev(close, 60)",
+                ]
+            )
 
         elif strategy == MutationStrategy.MUTATE_OPERATOR:
             replacements = diagnosis.details.get("suggested_replacements", {})
-            parts.extend([
-                "## 突变指令: 替换核心算子",
-                f"建议替换方案: {replacements}",
-                "当前算子无预测能力，请替换为其他类型的时序/截面算子。",
-                "示例:",
-                "- ts_mean → ts_decay_linear (加入时间衰减)",
-                "- rank → zscore (改用标准化)",
-                "- ts_delta → ts_av_diff (平均差分替代简单差分)",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 替换核心算子",
+                    f"建议替换方案: {replacements}",
+                    "当前算子无预测能力，请替换为其他类型的时序/截面算子。",
+                    "示例:",
+                    "- ts_mean → ts_decay_linear (加入时间衰减)",
+                    "- rank → zscore (改用标准化)",
+                    "- ts_delta → ts_av_diff (平均差分替代简单差分)",
+                ]
+            )
 
         elif strategy == MutationStrategy.MUTATE_NORMALIZATION:
-            parts.extend([
-                "## 突变指令: 添加标准化",
-                "请在最外层添加 rank() 或 zscore()，或在关键子表达式上添加 scale() / tanh()。",
-                "示例:",
-                "- group_neutralize(rank(expr), industry)",
-                "- group_neutralize(zscore(expr), sector)",
-                "- tanh(ts_zscore(close, 20))",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 添加标准化",
+                    "请在最外层添加 rank() 或 zscore()，或在关键子表达式上添加 scale() / tanh()。",
+                    "示例:",
+                    "- group_neutralize(rank(expr), industry)",
+                    "- group_neutralize(zscore(expr), sector)",
+                    "- tanh(ts_zscore(close, 20))",
+                ]
+            )
 
         elif strategy == MutationStrategy.MUTATE_SIGNAL_TYPE:
-            parts.extend([
-                "## 突变指令: 翻转因子方向",
-                "因子IC为负，请在表达式前添加 -1 * 或调整信号逻辑。",
-                "示例:",
-                "- 原始: rank(ts_delta(close, 20))",
-                "- 反转: -rank(ts_delta(close, 20))",
-                "- 或: rank(-ts_delta(close, 20))",
-                "注意: 如果使用了 group_neutralize，确保反转逻辑正确。",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 翻转因子方向",
+                    "因子IC为负，请在表达式前添加 -1 * 或调整信号逻辑。",
+                    "示例:",
+                    "- 原始: rank(ts_delta(close, 20))",
+                    "- 反转: -rank(ts_delta(close, 20))",
+                    "- 或: rank(-ts_delta(close, 20))",
+                    "注意: 如果使用了 group_neutralize，确保反转逻辑正确。",
+                ]
+            )
 
         elif strategy == MutationStrategy.MUTATE_NONLINEAR:
-            parts.extend([
-                "## 突变指令: 引入非线性变换",
-                "当前因子仅使用线性运算。请引入非线性变换增强表达能力：",
-                "- tanh(x): 压缩极端值，增强鲁棒性",
-                "- power(x, 0.5) 或 sign_power(x, 0.5): 弱化极端值影响",
-                "- sigmoid(x): S型映射，适合二值化信号",
-                "组合示例:",
-                "- rank(tanh(ts_delta(close, 20) / ts_std_dev(close, 20)))",
-                "- group_neutralize(signed_power(rank(ts_mean(volume, 10)), 0.5), industry)",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 引入非线性变换",
+                    "当前因子仅使用线性运算。请引入非线性变换增强表达能力：",
+                    "- tanh(x): 压缩极端值，增强鲁棒性",
+                    "- power(x, 0.5) 或 sign_power(x, 0.5): 弱化极端值影响",
+                    "- sigmoid(x): S型映射，适合二值化信号",
+                    "组合示例:",
+                    "- rank(tanh(ts_delta(close, 20) / ts_std_dev(close, 20)))",
+                    "- group_neutralize(signed_power(rank(ts_mean(volume, 10)), 0.5), industry)",
+                ]
+            )
 
         elif strategy == MutationStrategy.MUTATE_INTERACTION:
-            parts.extend([
-                "## 突变指令: 组合多信号源",
-                "当前因子仅使用单一信号。请组合多个信号源：",
-                "- 量价交互: rank(volume_signal) * rank(price_signal)",
-                "- 动量+波动: rank(momentum) * rank(-volatility)",
-                "- 条件组合: where(vol_condition, signal_a, signal_b)",
-                "- 加权组合: 0.6*rank(signal_a) + 0.4*rank(signal_b)",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 组合多信号源",
+                    "当前因子仅使用单一信号。请组合多个信号源：",
+                    "- 量价交互: rank(volume_signal) * rank(price_signal)",
+                    "- 动量+波动: rank(momentum) * rank(-volatility)",
+                    "- 条件组合: where(vol_condition, signal_a, signal_b)",
+                    "- 加权组合: 0.6*rank(signal_a) + 0.4*rank(signal_b)",
+                ]
+            )
 
         elif strategy == MutationStrategy.SIMPLIFY:
             nesting_depth = diagnosis.details.get("nesting_depth", 0)
-            parts.extend([
-                "## 突变指令: 适当简化表达式",
-                f"当前嵌套深度: {nesting_depth} 层",
-                "请减少嵌套到6-8层以内，移除冗余变换，保留核心预测信号。",
-                "建议:",
-                "- 移除重复的 rank()/zscore() 包裹",
-                "- 合并相邻的 ts_* 算子",
-                "- 使用更简洁的表达方式表达相同逻辑",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 适当简化表达式",
+                    f"当前嵌套深度: {nesting_depth} 层",
+                    "请减少嵌套到6-8层以内，移除冗余变换，保留核心预测信号。",
+                    "建议:",
+                    "- 移除重复的 rank()/zscore() 包裹",
+                    "- 合并相邻的 ts_* 算子",
+                    "- 使用更简洁的表达方式表达相同逻辑",
+                ]
+            )
 
         elif strategy == MutationStrategy.REGENERATE_FULL:
-            parts.extend([
-                "## 突变指令: 完全重写",
-                "当前因子完全无效，请从零开始设计一个新的因子表达式。",
-                "建议尝试以下因子类别:",
-                "- 动量因子: ts_delta, ts_regression, ts_av_diff",
-                "- 反转因子: -ts_delta, ts_decay_linear (负相关)",
-                "- 波动率因子: ts_std_dev, ts_corr (与volume交互)",
-                "- 量价因子: volume * price_change 的各种组合",
-                "- 质量因子: earnings, sales, revenue 相关字段",
-            ])
+            parts.extend(
+                [
+                    "## 突变指令: 完全重写",
+                    "当前因子完全无效，请从零开始设计一个新的因子表达式。",
+                    "建议尝试以下因子类别:",
+                    "- 动量因子: ts_delta, ts_regression, ts_av_diff",
+                    "- 反转因子: -ts_delta, ts_decay_linear (负相关)",
+                    "- 波动率因子: ts_std_dev, ts_corr (与volume交互)",
+                    "- 量价因子: volume * price_change 的各种组合",
+                    "- 质量因子: earnings, sales, revenue 相关字段",
+                ]
+            )
 
         if inspiration_exprs:
-            parts.extend([
-                "",
-                "## 参考表达式（灵感来源）",
-                "以下是一些成功的因子表达式，可以参考其结构但不要直接复制:",
-            ])
+            parts.extend(
+                [
+                    "",
+                    "## 参考表达式（灵感来源）",
+                    "以下是一些成功的因子表达式，可以参考其结构但不要直接复制:",
+                ]
+            )
             for i, expr in enumerate(inspiration_exprs[:3], 1):
                 parts.append(f"{i}. {expr}")
 
-        parts.extend([
-            "",
-            "请生成改进后的因子表达式：",
-        ])
+        parts.extend(
+            [
+                "",
+                "请生成改进后的因子表达式：",
+            ]
+        )
 
         return "\n".join(parts)
 
@@ -336,10 +360,10 @@ class BrainAwareMutationEngine:
         max_depth = 0
         current = 0
         for ch in expr:
-            if ch == '(':
+            if ch == "(":
                 current += 1
                 max_depth = max(max_depth, current)
-            elif ch == ')':
+            elif ch == ")":
                 current -= 1
         return max_depth
 
@@ -399,9 +423,11 @@ class BrainAwareMutationEngine:
 
         total = sharpe_score + fitness_score + to_score
         logger.debug(
-            "[MUTATION-ENGINE] Score computation | sharpe=%.2f fitness=%.2f "
-            "turnover=%.1f → total=%.1f",
-            sharpe, fitness, turnover, total,
+            "[MUTATION-ENGINE] Score computation | sharpe=%.2f fitness=%.2f turnover=%.1f → total=%.1f",
+            sharpe,
+            fitness,
+            turnover,
+            total,
         )
         return total
 
@@ -444,6 +470,6 @@ class BrainAwareMutationEngine:
         Returns:
             Sorted list of unique window values
         """
-        pattern = r'ts_\w+\([^,]+,\s*(\d+)\)'
+        pattern = r"ts_\w+\([^,]+,\s*(\d+)\)"
         matches = re.findall(pattern, expr)
         return sorted(set(int(m) for m in matches))

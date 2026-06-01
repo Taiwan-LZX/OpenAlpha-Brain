@@ -37,9 +37,9 @@ logger = logging.getLogger(__name__)
 def _sync_mab_bias_from_evidence() -> None:
     """[Brief description of function purpose.]
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     if not settings.EVIDENCE_MAB_BIAS_ENABLED:
         return
     if not _mab or not _logic_library:
@@ -55,12 +55,12 @@ def _sync_mab_bias_from_evidence() -> None:
 def _get_operators_from_context(rag_context: dict | None) -> list[str] | None:
     """[Brief description of function purpose.]
 
-        Args:
-            rag_context (dict | None): [Description]
+    Args:
+        rag_context (dict | None): [Description]
 
-        Returns:
-            list[str] | None: [Description]
-        """
+    Returns:
+        list[str] | None: [Description]
+    """
     if not rag_context:
         return None
     ops = rag_context.get("top_ops_detailed", [])
@@ -70,12 +70,12 @@ def _get_operators_from_context(rag_context: dict | None) -> list[str] | None:
 def _get_fields_from_context(rag_context: dict | None) -> list[str] | None:
     """[Brief description of function purpose.]
 
-        Args:
-            rag_context (dict | None): [Description]
+    Args:
+        rag_context (dict | None): [Description]
 
-        Returns:
-            list[str] | None: [Description]
-        """
+    Returns:
+        list[str] | None: [Description]
+    """
     if not rag_context:
         return None
     return rag_context.get("field_ids")
@@ -84,12 +84,12 @@ def _get_fields_from_context(rag_context: dict | None) -> list[str] | None:
 def _extract_ops_and_fields(expression: str) -> tuple[list[str], list[str]]:
     """[Brief description of function purpose.]
 
-        Args:
-            expression (str): [Description]
+    Args:
+        expression (str): [Description]
 
-        Returns:
-            tuple[list[str], list[str]]: [Description]
-        """
+    Returns:
+        tuple[list[str], list[str]]: [Description]
+    """
     if not expression:
         return [], []
     operators = list(set(_OPS_RE.findall(expression)))
@@ -123,18 +123,28 @@ async def _arbiter_rerank(retrieval: dict, rag_context: dict, exploration_direct
         wl_adapter = WhitelistSignalAdapter(_whitelist_mgr)
         field_ids_for_market = [f.get("id", "") for f in fields_raw if f.get("id")]
         op_ids_for_market = [o.get("id", "") for o in ops_raw if o.get("id")]
-        market_adapter = MarketSignalAdapter(_market_state_inferencer, exploration_direction, field_ids=field_ids_for_market, op_ids=op_ids_for_market)
+        market_adapter = MarketSignalAdapter(
+            _market_state_inferencer, exploration_direction, field_ids=field_ids_for_market, op_ids=op_ids_for_market
+        )
 
         field_adapters = [rag_adapter, mab_adapter, assoc_adapter, wl_adapter, market_adapter]
         op_adapters = [rag_adapter, mab_adapter, assoc_adapter, market_adapter]
 
         ranked_fields, ranked_ops = await _signal_arbiter.rank_with_adapters(
-            field_adapters, op_adapters,
+            field_adapters,
+            op_adapters,
             top_k_fields=settings.RAG_TOP_K_FIELDS,
             top_k_ops=settings.RAG_TOP_K_OPS,
         )
 
-        logger.info("[%s] MONITOR: arbiter_rerank: ranked_fields=%d ranked_ops=%d top_field_score=%.3f top_op_score=%.3f", exploration_direction, len(ranked_fields), len(ranked_ops), ranked_fields[0].final_score if ranked_fields else 0.0, ranked_ops[0].final_score if ranked_ops else 0.0)
+        logger.info(
+            "[%s] MONITOR: arbiter_rerank: ranked_fields=%d ranked_ops=%d top_field_score=%.3f top_op_score=%.3f",
+            exploration_direction,
+            len(ranked_fields),
+            len(ranked_ops),
+            ranked_fields[0].final_score if ranked_fields else 0.0,
+            ranked_ops[0].final_score if ranked_ops else 0.0,
+        )
 
         if not ranked_fields and not ranked_ops:
             return rag_context
@@ -162,10 +172,14 @@ async def _arbiter_rerank(retrieval: dict, rag_context: dict, exploration_direct
             rag_context["top_ops_detailed"] = new_detailed
             rag_context["remaining_op_names"] = new_remaining
 
-        _monitor.record("STEP", "signal_arbiter", "rank",
-                        f"top5_fields={[(r.item_id, round(r.final_score, 3)) for r in ranked_fields[:5]]} "
-                        f"top5_ops={[(r.item_id, round(r.final_score, 3)) for r in ranked_ops[:5]]}",
-                        session_id="")
+        _monitor.record(
+            "STEP",
+            "signal_arbiter",
+            "rank",
+            f"top5_fields={[(r.item_id, round(r.final_score, 3)) for r in ranked_fields[:5]]} "
+            f"top5_ops={[(r.item_id, round(r.final_score, 3)) for r in ranked_ops[:5]]}",
+            session_id="",
+        )
     except (OSError, ValueError, RuntimeError):
         logger.warning("SignalArbiter rerank failed", exc_info=True)
     return rag_context
@@ -174,32 +188,34 @@ async def _arbiter_rerank(retrieval: dict, rag_context: dict, exploration_direct
 def _make_tool_executor(rag_engine):
     """[Brief description of function purpose.]
 
-        Args:
-            rag_engine: [Description]
-        """
+    Args:
+        rag_engine: [Description]
+    """
+
     async def _executor(tool_name: str, arguments: dict) -> dict:
         """[Brief description of function purpose.]
 
-            Args:
-                tool_name (str): [Description]
-                arguments (dict): [Description]
+        Args:
+            tool_name (str): [Description]
+            arguments (dict): [Description]
 
-            Returns:
-                dict: [Description]
-            """
+        Returns:
+            dict: [Description]
+        """
         return await execute_rag_tool(tool_name, arguments, rag_engine)
+
     return _executor
 
 
 def _extract_allowed_fields_from_tool_results(tool_results: dict) -> set[str]:
     """[Brief description of function purpose.]
 
-        Args:
-            tool_results (dict): [Description]
+    Args:
+        tool_results (dict): [Description]
 
-        Returns:
-            set[str]: [Description]
-        """
+    Returns:
+        set[str]: [Description]
+    """
     fields = set()
     for tool_name, result in tool_results.items():
         if tool_name == "search_fields" and isinstance(result, dict):
@@ -211,12 +227,12 @@ def _extract_allowed_fields_from_tool_results(tool_results: dict) -> set[str]:
 def _extract_allowed_operators_from_tool_results(tool_results: dict) -> set[str]:
     """[Brief description of function purpose.]
 
-        Args:
-            tool_results (dict): [Description]
+    Args:
+        tool_results (dict): [Description]
 
-        Returns:
-            set[str]: [Description]
-        """
+    Returns:
+        set[str]: [Description]
+    """
     ops = set()
     for tool_name, result in tool_results.items():
         if tool_name == "search_operators" and isinstance(result, dict):
@@ -229,17 +245,17 @@ def _extract_allowed_operators_from_tool_results(tool_results: dict) -> set[str]
 def _extract_strategy_features(expr: str, direction: str) -> StrategyFeatures:
     """[Brief description of function purpose.]
 
-        Args:
-            expr (str): [Description]
-            direction (str): [Description]
+    Args:
+        expr (str): [Description]
+        direction (str): [Description]
 
-        Returns:
-            StrategyFeatures: [Description]
-        """
+    Returns:
+        StrategyFeatures: [Description]
+    """
     time_horizon = "short"
-    lookback_nums = re.findall(r'(?:ts_\w+|ts_decay_linear|rank)\s*\([^)]*?(\d+)', expr)
+    lookback_nums = re.findall(r"(?:ts_\w+|ts_decay_linear|rank)\s*\([^)]*?(\d+)", expr)
     if not lookback_nums:
-        lookback_nums = re.findall(r',\s*(\d+)', expr)
+        lookback_nums = re.findall(r",\s*(\d+)", expr)
     for num_str in lookback_nums:
         num = int(num_str)
         if num > 30:
@@ -258,20 +274,21 @@ def _extract_strategy_features(expr: str, direction: str) -> StrategyFeatures:
 
 
 @algo_log(log_args_to_skip=("expression",))
-async def _apply_mab_feedback(exploration_direction: str, expression: str,
-                         reward: float = 0.0, penalty: float = 0.0, _scheduler=None) -> None:
+async def _apply_mab_feedback(
+    exploration_direction: str, expression: str, reward: float = 0.0, penalty: float = 0.0, _scheduler=None
+) -> None:
     """[Brief description of function purpose.]
 
-        Args:
-            exploration_direction (str): [Description]
-            expression (str): [Description]
-            reward (float): [Description]
-            penalty (float): [Description]
-            _scheduler: Optional ExplorationScheduler for TemplateFamilyBandit feedback.
+    Args:
+        exploration_direction (str): [Description]
+        expression (str): [Description]
+        reward (float): [Description]
+        penalty (float): [Description]
+        _scheduler: Optional ExplorationScheduler for TemplateFamilyBandit feedback.
 
-        Returns:
-            None: [Description]
-        """
+    Returns:
+        None: [Description]
+    """
     if not expression or not exploration_direction:
         return
     _monitor.record("STEP", "mab", "feedback", f"direction={exploration_direction} reward={reward}", session_id="")
@@ -284,12 +301,21 @@ async def _apply_mab_feedback(exploration_direction: str, expression: str,
         if _mab:
             _algo_tick("mab_update")
             _mab.update(exploration_direction, operators, fields, reward, penalty)
-            logger.info("[%s] MONITOR: mab_update: direction=%s reward=%.4f", exploration_direction, exploration_direction, reward)
+            logger.info(
+                "[%s] MONITOR: mab_update: direction=%s reward=%.4f",
+                exploration_direction,
+                exploration_direction,
+                reward,
+            )
         if _scheduler is not None:
             try:
                 _scheduler.record_direction_result(exploration_direction, reward=reward, penalty=penalty)
             except (OSError, ValueError, RuntimeError):
-                logger.debug("[%s] scheduler record_direction_result failed in _apply_mab_feedback", exploration_direction, exc_info=True)
+                logger.debug(
+                    "[%s] scheduler record_direction_result failed in _apply_mab_feedback",
+                    exploration_direction,
+                    exc_info=True,
+                )
         if _association:
             for op in operators:
                 for field in fields:
@@ -317,12 +343,12 @@ async def _apply_mab_feedback(exploration_direction: str, expression: str,
 async def _refill_eliminated_fields(exploration_direction: str) -> list[str]:
     """[Brief description of function purpose.]
 
-        Args:
-            exploration_direction (str): [Description]
+    Args:
+        exploration_direction (str): [Description]
 
-        Returns:
-            list[str]: [Description]
-        """
+    Returns:
+        list[str]: [Description]
+    """
     if not _whitelist_mgr:
         return []
     try:
@@ -338,8 +364,9 @@ async def _refill_eliminated_fields(exploration_direction: str) -> list[str]:
             if new_field_ids:
                 _whitelist_mgr.update_dynamic(new_field_ids)
                 _rag_engine.set_eliminated_fields(set(_whitelist_mgr.eliminated_fields.keys()))
-                logger.info("Refilled %d fields via RAG after elimination of %d fields",
-                            len(new_field_ids), len(eliminated))
+                logger.info(
+                    "Refilled %d fields via RAG after elimination of %d fields", len(new_field_ids), len(eliminated)
+                )
         return eliminated
     except (OSError, ValueError, RuntimeError):
         logger.warning("Refill eliminated fields failed", exc_info=True)
@@ -349,21 +376,27 @@ async def _refill_eliminated_fields(exploration_direction: str) -> list[str]:
 async def _run_logic_evolution(cycle_count: int, session_id: str, global_cycle: int) -> int:
     """[Brief description of function purpose.]
 
-        Args:
-            cycle_count (int): [Description]
-            session_id (str): [Description]
-            global_cycle (int): [Description]
+    Args:
+        cycle_count (int): [Description]
+        session_id (str): [Description]
+        global_cycle (int): [Description]
 
-        Returns:
-            int: [Description]
-        """
+    Returns:
+        int: [Description]
+    """
     cycle_count += 1
     if cycle_count % 10 == 0 and _logic_library:
         try:
             _algo_tick("logic_evolution")
             evo_result = _logic_library.evolve_logics()
-            logger.info("[%s] Logic evolution at cycle %d: split=%d, merged=%d, gaps=%s",
-                        session_id, global_cycle, evo_result["split"], evo_result["merged"], evo_result["gaps"])
+            logger.info(
+                "[%s] Logic evolution at cycle %d: split=%d, merged=%d, gaps=%s",
+                session_id,
+                global_cycle,
+                evo_result["split"],
+                evo_result["merged"],
+                evo_result["gaps"],
+            )
             if evo_result["gaps"]:
                 _algo_tick("logic_propose")
                 for gap in evo_result["gaps"][:3]:

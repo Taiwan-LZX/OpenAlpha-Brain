@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import math
@@ -95,7 +94,7 @@ class ExperienceDistiller:
 
             try:
                 similar_fixes = await failure_lib.search_fix(pattern, top_k=5)
-            except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError):
+            except (TimeoutError, ValueError, TypeError, ConnectionError, OSError):
                 similar_fixes = []
 
             success_fixes = [f for f in similar_fixes if f.get("fix_success")]
@@ -117,7 +116,8 @@ class ExperienceDistiller:
             card = ExperienceCard(
                 failure_pattern=pattern,
                 fix_strategy=best_fix,
-                applicable_conditions=f"When {pattern} failure occurs" + (f" in {direction} direction" if direction else ""),
+                applicable_conditions=f"When {pattern} failure occurs"
+                + (f" in {direction} direction" if direction else ""),
                 confidence=min(0.9, 0.5 + 0.1 * len(success_fixes)),
             )
             if self._embed_fn is not None:
@@ -147,10 +147,7 @@ class ExperienceDistiller:
 
             result.append(card)
 
-        use_semantic = (
-            self._embed_fn is not None
-            and any(c.embedding is not None for c in result)
-        )
+        use_semantic = self._embed_fn is not None and any(c.embedding is not None for c in result)
 
         deduped: list[ExperienceCard] = []
         for card in result:
@@ -174,6 +171,7 @@ class ExperienceDistiller:
         if use_semantic:
             try:
                 from openalpha_brain.core.loop_state import _algo_tick
+
                 _algo_tick("experience_semantic_dedup")
             except (ImportError, AttributeError):
                 pass
@@ -284,6 +282,7 @@ class ExperienceDistiller:
                         scored.sort(key=lambda x: x[0], reverse=True)
                         try:
                             from openalpha_brain.core.loop_state import _algo_tick
+
                             _algo_tick("experience_semantic_retrieval")
                         except (ImportError, AttributeError):
                             pass
@@ -344,8 +343,9 @@ class ExperienceDistiller:
                 return
 
     @algo_log(log_args_to_skip=("self",))
-    def record_single_failure(self, failure_pattern: str, fix_strategy: str = "",
-                               direction: str = "", expression: str = "") -> ExperienceCard | None:
+    def record_single_failure(
+        self, failure_pattern: str, fix_strategy: str = "", direction: str = "", expression: str = ""
+    ) -> ExperienceCard | None:
         for existing in self._cards:
             if existing.failure_pattern == failure_pattern:
                 existing.usage_count += 1
@@ -361,7 +361,9 @@ class ExperienceDistiller:
         )
         self._cards.append(card)
         self._save()
-        logger.info("ExperienceDistiller: recorded new failure pattern '%s' (total cards=%d)", failure_pattern, len(self._cards))
+        logger.info(
+            "ExperienceDistiller: recorded new failure pattern '%s' (total cards=%d)", failure_pattern, len(self._cards)
+        )
         return card
 
 

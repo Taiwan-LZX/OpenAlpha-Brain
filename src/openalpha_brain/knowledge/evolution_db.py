@@ -119,10 +119,7 @@ class EvolutionDatabase:
 
     def sample_inspiration(self, n: int = 3, min_sharpe: float = 0.5) -> list[EvolutionRecord]:
         with self._lock:
-            candidates = [
-                rec for rec in self._records.values()
-                if rec.sharpe is not None and rec.sharpe >= min_sharpe
-            ]
+            candidates = [rec for rec in self._records.values() if rec.sharpe is not None and rec.sharpe >= min_sharpe]
         if not candidates:
             with self._lock:
                 candidates = list(self._records.values())
@@ -195,7 +192,14 @@ class EvolutionDatabase:
             records = list(self._records.values())
         total = len(records)
         if total == 0:
-            return {"total": 0, "pass_count": 0, "fail_count": 0, "avg_sharpe": 0.0, "top_sharpe": 0.0, "direction_distribution": {}}
+            return {
+                "total": 0,
+                "pass_count": 0,
+                "fail_count": 0,
+                "avg_sharpe": 0.0,
+                "top_sharpe": 0.0,
+                "direction_distribution": {},
+            }
         pass_count = sum(1 for r in records if r.status == "PASS")
         fail_count = sum(1 for r in records if r.status != "PASS")
         sharpes = [r.sharpe for r in records if r.sharpe is not None]

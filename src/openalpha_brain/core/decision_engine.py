@@ -47,13 +47,13 @@ Usage:
     print(outcome.reason)        # 详细原因字符串
     print(outcome.should_improve) # bool 快捷判断
 """
+
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
 
 from openalpha_brain.core.result_router import ParsedWQResult
 from openalpha_brain.monitoring.algorithm_telemetry import AlgorithmTelemetryCollector
@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 class DecisionAction(Enum):
     """WQ 完成回调决策动作"""
+
     SUCCESS_PASS = "success_pass"
     IMPROVE_AND_RESUBMIT = "improve_and_resubmit"
     WEAK_IMPROVE = "weak_improve"
@@ -83,10 +84,11 @@ class DecisionContext:
         is_high_icir_low_fitness: 是否高ICIR但低Fitness (从parsed_result提取)
         is_efficient_alpha: 是否是高效因子 (从parsed_result提取)
     """
+
     sharpe: float = 0.0
     passed: bool = False
-    anti_fit_score: Optional[float] = None
-    parsed_result: Optional[ParsedWQResult] = None
+    anti_fit_score: float | None = None
+    parsed_result: ParsedWQResult | None = None
     is_high_icir_low_fitness: bool = False
     is_efficient_alpha: bool = False
 
@@ -104,6 +106,7 @@ class DecisionOutcome:
         strategy_d_boost: 是否被策略D (ICIR/MFR) 增强
         processing_time_ms: 决策耗时 (毫秒)
     """
+
     action: DecisionAction = DecisionAction.NOISE_PENALIZE
     reason: str = ""
     should_improve: bool = False
@@ -164,8 +167,8 @@ class DecisionEngine:
 
     def __init__(
         self,
-        config: Optional[dict] = None,
-        telemetry: Optional[AlgorithmTelemetryCollector] = None,
+        config: dict | None = None,
+        telemetry: AlgorithmTelemetryCollector | None = None,
     ):
         self.config = {**self.DEFAULT_CONFIG, **(config or {})}
         self._tel = telemetry or AlgorithmTelemetryCollector.get_instance()
@@ -219,7 +222,7 @@ class DecisionEngine:
     def decide_from_parsed_result(
         self,
         parsed_result: ParsedWQResult,
-        anti_fit_score: Optional[float] = None,
+        anti_fit_score: float | None = None,
     ) -> DecisionOutcome:
         """便捷方法：直接从 ParsedWQResult 创建决策
 
@@ -259,9 +262,7 @@ class DecisionEngine:
         repair_th = self.config["repair_retry_threshold"]
         anti_fit_th = self.config["anti_fit_penalty_threshold"]
 
-        anti_fit_penalty = (
-            ctx.anti_fit_score is not None and ctx.anti_fit_score < anti_fit_th
-        )
+        anti_fit_penalty = ctx.anti_fit_score is not None and ctx.anti_fit_score < anti_fit_th
         outcome.anti_fit_penalty_applied = anti_fit_penalty
 
         icir_reason = ""
@@ -269,10 +270,13 @@ class DecisionEngine:
 
         if ctx.is_high_icir_low_fitness:
             if ctx.parsed_result is not None and ctx.parsed_result.icir_info is not None:
-                icir_info = getattr(ctx.parsed_result.icir_info, '__dict__', {}) if hasattr(ctx.parsed_result.icir_info, '__dict__') else {}
+                icir_info = (
+                    getattr(ctx.parsed_result.icir_info, "__dict__", {})
+                    if hasattr(ctx.parsed_result.icir_info, "__dict__")
+                    else {}
+                )
                 icir_reason = (
-                    f"HIGH_ICIR_LOW_FITNESS: ICIR={icir_info.get('icir', 'N/A')} "
-                    f"but Fitness < 1.0 → 强制改进路径"
+                    f"HIGH_ICIR_LOW_FITNESS: ICIR={icir_info.get('icir', 'N/A')} but Fitness < 1.0 → 强制改进路径"
                 )
             else:
                 icir_reason = "HIGH_ICIR_LOW_FITNESS → 强制改进路径"
@@ -280,7 +284,11 @@ class DecisionEngine:
 
         if ctx.is_efficient_alpha:
             if ctx.parsed_result is not None and ctx.parsed_result.mfr_info is not None:
-                mfr_info = getattr(ctx.parsed_result.mfr_info, '__dict__', {}) if hasattr(ctx.parsed_result.mfr_info, '__dict__') else {}
+                mfr_info = (
+                    getattr(ctx.parsed_result.mfr_info, "__dict__", {})
+                    if hasattr(ctx.parsed_result.mfr_info, "__dict__")
+                    else {}
+                )
                 mfr_reason = (
                     f"EFFICIENT_ALPHA: efficiency={mfr_info.get('efficiency', 'N/A')} > 0.3 "
                     f"→ Experience注入+LLM改进路径"
@@ -295,10 +303,7 @@ class DecisionEngine:
             outcome.improvement_priority = 0
             extra = f" | ANTI-FIT⚠ score<{anti_fit_th} 仍通过" if anti_fit_penalty else ""
             mfr_extra = f" | {mfr_reason}" if ctx.is_efficient_alpha else ""
-            outcome.reason = (
-                f"Sharpe={ctx.sharpe:.3f} >= {pass_th} (PASS)"
-                f"{extra}{mfr_extra}"
-            )
+            outcome.reason = f"Sharpe={ctx.sharpe:.3f} >= {pass_th} (PASS){extra}{mfr_extra}"
             return outcome
 
         if ctx.is_high_icir_low_fitness and ctx.sharpe >= improve_th * 0.8:
@@ -306,8 +311,7 @@ class DecisionEngine:
             outcome.should_improve = True
             outcome.improvement_priority = 5
             outcome.reason = (
-                f"Sharpe={ctx.sharpe:.3f} + HIGH_ICIR_LOW_FITNESS → "
-                f"强制改进 (Turnover优化优先) | {icir_reason}"
+                f"Sharpe={ctx.sharpe:.3f} + HIGH_ICIR_LOW_FITNESS → 强制改进 (Turnover优化优先) | {icir_reason}"
             )
             return outcome
 
@@ -333,9 +337,7 @@ class DecisionEngine:
 
             outcome.action = DecisionAction.IMPROVE_AND_RESUBMIT
             outcome.improvement_priority = 4
-            outcome.reason = (
-                f"Sharpe={ctx.sharpe:.3f} in [{improve_th}, {pass_th}) → 强改进"
-            )
+            outcome.reason = f"Sharpe={ctx.sharpe:.3f} in [{improve_th}, {pass_th}) → 强改进"
             return outcome
 
         if ctx.sharpe >= weak_th:
@@ -351,24 +353,18 @@ class DecisionEngine:
 
             outcome.action = DecisionAction.WEAK_IMPROVE
             outcome.improvement_priority = 2
-            outcome.reason = (
-                f"Sharpe={ctx.sharpe:.3f} in [{weak_th}, {improve_th}) → 弱改进尝试"
-            )
+            outcome.reason = f"Sharpe={ctx.sharpe:.3f} in [{weak_th}, {improve_th}) → 弱改进尝试"
             return outcome
 
         if ctx.sharpe >= repair_th:
             outcome.action = DecisionAction.REPAIR_AND_RETRY
             outcome.should_improve = True
             outcome.improvement_priority = 1
-            outcome.reason = (
-                f"Sharpe={ctx.sharpe:.3f} in [{repair_th}, {weak_th}) → 修复/重试"
-            )
+            outcome.reason = f"Sharpe={ctx.sharpe:.3f} in [{repair_th}, {weak_th}) → 修复/重试"
             return outcome
 
         outcome.action = DecisionAction.NOISE_PENALIZE
         outcome.should_improve = False
         outcome.improvement_priority = 0
-        outcome.reason = (
-            f"Noise factor: Sharpe={ctx.sharpe:.3f} < {repair_th}"
-        )
+        outcome.reason = f"Noise factor: Sharpe={ctx.sharpe:.3f} < {repair_th}"
         return outcome

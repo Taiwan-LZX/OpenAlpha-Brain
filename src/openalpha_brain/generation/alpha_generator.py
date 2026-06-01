@@ -297,11 +297,17 @@ def _extract_expression_from_llm(raw: str) -> str | None:
             if isinstance(_parsed_json, dict):
                 for _key in ("expression", "regular", "alpha", "code", "fastexpr"):
                     _candidate = _parsed_json.get(_key, "")
-                    if _candidate and isinstance(_candidate, str) and "(" in _candidate and ")" in _candidate and not _json_artifacts_re.search(_candidate):  # noqa: E501
-                            clean_candidate = _candidate.strip().rstrip(",;")
-                            if val.validate_syntax(clean_candidate).passed:
-                                return clean_candidate
+                    if (
+                        _candidate
+                        and isinstance(_candidate, str)
+                        and "(" in _candidate
+                        and ")" in _candidate
+                        and not _json_artifacts_re.search(_candidate)
+                    ):  # noqa: E501
+                        clean_candidate = _candidate.strip().rstrip(",;")
+                        if val.validate_syntax(clean_candidate).passed:
                             return clean_candidate
+                        return clean_candidate
         except (_json.JSONDecodeError, ValueError):
             pass
 

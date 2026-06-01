@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any
 
 from openalpha_brain.cli.event_adapters import (
     AlphaGeneratedAdapter,
@@ -58,18 +57,22 @@ class CLIRenderer(BaseRenderer):
 
     def __init__(self):
         """Initialize color constants"""
-        self.C = type('C', (), {
-            'RESET': "\033[0m",
-            'BOLD': "\033[1m",
-            'DIM': "\033[2m",
-            'RED': "\033[31m",
-            'GREEN': "\033[32m",
-            'YELLOW': "\033[33m",
-            'BLUE': "\033[34m",
-            'MAGENTA': "\033[35m",
-            'CYAN': "\033[36m",
-            'WHITE': "\033[37m",
-        })()
+        self.C = type(
+            "C",
+            (),
+            {
+                "RESET": "\033[0m",
+                "BOLD": "\033[1m",
+                "DIM": "\033[2m",
+                "RED": "\033[31m",
+                "GREEN": "\033[32m",
+                "YELLOW": "\033[33m",
+                "BLUE": "\033[34m",
+                "MAGENTA": "\033[35m",
+                "CYAN": "\033[36m",
+                "WHITE": "\033[37m",
+            },
+        )()
 
     def _c(self, text: str, color: str) -> str:
         """Apply color to text"""
@@ -121,7 +124,7 @@ class CLIRenderer(BaseRenderer):
         direction = self._c(adapter.direction, self.C.CYAN)
         lines = [
             f"  {self.C.GREEN}├─ 🔨 ALPHA Generated{self.C.RESET} dir={direction}",
-            f"  │  {self.C.DIM}{expr}{self.C.RESET}"
+            f"  │  {self.C.DIM}{expr}{self.C.RESET}",
         ]
         return "\n".join(lines)
 
@@ -131,7 +134,7 @@ class CLIRenderer(BaseRenderer):
         direction = self._c(adapter.direction, self.C.CYAN)
         lines = [
             f"  {self.C.GREEN}├─ ✅ PASS{self.C.RESET} {adapter.alpha_id} dir={direction} family={adapter.family}",
-            f"  │  {self.C.DIM}{expr}{self.C.RESET}"
+            f"  │  {self.C.DIM}{expr}{self.C.RESET}",
         ]
         return "\n".join(lines)
 

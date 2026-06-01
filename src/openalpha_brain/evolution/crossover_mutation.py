@@ -1516,8 +1516,10 @@ class CrossoverMutationEngine:
             curr_fitness = curr.get("fitness", 0.0)
             max_fit = max(abs(prev_fitness), abs(curr_fitness), 1e-8)
 
-            if abs(prev_fitness - curr_fitness) / max_fit < self.PARETO_TIE_THRESHOLD and self._pareto_dominates(curr, prev):  # noqa: E501
-                    result[-1], curr = curr, prev
+            if abs(prev_fitness - curr_fitness) / max_fit < self.PARETO_TIE_THRESHOLD and self._pareto_dominates(
+                curr, prev
+            ):  # noqa: E501
+                result[-1], curr = curr, prev
 
             result.append(curr)
 

@@ -30,11 +30,11 @@ import asyncio
 import contextlib
 import json
 import logging
-from pathlib import Path
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -3624,6 +3624,7 @@ Example: group_neutralize(ts_decay_linear(rank(ts_zscore(close, 20)), 10), indus
                     AdaptiveNeutralizer(experience_path=_temp_exp_path),
                 )
         except (ImportError, AttributeError, RuntimeError, OSError, TypeError) as exc:
+            logging.debug("AdaptiveNeutralizer 初始化失败: %s", exc)
             object.__setattr__(obj, "_adaptive_neutralizer", None)
         try:
             from openalpha_brain.services.brain_submitter import ReflexionEngine

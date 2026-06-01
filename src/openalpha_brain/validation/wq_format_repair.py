@@ -557,17 +557,21 @@ class WQFormatRepair:
         repaired = re.sub(decay_pattern, replace_decay_window, expression)
         repaired = repaired.replace("X_PLACEHOLDER", "X")
 
-        if "ts_decay_linear" not in expression and "decay_linear" not in expression and "group_neutralize" in expression:  # noqa: E501
-                inner_match = re.search(r"group_neutralize\s*\((.+?)\s*,\s*\w+\s*\)", expression, re.DOTALL)
-                if inner_match:
-                    inner_expr = inner_match.group(1)
-                    wrapped = f"ts_decay_linear({inner_expr}, {self.DEFAULT_DECAY_WINDOW})"
-                    repaired = expression.replace(inner_expr, wrapped, 1)
+        if (
+            "ts_decay_linear" not in expression
+            and "decay_linear" not in expression
+            and "group_neutralize" in expression
+        ):  # noqa: E501
+            inner_match = re.search(r"group_neutralize\s*\((.+?)\s*,\s*\w+\s*\)", expression, re.DOTALL)
+            if inner_match:
+                inner_expr = inner_match.group(1)
+                wrapped = f"ts_decay_linear({inner_expr}, {self.DEFAULT_DECAY_WINDOW})"
+                repaired = expression.replace(inner_expr, wrapped, 1)
 
-                    logger.info(
-                        "[DEFENSIVE_LOG] _repair_decay_related: wrapped with ts_decay_linear(window=%d)",
-                        self.DEFAULT_DECAY_WINDOW,
-                    )
+                logger.info(
+                    "[DEFENSIVE_LOG] _repair_decay_related: wrapped with ts_decay_linear(window=%d)",
+                    self.DEFAULT_DECAY_WINDOW,
+                )
 
         return repaired
 

@@ -42,6 +42,7 @@ Usage:
         target_sharpe=1.25,
     )
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -52,13 +53,13 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class EAMutationType(Enum):
     """Mutation strategy types used by the EA."""
+
     NEAR_PASS_DETERMINISTIC = "near_pass_deterministic"
     LLM_SEMANTIC = "llm_semantic"
     OPERATOR_SWAP = "operator_swap"
@@ -77,6 +78,7 @@ class FactorIndividual:
         mutation_type: Which mutation strategy produced this individual.
         metadata: Arbitrary key-value store for extra info.
     """
+
     expression: str
     fitness: float = 0.0
     generation: int = 0
@@ -107,6 +109,7 @@ class EAConfig:
         diversity_threshold: Minimum population diversity score (default 0.7).
         timeout_seconds: Total wall-clock timeout for a single search (default 300).
     """
+
     population_size: int = 8
     max_generations: int = 3
     elite_ratio: float = 0.25
@@ -236,7 +239,7 @@ def tune_parameter(expression: str, param_name: str, delta: float) -> str | None
             old_val = int(match.group(2))
             new_val = old_val + int(delta)
             if new_val > 0:
-                return expression[:match.start()] + f"ts_decay_linear({inner}, {new_val})" + expression[match.end():]
+                return expression[: match.start()] + f"ts_decay_linear({inner}, {new_val})" + expression[match.end() :]
     elif param_name == "power":
         pattern = r"signed_power\(([^,]+),\s*([\d.]+)\)"
         match = re.search(pattern, expression)
@@ -245,7 +248,7 @@ def tune_parameter(expression: str, param_name: str, delta: float) -> str | None
             old_power = float(match.group(2))
             new_power = round(old_power + delta, 2)
             if new_power > 0:
-                return expression[:match.start()] + f"signed_power({base}, {new_power})" + expression[match.end():]
+                return expression[: match.start()] + f"signed_power({base}, {new_power})" + expression[match.end() :]
     return None
 
 
@@ -319,6 +322,7 @@ class EASearchStrategy:
             slot_manager: SlotManager for real WQ submissions (optional).
         """
         from openalpha_brain.evolution.near_pass_improver import NearPassImprover
+
         self._near_pass = near_pass_improver or NearPassImprover()
         self._llm_client = llm_client
         self._prefilter = prefilter
@@ -356,8 +360,10 @@ class EASearchStrategy:
 
         logger.info(
             "[EA] Starting search: seed='%s…' target_shar=%.2f pop=%d gen=%d",
-            seed_expression[:50], target_sharpe,
-            self.config.population_size, self.config.max_generations,
+            seed_expression[:50],
+            target_sharpe,
+            self.config.population_size,
+            self.config.max_generations,
         )
 
         population = await self._initialize_population(seed_expression, initial_sharpe)
@@ -390,9 +396,9 @@ class EASearchStrategy:
                         offspring.extend(result)
 
             crossover_count = int(self.config.population_size * self.config.crossover_rate)
-            selected_for_crossover = sorted(
-                population, key=lambda x: x.fitness, reverse=True
-            )[:max(2, crossover_count * 2)]
+            selected_for_crossover = sorted(population, key=lambda x: x.fitness, reverse=True)[
+                : max(2, crossover_count * 2)
+            ]
             for i in range(0, len(selected_for_crossover) - 1, 2):
                 child = self._crossover(selected_for_crossover[i], selected_for_crossover[i + 1])
                 if child is not None:
@@ -416,23 +422,29 @@ class EASearchStrategy:
                 best_individual = current_best
                 logger.info(
                     "[EA] New best! fitness=%.4f expr='%s…'",
-                    best_individual.fitness, best_individual.expression[:50],
+                    best_individual.fitness,
+                    best_individual.expression[:50],
                 )
 
             diversity = self._compute_diversity(population)
             logger.info(
                 "[EA] Gen %d complete: pop=%d best_fit=%.4f diversity=%.3f",
-                gen, len(population), best_individual.fitness, diversity,
+                gen,
+                len(population),
+                best_individual.fitness,
+                diversity,
             )
 
-            self._generation_stats.append({
-                "generation": gen,
-                "population_size": len(population),
-                "offspring_produced": len(offspring),
-                "best_fitness": best_individual.fitness,
-                "diversity": diversity,
-                "elapsed_sec": time.time() - start_time,
-            })
+            self._generation_stats.append(
+                {
+                    "generation": gen,
+                    "population_size": len(population),
+                    "offspring_produced": len(offspring),
+                    "best_fitness": best_individual.fitness,
+                    "diversity": diversity,
+                    "elapsed_sec": time.time() - start_time,
+                }
+            )
 
             if best_individual.fitness >= target_sharpe:
                 logger.info("[EA] Target reached at generation %d!", gen)
@@ -446,13 +458,13 @@ class EASearchStrategy:
         total_time = time.time() - start_time
         logger.info(
             "[EA] Search finished: best_fit=%.4f total_time=%.1fs gens=%d",
-            best_individual.fitness, total_time, len(self._generation_stats),
+            best_individual.fitness,
+            total_time,
+            len(self._generation_stats),
         )
         return best_individual, all_history
 
-    async def _initialize_population(
-        self, seed_expression: str, initial_sharpe: float
-    ) -> list[FactorIndividual]:
+    async def _initialize_population(self, seed_expression: str, initial_sharpe: float) -> list[FactorIndividual]:
         """Initialize diverse starting population from seed.
 
         Strategy distribution:
@@ -483,35 +495,43 @@ class EASearchStrategy:
             fitness=max(initial_sharpe * 0.8, 0.4),
         )
         deterministic_variants = self._near_pass.generate_deterministic_variants(
-            seed_expression, analysis, max_variants=3,
+            seed_expression,
+            analysis,
+            max_variants=3,
         )
         for v in deterministic_variants[:3]:
-            population.append(FactorIndividual(
-                expression=v.expression,
-                fitness=self._quick_evaluate(v.expression),
-                generation=0,
-                mutation_type=EAMutationType.NEAR_PASS_DETERMINISTIC,
-                metadata={"mutation_description": v.mutation_description},
-            ))
+            population.append(
+                FactorIndividual(
+                    expression=v.expression,
+                    fitness=self._quick_evaluate(v.expression),
+                    generation=0,
+                    mutation_type=EAMutationType.NEAR_PASS_DETERMINISTIC,
+                    metadata={"mutation_description": v.mutation_description},
+                )
+            )
 
         for delta in [5, -5]:
             tuned = tune_parameter(seed_expression, "decay_window", delta)
             if tuned and tuned != seed_expression:
-                population.append(FactorIndividual(
-                    expression=tuned,
-                    fitness=self._quick_evaluate(tuned),
-                    generation=0,
-                    mutation_type=EAMutationType.PARAMETER_TUNE,
-                ))
+                population.append(
+                    FactorIndividual(
+                        expression=tuned,
+                        fitness=self._quick_evaluate(tuned),
+                        generation=0,
+                        mutation_type=EAMutationType.PARAMETER_TUNE,
+                    )
+                )
 
         swapped = mutate_operator(seed_expression, "rank", "zscore")
         if swapped and swapped != seed_expression:
-            population.append(FactorIndividual(
-                expression=swapped,
-                fitness=self._quick_evaluate(swapped),
-                generation=0,
-                mutation_type=EAMutationType.OPERATOR_SWAP,
-            ))
+            population.append(
+                FactorIndividual(
+                    expression=swapped,
+                    fitness=self._quick_evaluate(swapped),
+                    generation=0,
+                    mutation_type=EAMutationType.OPERATOR_SWAP,
+                )
+            )
 
         block_a = extract_block_a(seed_expression)
         if block_a and block_a.startswith("-"):
@@ -521,13 +541,15 @@ class EASearchStrategy:
         else:
             inverted = None
         if inverted and inverted != seed_expression:
-            population.append(FactorIndividual(
-                expression=inverted,
-                fitness=self._quick_evaluate(inverted),
-                generation=0,
-                mutation_type=EAMutationType.OPERATOR_SWAP,
-                metadata={"mutation_description": "Block A sign inversion"},
-            ))
+            population.append(
+                FactorIndividual(
+                    expression=inverted,
+                    fitness=self._quick_evaluate(inverted),
+                    generation=0,
+                    mutation_type=EAMutationType.OPERATOR_SWAP,
+                    metadata={"mutation_description": "Block A sign inversion"},
+                )
+            )
 
         while len(population) < self.config.population_size:
             dup = FactorIndividual(
@@ -542,7 +564,7 @@ class EASearchStrategy:
             "[EA] Initialized population: %d individuals from seed",
             len(population),
         )
-        return population[:self.config.population_size]
+        return population[: self.config.population_size]
 
     async def _mutate(self, individual: FactorIndividual) -> list[FactorIndividual]:
         """Apply mutation to produce offspring variants.
@@ -573,7 +595,7 @@ class EASearchStrategy:
                 else:
                     logger.warning("[EA] LLM semantic mutation returned empty — falling back to fast mutate")
                     offspring.extend(self._fast_mutate(individual))
-            except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError, RuntimeError) as e:
+            except (TimeoutError, ValueError, TypeError, ConnectionError, OSError, RuntimeError) as e:
                 logger.warning("[EA] LLM semantic mutation failed: %s", e)
                 offspring.extend(self._fast_mutate(individual))
         else:
@@ -600,42 +622,49 @@ class EASearchStrategy:
             for old_op, new_op in replacements:
                 mutated = mutate_operator(expr, old_op, new_op)
                 if mutated and mutated != expr:
-                    offspring.append(FactorIndividual(
-                        expression=mutated,
-                        fitness=self._quick_evaluate(mutated),
-                        mutation_type=EAMutationType.OPERATOR_SWAP,
-                    ))
+                    offspring.append(
+                        FactorIndividual(
+                            expression=mutated,
+                            fitness=self._quick_evaluate(mutated),
+                            mutation_type=EAMutationType.OPERATOR_SWAP,
+                        )
+                    )
                     break
         else:
-            params = [("decay_window", random.choice([5, -5, 10, -10])),
-                      ("power", random.choice([0.5, -0.5, 1.0]))]
+            params = [("decay_window", random.choice([5, -5, 10, -10])), ("power", random.choice([0.5, -0.5, 1.0]))]
             param_name, delta = random.choice(params)
             mutated = tune_parameter(expr, param_name, delta)
             if mutated and mutated != expr:
-                offspring.append(FactorIndividual(
-                    expression=mutated,
-                    fitness=self._quick_evaluate(mutated),
-                    mutation_type=EAMutationType.PARAMETER_TUNE,
-                ))
+                offspring.append(
+                    FactorIndividual(
+                        expression=mutated,
+                        fitness=self._quick_evaluate(mutated),
+                        mutation_type=EAMutationType.PARAMETER_TUNE,
+                    )
+                )
 
         analysis = self._near_pass.analyze(sharpe=individual.fitness, fitness=individual.fitness * 0.8)
         det_variants = self._near_pass.generate_deterministic_variants(expr, analysis, max_variants=1)
         for v in det_variants[:1]:
             if v.expression != expr:
-                offspring.append(FactorIndividual(
-                    expression=v.expression,
-                    fitness=self._quick_evaluate(v.expression),
-                    mutation_type=EAMutationType.NEAR_PASS_DETERMINISTIC,
-                    metadata={"mutation_description": v.mutation_description},
-                ))
+                offspring.append(
+                    FactorIndividual(
+                        expression=v.expression,
+                        fitness=self._quick_evaluate(v.expression),
+                        mutation_type=EAMutationType.NEAR_PASS_DETERMINISTIC,
+                        metadata={"mutation_description": v.mutation_description},
+                    )
+                )
 
         if not offspring:
-            offspring.append(FactorIndividual(
-                expression=expr,
-                fitness=self._quick_evaluate(expr) * random.uniform(0.95, 1.05),
-                mutation_type=EAMutationType.NEAR_PASS_DETERMINISTIC,
-                metadata={"fallback": True},
-            ))
+            offspring.append(
+                FactorIndividual(
+                    expression=expr,
+                    fitness=self._quick_evaluate(expr) * random.uniform(0.95, 1.05),
+                    mutation_type=EAMutationType.NEAR_PASS_DETERMINISTIC,
+                    metadata={"fallback": True},
+                )
+            )
 
         return offspring
 
@@ -667,19 +696,19 @@ class EASearchStrategy:
             if response and isinstance(response, str):
                 new_expr = response.strip().strip("'\"")
                 if new_expr and new_expr != individual.expression:
-                    return [FactorIndividual(
-                        expression=new_expr,
-                        fitness=self._quick_evaluate(new_expr),
-                        mutation_type=EAMutationType.LLM_SEMANTIC,
-                        metadata={"llm_response": response[:200]},
-                    )]
-        except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError, RuntimeError) as e:
+                    return [
+                        FactorIndividual(
+                            expression=new_expr,
+                            fitness=self._quick_evaluate(new_expr),
+                            mutation_type=EAMutationType.LLM_SEMANTIC,
+                            metadata={"llm_response": response[:200]},
+                        )
+                    ]
+        except (TimeoutError, ValueError, TypeError, ConnectionError, OSError, RuntimeError) as e:
             logger.warning("[EA] LLM mutation call failed: %s", e)
         return []
 
-    def _crossover(
-        self, parent_a: FactorIndividual, parent_b: FactorIndividual
-    ) -> FactorIndividual | None:
+    def _crossover(self, parent_a: FactorIndividual, parent_b: FactorIndividual) -> FactorIndividual | None:
         """Crossover operation: swap Block A between two parents.
 
         Parses the three-part structure:
@@ -735,7 +764,7 @@ class EASearchStrategy:
 
         remaining_slots = self.config.population_size - elite_count
         if remaining_slots <= 0:
-            return next_gen[:self.config.population_size]
+            return next_gen[: self.config.population_size]
 
         candidates = combined[elite_count:]
         if not candidates:
@@ -760,7 +789,7 @@ class EASearchStrategy:
         while len(next_gen) < self.config.population_size:
             next_gen.append(random.choice(combined[:elite_count]))
 
-        return next_gen[:self.config.population_size]
+        return next_gen[: self.config.population_size]
 
     def _compute_diversity(self, population: list[FactorIndividual]) -> float:
         """Compute population diversity as average pairwise edit distance ratio.
@@ -840,7 +869,9 @@ class EASearchStrategy:
         elif depth > 8:
             score -= 0.1
 
-        fields = set(re.findall(r'\b(close|open|high|low|volume|returns|bookvalue|market_cap|sales)\b', expression, re.I))
+        fields = set(
+            re.findall(r"\b(close|open|high|low|volume|returns|bookvalue|market_cap|sales)\b", expression, re.I)
+        )
         score += min(len(fields) * 0.08, 0.24)
 
         norm_ops = ["rank", "zscore", "group_neutralize", "group_zscore", "scale"]
@@ -859,9 +890,7 @@ class EASearchStrategy:
 
         return max(0.0, min(1.0, score))
 
-    async def _submit_and_eval(
-        self, individual: FactorIndividual, priority: str = "normal"
-    ) -> FactorIndividual:
+    async def _submit_and_eval(self, individual: FactorIndividual, priority: str = "normal") -> FactorIndividual:
         """Submit expression to WQ via SlotManager and wait for results.
 
         If SlotManager is not available, falls back to quick_evaluate.
@@ -889,7 +918,7 @@ class EASearchStrategy:
                 individual.metadata["wq_result"] = result
             else:
                 individual.fitness = self._quick_evaluate(individual.expression)
-        except (ValueError, TypeError, ConnectionError, asyncio.TimeoutError, OSError, RuntimeError) as e:
+        except (TimeoutError, ValueError, TypeError, ConnectionError, OSError, RuntimeError) as e:
             logger.warning("[EA] WQ submission failed: %s — using quick eval", e)
             individual.fitness = self._quick_evaluate(individual.expression)
 
@@ -922,12 +951,14 @@ class EASearchStrategy:
             random_expr = f"ts_decay_linear(group_neutralize({op}({field}), sector), {window})"
             if random_expr not in seen_exprs:
                 seen_exprs.add(random_expr)
-                variants.append(FactorIndividual(
-                    expression=random_expr,
-                    fitness=self._quick_evaluate(random_expr),
-                    generation=generation,
-                    mutation_type=EAMutationType.OPERATOR_SWAP,
-                ))
+                variants.append(
+                    FactorIndividual(
+                        expression=random_expr,
+                        fitness=self._quick_evaluate(random_expr),
+                        generation=generation,
+                        mutation_type=EAMutationType.OPERATOR_SWAP,
+                    )
+                )
 
         return variants
 
