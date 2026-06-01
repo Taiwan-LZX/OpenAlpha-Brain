@@ -26,7 +26,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from heapq import heapify, heappop, heappush
+from heapq import heappop, heappush, heapify
 from typing import Any
 
 from openalpha_brain.config.config import settings

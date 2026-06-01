@@ -145,109 +145,55 @@ class AlphaCLI:
             return
         self._event_count += 1
         self._last_event_time = time.time()
-        et = event.event_type
-        d = event.data
-        ts = event.timestamp
 
-        if et == self.EVENT_CYCLE_START:
-            self.current_cycle = d.get("cycle", 0)
-            cyc = d.get("cycle", "?")
-            total = d.get("max_cycles", "?")
-            mode = d.get("mode", "seq")
-            print(
-                f"\n  {C.BOLD}{C.WHITE}┌─ Cycle {cyc}/{total}{C.RESET}"
-                f" {'[PIPELINE]' if mode == 'pipeline' else '[SEQUENTIAL]'}"
-                f" {C.DIM}@{time.strftime('%H:%M:%S')}{C.RESET}"
-            )
+        from openalpha_brain.cli.event_adapters import (
+            BrainResultAdapter,
+            CycleStartAdapter,
+            EventAdapterFactory,
+            MiningCompleteAdapter,
+        )
+        from openalpha_brain.cli.cli_renderer import get_cli_renderer
 
-        elif et == self.EVENT_ALPHA_GENERATED:
-            expr = d.get("expression", "?")[:70]
-            direction = d.get("direction", "?")
-            print(f"  {C.GREEN}├─ 🔨 ALPHA Generated{C.RESET} dir={_c(direction, C.CYAN)}")
-            print(f"  │  {C.DIM}{expr}{C.RESET}")
+        adapter = EventAdapterFactory.create(event)
+        renderer = get_cli_renderer()
 
-        elif et == self.EVENT_ALPHA_VALIDATED:
+        output = renderer.render(adapter)
+        if output:
+            print(output)
+
+        if isinstance(adapter, CycleStartAdapter):
+            self.current_cycle = adapter.cycle
+
+        elif adapter.event_type == self.EVENT_ALPHA_VALIDATED:
             self._alpha_count += 1
-            aid = d.get("alpha_id", "?")
-            expr = d.get("expression", "?")[:65]
-            direction = d.get("direction", "?")
-            family = d.get("family", "?")
-            print(f"  {C.GREEN}├─ ✅ PASS{C.RESET} {aid} dir={_c(direction, C.CYAN)} family={family}")
-            print(f"  │  {C.DIM}{expr}{C.RESET}")
 
-        elif et == self.EVENT_ALPHA_REJECTED:
+        elif adapter.event_type == self.EVENT_ALPHA_REJECTED:
             self._reject_count += 1
-            reason = d.get("reason", "?")
-            expr = d.get("expression", "?")[:50]
-            print(f"  {C.RED}├─ ✗ REJECTED{C.RESET} {reason}: {expr}")
 
-        elif et == self.EVENT_BRAIN_SUBMIT:
-            aid = d.get("alpha_id", "?")
-            wid = d.get("worker_id", "")
-            worker_info = f" [W{wid}]" if wid else ""
-            print(f"  {C.MAGENTA}├─ 🚀 BRAIN Submit{worker_info}{C.RESET} {aid} → polling...")
-
-        elif et == self.EVENT_BRAIN_RESULT:
+        elif adapter.event_type == self.EVENT_BRAIN_RESULT:
             self._brain_count += 1
-            aid = d.get("alpha_id", "?")
-            status = d.get("status", "?")
-            sharpe = d.get("sharpe")
-            fitness = d.get("fitness")
-            turnover = d.get("turnover")
-            drawdown = d.get("drawdown")
-            sc = C.GREEN if status == "PASS" else C.RED
-            sharpe_s = f"{sharpe:.2f}" if sharpe is not None else "N/A"
-            fit_s = f"{fitness:.2f}" if fitness is not None else "N/A"
-            to_s = f"{turnover:.1f}%" if turnover is not None else ""
-            dd_s = f"{drawdown:.1f}%" if drawdown is not None else ""
-            extra = ""
-            if sharpe is not None:
-                extra += f" Sharpe={sharpe_s}"
-            if fitness is not None:
-                extra += f" Fit={fit_s}"
-            if to_s:
-                extra += f" TO={to_s}"
-            if dd_s:
-                extra += f" DD={dd_s}"
-            print(f"  {sc}├─ 📊 BRAIN Result{C.RESET} {aid} → {_c(status, sc)}{extra}")
-
+            brain_adapter = adapter
             self._live_alphas.append(
                 {
-                    "alpha_id": aid,
-                    "expression": d.get("expression", ""),
-                    "status": status,
-                    "sharpe": sharpe,
-                    "fitness": fitness,
-                    "turnover": turnover,
-                    "drawdown": drawdown,
-                    "direction": d.get("direction", ""),
-                    "timestamp": ts,
+                    "alpha_id": brain_adapter.alpha_id,
+                    "expression": brain_adapter.expression,
+                    "status": brain_adapter.status,
+                    "sharpe": brain_adapter.sharpe,
+                    "fitness": brain_adapter.fitness,
+                    "turnover": brain_adapter.turnover,
+                    "drawdown": brain_adapter.drawdown,
+                    "direction": brain_adapter.direction,
+                    "timestamp": event.timestamp,
                 }
             )
 
-        elif et == self.EVENT_MAB_FEEDBACK:
-            direction = d.get("direction", "?")
-            reward = d.get("reward", 0)
-            print(f"  {C.DIM}│  MAB feedback: dir={direction} reward={reward:+.3f}{C.RESET}")
-
-        elif et == self.EVENT_MINING_COMPLETE:
-            mode = d.get("mode", "?")
-            cycles = d.get("cycles", 0)
-            passed = d.get("alphas_passed", 0)
+        elif isinstance(adapter, MiningCompleteAdapter):
             elapsed = time.time() - self._start_time if self._start_time else 0
             m, s = divmod(int(elapsed), 60)
-            print(f"\n  {C.BOLD}{C.BLUE}═══ MINING COMPLETE ═══{C.RESET}")
-            print(f"  Mode     : {mode}")
-            print(f"  Cycles   : {cycles}")
-            print(f"  Passed   : {passed}")
             print(f"  Rejected : {self._reject_count}")
             print(f"  BRAIN    : {self._brain_count} results")
             print(f"  Elapsed  : {m:d}:{s:02d}")
             self.state = "COMPLETED"
-
-        elif et == self.EVENT_ERROR:
-            msg = d.get("error", d.get("message", "?"))
-            print(f"  {C.RED}│  ⚠ ERROR: {msg}{C.RESET}")
 
     # ── System Health Check ─────────────────────────────────────────────
 

@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+from openalpha_brain.services.http_pool import get_client
 from tenacity import (
     AsyncRetrying,
     retry_if_exception,
@@ -24,7 +25,6 @@ from tenacity import (
 )
 
 from openalpha_brain.config.config import settings
-from openalpha_brain.services.http_pool import get_client
 
 _provider_semaphores: dict[str, asyncio.Semaphore] = {}
 _semaphores_lock = asyncio.Lock()
