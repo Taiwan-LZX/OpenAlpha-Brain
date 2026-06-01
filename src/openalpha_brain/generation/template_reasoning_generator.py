@@ -169,6 +169,9 @@ class TemplateReasoningGenerator:
 
         final_expr = phase3_expression if approved else self._fallback_phase3(selected_template_id, field_mapping)
 
+        if rag_context:
+            self._validate_rag_field_usage(final_expr, rag_context, focus_area, cycle)
+
         return ReasoningResult(
             phase1_reasoning=phase1_result,
             phase2_mapping=phase2_result,
@@ -238,6 +241,7 @@ class TemplateReasoningGenerator:
           - 强调每个模板保证 ≥5 个算子
           - 标注支持跨族的模板（⭐推荐）
           - 注入 RAG 上下文辅助决策
+          - **强制包含** RAG 检索到的 operators、fields、financial_logic
 
         Args:
             focus_area: 探索方向
@@ -255,10 +259,7 @@ class TemplateReasoningGenerator:
             ]
         )
 
-        rag_section = ""
-        if rag_context:
-            rag_items = "\n".join([f"- {k}: {v}" for k, v in rag_context.items()])
-            rag_section = f"\n\n## 当前市场上下文（RAG）\n{rag_items}"
+        rag_section = self._build_enhanced_rag_section(rag_context)
 
         return f"""你是一位量化研究专家。你需要从以下 {len(templates_summary)} 个经过验证的因子模板中选择最合适的一个来生成 alpha 表达式。
 
@@ -279,11 +280,15 @@ class TemplateReasoningGenerator:
 
 3. 避免总是选择同一个模板类型，根据当前市场环境动态调整
 
+4. **【强制要求】** 你生成的表达式 MUST 使用上面「RAG Retrieved Reference Data」中推荐的字段和算子。
+   如果完全不相关，请说明原因。
+
 ## 你的任务
 请选择一个模板并详细解释你的推理过程。考虑以下因素：
 - 当前市场环境适合哪种类型的因子？
 - 哪个模板的理论基础最强？
 - 选择该模板的风险和优势是什么？
+- 如何结合 RAG 推荐的字段和算子？
 
 请输出 JSON 格式：
 {{
@@ -293,6 +298,107 @@ class TemplateReasoningGenerator:
   "signal_direction": "positive/negative（表示做多还是做空信号）",
   "rationale": "为什么这个模板在当前环境下有效"
 }}"""
+
+    def _build_enhanced_rag_section(self, rag_context: dict[str, Any]) -> str:
+        """构建增强版 RAG 数据注入段
+
+        将 RAG 检索结果格式化为强制的参考数据，确保 LLM 必须考虑这些信息。
+        如果 RAG 返回为空，返回 fallback 提示并记录警告。
+
+        Args:
+            rag_context: RAG 检索上下文
+
+        Returns:
+            str: 格式化的 RAG 参考数据字符串
+        """
+        if not rag_context:
+            logger.warning("[DEFENSIVE_LOG] template_reasoning_generator: rag_context_empty — no RAG data available")
+            return "\n## 当前市场上下文（RAG）\n⚠️ 无 RAG 检索数据，将使用默认提示"
+
+        operators = rag_context.get("operators", [])
+        fields = rag_context.get("fields", [])
+        financial_logic = rag_context.get("financial_logic", [])
+
+        if not operators and not fields and not financial_logic:
+            logger.warning(
+                "[DEFENSIVE_LOG] template_reasoning_generator: rag_retrieved_empty "
+                "direction=%s — RAG returned empty result (0 ops, 0 fields, 0 finlogic)",
+                rag_context.get("direction", "unknown"),
+            )
+            return (
+                "\n## 当前市场上下文（RAG）\n"
+                "⚠️ RAG 检索返回空结果，建议检查向量索引是否已加载\n"
+                "将使用通用推荐：close, volume, debt, earnings, revenue"
+            )
+
+        lines = ["\n--- RAG Retrieved Reference Data ---"]
+        lines.append(f"Recommended Operators ({len(operators[:8])} items):")
+
+        for op in operators[:8]:
+            op_id = op.get("id", "")
+            score = op.get("score", 0)
+            meta = op.get("meta", {})
+            category = meta.get("category", "")
+            definition = meta.get("definition", "")[:80]
+
+            line = f"  • {op_id}"
+            if score:
+                line += f" (score={score:.3f})"
+            if category:
+                line += f" [{category}]"
+            if definition:
+                line += f" — {definition}"
+            lines.append(line)
+
+        lines.append(f"\nRecommended Fields ({len(fields[:10])} items):")
+        for fld in fields[:10]:
+            field_id = fld.get("id", "")
+            score = fld.get("score", 0)
+            meta = fld.get("meta", {})
+
+            line = f"  • {field_id}"
+            if score:
+                line += f" (score={score:.3f})"
+            family = meta.get("family", "")
+            description = meta.get("description", "")[:60]
+            if family:
+                line += f" [{family}]"
+            if description:
+                line += f" — {description}"
+            lines.append(line)
+
+        if financial_logic:
+            lines.append(f"\nFinancial Logic Context ({len(financial_logic[:3])} items):")
+            for fl in financial_logic[:3]:
+                fl_id = fl.get("id", "")
+                score = fl.get("score", 0)
+                line = f"  • {fl_id}"
+                if score:
+                    line += f" (score={score:.3f})"
+                lines.append(line)
+
+        experience_replay = rag_context.get("experience_replay")
+        if experience_replay:
+            action = experience_replay.get("suggested_action", "")
+            confidence = experience_replay.get("confidence", 0)
+            target = experience_replay.get("suggested_target", "")
+            if action:
+                lines.append(f"\nExperience Replay Suggestion (confidence={confidence:.2f}):")
+                lines.append(f"  • Action: {action}")
+                if target:
+                    lines.append(f"  • Target: {target}")
+
+        lines.append("----------------------------------------")
+        lines.append("Based on the above reference data, generate an alpha expression that incorporates these recommendations.")
+
+        logger.info(
+            "[REASONING] Enhanced RAG injection: %d ops, %d fields, %d finlogic",
+            len(operators[:8]),
+            len(fields[:10]),
+            len(financial_logic[:3]),
+        )
+
+        return "\n".join(lines)
 
     async def _phase2_field_mapping(
         self,
@@ -903,3 +1009,64 @@ class TemplateReasoningGenerator:
         fallback_expr = f"ts_decay_linear(group_neutralize(-rank(signed_power(ts_zscore({price} / {fundamental}, {zscore_lb}), 2)), sector), {decay_lb})"
         logger.warning("[REASONING] Using ultimate fallback expression: %s", fallback_expr)
         return fallback_expr
+
+    def _validate_rag_field_usage(
+        self,
+        expression: str,
+        rag_context: dict[str, Any],
+        focus_area: str,
+        cycle: int,
+    ) -> None:
+        """验证生成的表达式是否使用了 RAG 推荐的字段
+
+        这是一个诊断性检查，不会拒绝表达式，但会记录潜在的
+        RAG-Generator 脱节问题。
+
+        检查项：
+          1. 表达式中是否包含 RAG 推荐的 field？
+          2. 如果完全不相关，记录 [DEFENSIVE_LOG] 警告
+
+        Args:
+            expression: 生成的 alpha 表达式
+            rag_context: RAG 检索上下文
+            focus_area: 当前探索方向
+            cycle: 当前循环编号
+        """
+        if not expression or not rag_context:
+            return
+
+        rag_fields = rag_context.get("fields", [])
+        if not rag_fields:
+            return
+
+        recommended_field_ids = [f.get("id", "") for f in rag_fields[:10] if f.get("id")]
+        if not recommended_field_ids:
+            return
+
+        expr_lower = expression.lower()
+        used_rag_fields = []
+
+        for field_id in recommended_field_ids:
+            field_pattern = r"\b" + re.escape(field_id.lower()) + r"\b"
+            if re.search(field_pattern, expr_lower):
+                used_rag_fields.append(field_id)
+
+        if used_rag_fields:
+            logger.info(
+                "[REASONING] RAG field usage confirmed | cycle=%d focus=%s "
+                "used_fields=%s/%d available",
+                cycle,
+                focus_area,
+                used_rag_fields[:5],
+                len(recommended_field_ids),
+            )
+        else:
+            logger.warning(
+                "[DEFENSIVE_LOG] template_reasoning_generator: rag_field_not_used cycle=%d focus=%s "
+                "expr=%s… — Generated expression does NOT contain any RAG-recommended field. "
+                "Recommended fields were: %s. This may indicate RAG-Generator decoupling.",
+                cycle,
+                focus_area,
+                expression[:60],
+                recommended_field_ids[:8],
+            )

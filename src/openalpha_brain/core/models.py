@@ -164,6 +164,12 @@ class SessionState(BaseModel):
     trajectories: list[dict] = []  # AlphaTrajectory snapshots from MultiAgent
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # 运行时可调参数（动态调控 API 使用）
+    runtime_config: dict = Field(default_factory=lambda: {
+        "llm_temperature": None,  # None 表示使用全局 settings.LLM_TEMPERATURE
+        "max_cycles": None,      # None 表示使用全局 settings.MAX_CYCLES
+        "exploration_mode": "balanced",  # conservative/balanced/aggressive
+    })
 
 
 class StartSessionRequest(BaseModel):

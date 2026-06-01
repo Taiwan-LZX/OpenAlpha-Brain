@@ -78,7 +78,6 @@ frontend/.vite/
 
 # ── Reference material (read-only copies, DO NOT commit) ──
 素材仓库禁止直接引用，可复制代码/
-純模擬庫存面監控下使用，請勿替換代碼/
 
 # ── Temp dev scripts (one-shot refactor/fix helpers) ──────
 _*.py

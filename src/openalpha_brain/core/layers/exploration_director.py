@@ -290,6 +290,35 @@ class ExplorationDirector:
             exploration_rate=actual_explore_weight,
         )
 
+        # ── MAB 方向权重融合 ──
+        mab_direction_weight = 0.5
+        if hmab is not None and mab_enabled:
+            try:
+                direction_stats = hmab.get_direction_stats()
+                dir_arm_stats = direction_stats.get(exploration_direction, {})
+                mab_expectation = dir_arm_stats.get("expectation", 0.5)
+                mab_direction_weight = max(_EPSILON, min(1.0, mab_expectation))
+
+                nav_fusion_score = mab_out.confidence
+                final_score = nav_fusion_score * 0.6 + mab_direction_weight * 0.4
+                mab_out.confidence = max(_EPSILON, min(1.0, final_score))
+
+                logger.info(
+                    "[DEFENSIVE_LOG] EXPLORATION_DIRECTOR::MAB_WEIGHT_FUSION "
+                    "direction=%s nav_fusion=%.3f mab_weight=%.3f final_score=%.3f",
+                    exploration_direction,
+                    nav_fusion_score,
+                    mab_direction_weight,
+                    mab_out.confidence,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:
+                logger.debug(
+                    "[%s] cycle=%d MAB direction stats fusion failed: %s",
+                    session_id,
+                    cycle_num,
+                    exc,
+                )
+
         result.direction = exploration_direction
         result.confidence = mab_out.confidence
         result.method = method

@@ -51,9 +51,9 @@ src/openalpha_brain/
 ## Default Skill
 
 When working on this project as the **main orchestrator agent**, invoke the grill-build-loop skill:
-- Multi-expert reasoning (SE Architect + Alpha Expert + Quant Researcher + Domain Guardian)
-- Continuous loop: research → debate → cards → build → verify → ask again
-- Proactive issue discovery — don't wait for user to find problems
+- 6-Phase lifecycle (Inquire → Assess → Plan → Execute → Verify → Loop)
+- Behavioral invariant: every response MUST end with AskUserQuestion
+- Project status assessment before planning; decision cards after every action cycle
 
 **Sub-agent / Task agent behavior**: Do NOT invoke grill-build-loop. You are a focused task executor.
 - Only read files that are directly relevant to your assigned task

@@ -366,6 +366,72 @@ class ExperienceDistiller:
         )
         return card
 
+    def save_cards(self, path: str | Path | None = None) -> bool:
+        """保存经验卡片到磁盘（公开接口）
+
+        Args:
+            path (str | Path | None): 保存路径，默认使用初始化时的路径
+
+        Returns:
+            bool: 是否保存成功
+        """
+        target = Path(path) if path else self._path
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "cards": [asdict(c) for c in self._cards],
+                "saved_at": time.time(),
+                "version": "1.0",
+            }
+            target.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            logger.info(
+                "[DEFENSIVE_LOG] ExperienceDistiller::save_cards 保存成功 → %s (cards=%d)",
+                target,
+                len(self._cards),
+            )
+            return True
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("[DEFENSIVE_LOG] ExperienceDistiller::save_cards 保存失败: %s", exc)
+            return False
+
+    def load_cards(self, path: str | Path | None = None) -> int:
+        """从磁盘加载经验卡片（公开接口）
+
+        Args:
+            path (str | Path | None): 加载路径，默认使用初始化时的路径
+
+        Returns:
+            int: 加载的卡片数量，失败返回 0
+        """
+        target = Path(path) if path else self._path
+        if not target.exists():
+            logger.debug("[DEFENSIVE_LOG] ExperienceDistiller::load_cards 文件不存在: %s", target)
+            return 0
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            cards_data = data.get("cards", [])
+            loaded_cards = []
+            for card_data in cards_data:
+                try:
+                    card = ExperienceCard(**card_data)
+                    loaded_cards.append(card)
+                except (ValueError, TypeError):
+                    logger.warning("[DEFENSIVE_LOG] ExperienceDistiller::load_cards 跳过无效卡片数据")
+                    continue
+            self._cards = loaded_cards
+            saved_at = data.get("saved_at", "unknown")
+            logger.info(
+                "[DEFENSIVE_LOG] ExperienceDistiller::load_cards 加载成功 ← %s (saved_at=%s, cards=%d)",
+                target,
+                saved_at,
+                len(self._cards),
+            )
+            return len(self._cards)
+        except (OSError, json.JSONDecodeError, ValueError, RuntimeError) as exc:
+            logger.warning("[DEFENSIVE_LOG] ExperienceDistiller::load_cards 加载失败: %s", exc)
+            self._cards = []
+            return 0
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -669,3 +670,521 @@ def auto_repair_wq_expression(
         "[DEFENSIVE_LOG] auto_repair_wq_expression: LOW CONFIDENCE (%.2f), no repair attempted", diagnosis.confidence
     )
     return expression, diagnosis, False
+
+
+# ═══════════════════════════════════════════════════════════════════
+# WQ Official + AlphaAgent Fusion: Expression Compliance Engine
+# ═══════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class ComplianceResult:
+    """合规检查与修复结果"""
+    original: str
+    repaired: str
+    valid: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    repairs_applied: list[str] = field(default_factory=list)
+
+
+# ── 从 WQ Official validated_generator.py 提取的核心数据 ──
+
+OPERATOR_SIGNATURES: dict[str, dict[str, Any]] = {
+    "rank":    {"params": ["x"],   "category": "cross_sectional"},
+    "zscore":  {"params": ["x"],   "category": "cross_sectional"},
+    "scale":   {"params": ["x"],   "category": "cross_sectional"},
+    "ts_mean":         {"params": ["x", "d"], "category": "time_series"},
+    "ts_std_dev":      {"params": ["x", "d"], "category": "time_series"},
+    "ts_sum":          {"params": ["x", "d"], "category": "time_series"},
+    "ts_delta":        {"params": ["x", "d"], "category": "time_series"},
+    "ts_delay":        {"params": ["x", "d"], "category": "time_series"},
+    "ts_rank":         {"params": ["x", "d"], "category": "time_series"},
+    "ts_kurtosis":     {"params": ["x", "d"], "category": "time_series"},
+    "ts_decay_linear": {"params": ["x", "d"], "category": "time_series"},
+    "ts_zscore":       {"params": ["x", "d"], "category": "time_series"},
+    "ts_corr":  {"params": ["x", "y", "d"], "category": "time_series"},
+    "ts_cov":   {"params": ["x", "y", "d"], "category": "time_series"},
+    "abs":   {"params": ["x"],    "category": "vector"},
+    "sign":  {"params": ["x"],    "category": "vector"},
+    "log":   {"params": ["x"],    "category": "vector"},
+    "max":   {"params": ["x", "y"], "category": "vector"},
+    "min":   {"params": ["x", "y"], "category": "vector"},
+    "group_neutralize": {"params": ["x", "group"], "category": "group"},
+    "group_rank":       {"params": ["x", "group"], "category": "group"},
+    "group_zscore":     {"params": ["x", "group"], "category": "group"},
+    "trade_when": {"params": ["cond", "x", "y"], "category": "conditional"},
+}
+
+WINDOW_CONSTRAINTS: dict[str, dict[str, int]] = {
+    "ts_mean":         {"min": 2,  "max": 252},
+    "ts_std_dev":      {"min": 5,  "max": 252},
+    "ts_sum":          {"min": 2,  "max": 252},
+    "ts_delta":        {"min": 1,  "max": 120},
+    "ts_delay":        {"min": 1,  "max": 120},
+    "ts_rank":         {"min": 5,  "max": 252},
+    "ts_corr":         {"min": 10, "max": 252},
+    "ts_cov":          {"min": 10, "max": 252},
+    "ts_kurtosis":     {"min": 10, "max": 252},
+    "ts_decay_linear": {"min": 2,  "max": 120},
+    "ts_zscore":       {"min": 5,  "max": 252},
+}
+
+INVALID_OP_REPLACEMENTS: dict[str, str] = {
+    "lag":      "ts_delay",
+    "lead":     "ts_delta",
+    "ma":       "ts_mean",
+    "sma":      "ts_mean",
+    "ema":      "ts_mean",
+    "std":      "ts_std_dev",
+    "stdev":    "ts_std_dev",
+    "variance": "ts_std_dev",
+    "cov":      "ts_cov",
+    "correl":   "ts_corr",
+    "delta":    "ts_delta",
+    "pct_chg":  "ts_delta",
+    "roc":      "ts_delta",
+}
+
+SAFE_FIELDS: set[str] = {
+    "close", "open", "high", "low", "volume", "returns", "vwap", "adv20",
+    "assets", "revenue", "eps", "operating_income", "enterprise_value",
+    "anl4_ebit_value", "anl4_ebitda_value",
+    "anl4_cfo_value", "anl4_cfi_value", "anl4_fcf_value",
+    "anl4_epsr_value", "anl4_epsr_mean",
+    "sales", "income", "capex", "fcf", "ebitda", "book_value",
+    "market_cap", "shares_outstanding", "dividend_yield",
+}
+
+# Pandas-style → WQ FastExpr 字段名映射
+PANDAS_FIELD_REPLACEMENTS: dict[str, str] = {
+    "close_price": "close",
+    "open_price": "open",
+    "high_price": "high",
+    "low_price": "low",
+    "adj_close": "close",
+    "volume": "volume",
+    "price": "close",
+}
+
+# Pandas-style 方法链 → WQ 操作符映射（正则模式）
+PANDAS_METHOD_PATTERNS: list[tuple[str, str]] = [
+    (r"\.shift\((\d+)\)", r"ts_delay(\1)"),
+    (r"\.diff\((\d+)\)", r"ts_delta(\1)"),
+    (r"\.rolling\((\d+)\)\.mean\(\)", r"ts_mean(\1)"),
+    (r"\.rolling\((\d+)\)\.std\(\)", r"ts_std_dev(\1)"),
+    (r"\.rolling\((\d+)\)\.sum\(\)", r"ts_sum(\1)"),
+    (r"\.rank\(\)", "rank"),
+    (r"\.pct_change\(\)", "returns"),
+]
+
+# 分组字段（用于 group_neutralize, group_rank, group_zscore 的第二个参数）
+GROUP_FIELDS: set[str] = {
+    "industry", "sector", "subindustry", "market", "country", "region",
+}
+
+
+def _remove_string_literals(expr: str) -> tuple[str, list[str]]:
+    """移除字符串字面量参数，用默认整数值替换。"""
+    repairs: list[str] = []
+    result = expr
+
+    # 查找所有字符串字面量（单引号或双引号包围的内容）
+    string_pattern = r"[\"']([^\"']*)[\"']"
+
+    def replace_string(match):
+        str_value = match.group(1)
+
+        if str_value.lower() in ("industry", "sector", "subindustry"):
+            return match.group(0)
+
+        try:
+            int_val = int(str_value)
+            replacement = str(int_val)
+        except ValueError:
+            if str_value.lower() in ("true", "yes"):
+                replacement = "1"
+            elif str_value.lower() in ("false", "no"):
+                replacement = "0"
+            else:
+                replacement = "1"
+
+        repairs.append(f"removed string literal '{str_value}'")
+        return replacement
+
+    result = re.sub(string_pattern, replace_string, result)
+
+    return result, repairs
+
+
+def _replace_invalid_operators(expr: str) -> tuple[str, list[str]]:
+    """替换非法操作符为合法等价物。"""
+    repairs: list[str] = []
+    result = expr
+
+    for invalid_op, valid_op in INVALID_OP_REPLACEMENTS.items():
+        pattern = r'\b' + re.escape(invalid_op) + r'\s*\('
+        if re.search(pattern, result):
+            result = re.sub(pattern, f"{valid_op}(", result)
+            repairs.append(f"replaced '{invalid_op}' → '{valid_op}'")
+
+    return result, repairs
+
+
+def _fix_pandas_style(expr: str) -> tuple[str, list[str]]:
+    """修复 Pandas/Python 风格的代码为 WQ FastExpr 格式。
+
+    处理：
+    1. 赋值语句提取（`x = expr` → `expr`）
+    2. 字段名替换（`close_price` → `close`）
+    3. 方法链替换（`.shift(20)` → `ts_delay(x, 20)`）
+    4. axis 关键字参数移除
+    5. Python 特殊语法清理
+    """
+    repairs: list[str] = []
+    result = expr.strip()
+
+    # Step 1: 提取赋值语句中的表达式
+    assign_match = re.match(r'^(\s*\w+\s*=\s*)(.+)$', result)
+    if assign_match:
+        result = assign_match.group(2).strip()
+        repairs.append(f"removed assignment prefix '{assign_match.group(1).strip()}'")
+
+    # Step 2: 字段名替换
+    for pandas_field, wq_field in PANDAS_FIELD_REPLACEMENTS.items():
+        pattern = r'\b' + re.escape(pandas_field) + r'\b'
+        if re.search(pattern, result):
+            result = re.sub(pattern, wq_field, result)
+            repairs.append(f"replaced pandas field '{pandas_field}' → '{wq_field}'")
+
+    # Step 3: 方法链替换（按复杂度排序，先处理长的）
+    sorted_patterns = sorted(PANDAS_METHOD_PATTERNS, key=lambda p: len(p[0]), reverse=True)
+    for pandas_pattern, wq_replacement in sorted_patterns:
+        if re.search(pandas_pattern, result):
+            new_result = re.sub(pandas_pattern, wq_replacement, result)
+            if new_result != result:
+                old_match = re.search(pandas_pattern, result)
+                if old_match:
+                    repairs.append(f"replaced pandas method '{old_match.group(0)}' → '{wq_replacement}'")
+                result = new_result
+
+    # Step 4: 移除 axis= 参数
+    axis_pattern = r',?\s*axis\s*=\s*\d+'
+    if re.search(axis_pattern, result):
+        result = re.sub(axis_pattern, '', result)
+        repairs.append("removed 'axis=N' keyword argument")
+
+    # Step 5: 清理残留的 .rank() / .mean() 等未匹配方法调用
+    residual_method_pattern = r'\.\w+\([^)]*\)'
+    while re.search(residual_method_pattern, result):
+        match = re.search(residual_method_pattern, result)
+        if match:
+            method_call = match.group(0)
+            method_name = re.match(r'\.(\w+)\(', method_call)
+            if method_name and method_name.group(1) in ("rank", "zscore", "scale", "sign", "abs", "log"):
+                inner = re.search(r'\((.+)\)', method_call)
+                if inner:
+                    replacement = f"{method_name.group(1)}({inner.group(1)})"
+                    result = result.replace(method_call, replacement, 1)
+                    repairs.append(f"converted method chain '{method_call}' → '{replacement}'")
+                    continue
+            break  # 只处理一轮，避免无限循环
+
+    return result, repairs
+
+
+def _replace_unknown_fields(expr: str) -> tuple[str, list[str]]:
+    """替换不在 SAFE_FIELDS 中的未知字段为最接近的已知字段。
+
+    使用模糊匹配策略：
+    - 包含 'return' → 'returns'
+    - 包含 'price' → 'close'
+    - 包含 'vol' 或 'amount' → 'volume'
+    - 包含 'earn' 或 'profit' → 'eps'
+    - 其他未知字段 → 'returns'（最安全的默认值）
+    """
+    repairs: list[str] = []
+    result = expr
+
+    import re as _re
+
+    def _find_field_names(s: str) -> list[str]:
+        """从表达式中提取可能的字段名（在操作符括号内的词）"""
+        fields = set()
+        for match in _re.finditer(r'\b([a-z][a-z0-9_]*)\b', s):
+            word = match.group(1)
+            if word not in OPERATOR_SIGNATURES and word not in (
+                "group_neutralize", "ts_decay_linear", "trade_when",
+                "subindustry", "sector", "industry",
+            ) and len(word) > 1:
+                fields.add(word)
+        return list(fields)
+
+    field_fallback_map: dict[str, str] = {
+        "return": "returns",
+        "price": "close",
+        "vol": "volume",
+        "amount": "volume",
+        "earn": "eps",
+        "profit": "eps",
+        "revenue": "revenue",
+        "asset": "assets",
+        "cap": "market_cap" if "market_cap" in SAFE_FIELDS else "close",
+        "lag_": "",
+        "shift": "",
+    }
+
+    candidates = _find_field_names(result)
+    for field_name in candidates:
+        if field_name in SAFE_FIELDS or field_name in GROUP_FIELDS:
+            continue
+        if field_name in OPERATOR_SIGNATURES:
+            continue
+
+        replacement = None
+        for pattern, fallback in field_fallback_map.items():
+            if pattern in field_name.lower():
+                replacement = fallback
+                break
+
+        if replacement is None:
+            if _re.match(r'^[a-z]+_\d+$', field_name):
+                replacement = "returns"
+            elif _re.match(r'^\w+$', field_name):
+                replacement = "returns"
+
+        if replacement and replacement != field_name:
+            pattern = r'\b' + _re.escape(field_name) + r'\b'
+            new_result = _re.sub(pattern, replacement, result)
+            if new_result != result:
+                result = new_result
+                repairs.append(f"unknown field '{field_name}' → '{replacement}' (safe default)")
+
+    return result, repairs
+
+
+def _ensure_three_block_template(expr: str) -> tuple[str, list[str]]:
+    """确保表达式符合 ThreeBlockTemplate 格式。
+
+    Block A: 核心表达式
+    Block B: group_neutralize(expr, subindustry)
+    Block C: ts_decay_linear(block_b, window)
+    """
+    repairs: list[str] = []
+    result = expr.strip()
+
+    has_group_neutralize = "group_neutralize" in result
+    has_ts_decay_linear = "ts_decay_linear" in result
+
+    if not has_ts_decay_linear:
+        if not has_group_neutralize:
+            block_b = f"group_neutralize({result}, subindustry)"
+            repairs.append("wrapped with group_neutralize (Block B)")
+        else:
+            block_b = result
+            repairs.append("already has group_neutralize (Block B)")
+
+        window = 5
+        result = f"ts_decay_linear({block_b}, {window})"
+        repairs.append(f"wrapped with ts_decay_linear(window={window}) (Block C)")
+    elif not has_group_neutralize:
+        inner_expr = result
+
+        decay_match = re.search(r'ts_decay_linear\s*\((.+)\)', inner_expr)
+        if decay_match:
+            inner_expr = decay_match.group(1).strip()
+            comma_pos = inner_expr.rfind(',')
+            if comma_pos != -1:
+                window_part = inner_expr[comma_pos+1:].strip()
+                inner_expr = inner_expr[:comma_pos].strip()
+
+                block_b = f"group_neutralize({inner_expr}, subindustry)"
+                result = f"ts_decay_linear({block_b}, {window_part})"
+                repairs.append("inserted group_neutralize inside ts_decay_linear (Block B)")
+            else:
+                block_b = f"group_neutralize({inner_expr}, subindustry)"
+                result = f"ts_decay_linear({block_b}, 5)"
+                repairs.append("wrapped with complete ThreeBlockTemplate")
+        else:
+            block_b = f"group_neutralize({result}, subindustry)"
+            result = f"ts_decay_linear({block_b}, 5)"
+            repairs.append("wrapped with complete ThreeBlockTemplate")
+
+    return result, repairs
+
+
+def enforce_compliance(expression: str) -> ComplianceResult:
+    """强制表达式合规：验证 + 自动修复。
+
+    执行步骤：
+    1. 移除字符串字面量参数
+    2. 替换非法操作符为合法等价物
+    3. 修复 Pandas 风格（字段名 + 方法链）
+    4. 确保 ThreeBlockTemplate 结构
+    5. 完整验证（字段/操作符/窗口/括号）
+    6. 返回 ComplianceResult
+    """
+    original = expression
+    current = expression
+    all_repairs: list[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    logger.info("[DEFENSIVE_LOG] enforce_compliance: starting for expr='%s'", expression[:60])
+
+    # Step 1: 移除字符串字面量
+    current, string_repairs = _remove_string_literals(current)
+    all_repairs.extend(string_repairs)
+
+    # Step 2: 替换非法操作符
+    current, op_repairs = _replace_invalid_operators(current)
+    all_repairs.extend(op_repairs)
+
+    # Step 3: 修复 Pandas 风格（字段名 + 方法链）
+    current, pandas_repairs = _fix_pandas_style(current)
+    all_repairs.extend(pandas_repairs)
+
+    # Step 3.5: 未知字段安全替换（LLM 编造的字段名 → 最接近的已知字段）
+    current, field_repairs = _replace_unknown_fields(current)
+    all_repairs.extend(field_repairs)
+
+    # Step 4: 确保 ThreeBlockTemplate
+    current, template_repairs = _ensure_three_block_template(current)
+    all_repairs.extend(template_repairs)
+
+    # Step 5: 完整验证
+    validation = validate_expression_wq(current)
+    errors.extend(validation.get("errors", []))
+    warnings.extend(validation.get("warnings", []))
+
+    is_valid = len(errors) == 0
+
+    logger.info(
+        "[DEFENSIVE_LOG] enforce_compliance: completed valid=%s repairs=%d errors=%d expr='%s'",
+        is_valid,
+        len(all_repairs),
+        len(errors),
+        current[:60],
+    )
+
+    return ComplianceResult(
+        original=original,
+        repaired=current,
+        valid=is_valid,
+        errors=errors,
+        warnings=warnings,
+        repairs_applied=all_repairs,
+    )
+
+
+def validate_expression_wq(expression: str) -> dict[str, Any]:
+    """WQ Official 风格的完整表达式验证（4层检查）。
+
+    Returns:
+        {"valid": bool, "errors": [str], "warnings": [str]}
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # Layer 1: 字段白名单检查
+    tokens = set(re.findall(r'\b([a-zA-Z_]\w*)\b', expression))
+    known_ops = set(OPERATOR_SIGNATURES.keys())
+    reserved = {"if", "else", "and", "or", "not", "true", "false", "none"}
+
+    candidate_fields = tokens - known_ops - reserved - GROUP_FIELDS
+    unknown_fields = sorted(
+        t for t in candidate_fields
+        if not t.isdigit() and t not in SAFE_FIELDS
+    )
+    if unknown_fields:
+        errors.append(f"Unknown fields: {', '.join(unknown_fields)}")
+
+    # Layer 2: 操作符签名检查（嵌套调用支持）
+    func_matches = list(re.finditer(r'\b([a-zA-Z_]\w*)\s*\(', expression))
+    for match in func_matches:
+        op = match.group(1)
+        if op not in OPERATOR_SIGNATURES:
+            continue
+        sig = OPERATOR_SIGNATURES[op]
+        start = match.end() - 1
+        args_str = _extract_bracketed_compliance(expression, start)
+        if args_str is None:
+            errors.append(f"{op}(): unmatched parentheses")
+            continue
+        args = _split_args_compliance(args_str)
+        expected_count = len(sig["params"])
+
+        if len(args) != expected_count:
+            errors.append(f"{op}() expects {expected_count} args, got {len(args)}")
+            continue
+
+        for i, param_type in enumerate(sig["params"]):
+            if param_type == "d":
+                arg = args[i].strip()
+                if not arg.isdigit():
+                    errors.append(
+                        f"{op}() param '{sig['params'][i]}' must be integer, got '{arg}'"
+                    )
+                else:
+                    window = int(arg)
+                    constraints = WINDOW_CONSTRAINTS.get(op, {})
+                    wmin = constraints.get("min", 1)
+                    wmax = constraints.get("max", 999)
+                    if window < wmin or window > wmax:
+                        warnings.append(
+                            f"{op}() window {window} outside typical range [{wmin}, {wmax}]"
+                        )
+
+    # Layer 3: 窗口范围约束检查（已在 Layer 2 中完成）
+
+    # Layer 4: 括号平衡检查
+    depth = 0
+    for ch in expression:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        if depth < 0:
+            errors.append("Unbalanced parentheses: extra ')'")
+            break
+    if depth > 0:
+        errors.append("Unbalanced parentheses: unclosed '('")
+
+    return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+
+def _extract_bracketed_compliance(s: str, start: int) -> str | None:
+    """提取匹配括号内的内容（从 start 位置的 '(' 开始）。"""
+    if start >= len(s) or s[start] != '(':
+        return None
+    depth = 0
+    for i in range(start, len(s)):
+        if s[i] == '(':
+            depth += 1
+        elif s[i] == ')':
+            depth -= 1
+            if depth == 0:
+                return s[start + 1:i]
+    return None
+
+
+def _split_args_compliance(args_str: str) -> list[str]:
+    """分割函数参数（支持嵌套括号）。"""
+    args: list[str] = []
+    depth = 0
+    current = ""
+    for ch in args_str:
+        if ch == '(':
+            depth += 1
+            current += ch
+        elif ch == ')':
+            depth -= 1
+            current += ch
+        elif ch == ',' and depth == 0:
+            args.append(current.strip())
+            current = ""
+        else:
+            current += ch
+    if current.strip():
+        args.append(current.strip())
+    return args

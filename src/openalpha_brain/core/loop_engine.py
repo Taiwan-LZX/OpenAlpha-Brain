@@ -2652,6 +2652,11 @@ async def run_loop(session_id: str) -> None:
                 state,
             )
             _ls._save_intelligent_search_state()
+            if _ls._experience_distiller is not None:
+                try:
+                    _ls._experience_distiller.save_cards()
+                except (OSError, ValueError, RuntimeError):
+                    logger.warning("[%s] ExperienceDistiller save_cards failed at cycle end", session_id)
 
             if global_cycle % 5 == 0:
                 try:
@@ -2850,6 +2855,17 @@ async def run_loop(session_id: str) -> None:
         await asyncio.sleep(3)
 
     # ── Loop completed max cycles ─────────────────────────────────────────────
+    logger.info("[%s] Session final state persistence (MAB + ExperienceDistiller)", session_id)
+    try:
+        _ls._save_intelligent_search_state()
+    except (OSError, ValueError, RuntimeError):
+        logger.warning("[%s] Final MAB state save failed", session_id)
+    if _ls._experience_distiller is not None:
+        try:
+            _ls._experience_distiller.save_cards()
+            logger.info("[%s] ExperienceDistiller cards saved at session end (%d cards)", session_id, len(_ls._experience_distiller._cards))
+        except (OSError, ValueError, RuntimeError):
+            logger.warning("[%s] Final ExperienceDistiller save failed", session_id)
     state = await sm.load_session(session_id)
     _merge_session_hallucinations(session_id, state)
     if state and not state.stop_requested:

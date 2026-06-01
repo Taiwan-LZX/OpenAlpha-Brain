@@ -718,6 +718,32 @@ class HierarchicalMAB:
         """
         return self._outer.get_stats()
 
+    def get_operator_stats(self) -> dict[str, dict[str, float]]:
+        """获取所有方向的操作符统计信息（用于下游决策融合）
+
+        Returns:
+            dict[str, dict[str, float]]: {operator_id: {alpha, beta, expectation}}
+        """
+        result: dict[str, dict[str, float]] = {}
+        for _direction, bandit in self._inner_ops.items():
+            for arm_id, stats in bandit.get_stats().items():
+                if arm_id not in result or stats["expectation"] > result[arm_id]["expectation"]:
+                    result[arm_id] = stats
+        return result
+
+    def get_field_stats(self) -> dict[str, dict[str, float]]:
+        """获取所有方向的字段统计信息（用于下游决策融合）
+
+        Returns:
+            dict[str, dict[str, float]]: {field_id: {alpha, beta, expectation}}
+        """
+        result: dict[str, dict[str, float]] = {}
+        for _direction, bandit in self._inner_fields.items():
+            for arm_id, stats in bandit.get_stats().items():
+                if arm_id not in result or stats["expectation"] > result[arm_id]["expectation"]:
+                    result[arm_id] = stats
+        return result
+
     def health_check(self) -> dict[str, Any]:
         inner_ops_count = sum(b.arm_count for b in self._inner_ops.values())
         inner_fields_count = sum(b.arm_count for b in self._inner_fields.values())
@@ -765,6 +791,72 @@ class HierarchicalMAB:
             }
         mab._update_count = d.get("update_count", 0)
         return mab
+
+    def save_state(self, path: str | Path | None = None) -> bool:
+        """保存 MAB bandit 状态到磁盘
+
+        Args:
+            path (str | Path | None): 保存路径，默认使用 _MAB_STATE_PATH
+
+        Returns:
+            bool: 是否保存成功
+        """
+        target = Path(path) if path else _MAB_STATE_PATH
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            state = {
+                "hierarchical_mab": self.to_dict(),
+                "saved_at": datetime.now(UTC).isoformat(),
+                "version": "1.0",
+            }
+            target.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.info(
+                "[DEFENSIVE_LOG] HierarchicalMAB::save_state 保存成功 → %s (updates=%d, outer_arms=%d)",
+                target,
+                self._update_count,
+                self._outer.arm_count,
+            )
+            return True
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("[DEFENSIVE_LOG] HierarchicalMAB::save_state 保存失败: %s", exc)
+            return False
+
+    def load_state(self, path: str | Path | None = None) -> bool:
+        """从磁盘加载 MAB 状态
+
+        Args:
+            path (str | Path | None): 加载路径，默认使用 _MAB_STATE_PATH
+
+        Returns:
+            bool: 是否加载成功
+        """
+        target = Path(path) if path else _MAB_STATE_PATH
+        if not target.exists():
+            logger.debug("[DEFENSIVE_LOG] HierarchicalMAB::load_state 文件不存在: %s", target)
+            return False
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            mab_data = data.get("hierarchical_mab", {})
+            if not mab_data:
+                logger.warning("[DEFENSIVE_LOG] HierarchicalMAB::load_state 文件格式异常（缺少 hierarchical_mab）")
+                return False
+            restored = HierarchicalMAB.from_dict(mab_data)
+            self._outer = restored._outer
+            self._inner_ops = restored._inner_ops
+            self._inner_fields = restored._inner_fields
+            self._update_count = restored._update_count
+            saved_at = data.get("saved_at", "unknown")
+            logger.info(
+                "[DEFENSIVE_LOG] HierarchicalMAB::load_state 加载成功 ← %s (saved_at=%s, updates=%d, outer_arms=%d)",
+                target,
+                saved_at,
+                self._update_count,
+                self._outer.arm_count,
+            )
+            return True
+        except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
+            logger.warning("[DEFENSIVE_LOG] HierarchicalMAB::load_state 加载失败: %s", exc)
+            return False
 
 
 class AssociationMatrix:

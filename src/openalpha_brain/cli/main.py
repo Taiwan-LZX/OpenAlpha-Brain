@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from openalpha_brain.cli import session_manager as sm
 from openalpha_brain.cli.api_alphas import router as alphas_router
@@ -27,6 +28,19 @@ from openalpha_brain.core import loop_engine
 from openalpha_brain.core.events import AlphaEvent, get_event_bus
 from openalpha_brain.core.models import SessionStatus, StartSessionRequest
 from openalpha_brain.services.http_pool import close_client, get_client
+
+
+class RuntimeConfigUpdate(BaseModel):
+    """运行时参数更新请求体"""
+
+    focus_area: str | None = Field(default=None, description="探索方向，如 momentum/reversal/volatility")
+    llm_temperature: float | None = Field(default=None, ge=0.0, le=1.0, description="LLM 创意度，范围 0.0-1.0")
+    max_cycles: int | None = Field(default=None, ge=1, description="最大循环数")
+    exploration_mode: str | None = Field(
+        default=None,
+        pattern="^(conservative|balanced|aggressive)$",
+        description="探索模式：conservative(保守)/balanced(均衡)/aggressive(激进)",
+    )
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -331,6 +345,148 @@ async def resume_session(session_id: str):
         _ls._console_pause_event.set()
         return {"status": "resumed", "session_id": session_id}
     return {"status": "error", "message": "No pause event available"}
+
+
+@app.patch("/session/{session_id}/config")
+async def update_session_config(session_id: str, req: RuntimeConfigUpdate):
+    """
+    动态调整 session 运行时参数。
+    支持在线修改 focus_area、llm_temperature、max_cycles、exploration_mode。
+    参数在下一个 cycle 生效。
+    """
+    state = await sm.load_session(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    updated_fields = []
+
+    if req.focus_area is not None:
+        state.focus_area = req.focus_area
+        updated_fields.append("focus_area")
+        logger.info("[%s] Config updated: focus_area → %s", session_id, req.focus_area)
+
+    if req.llm_temperature is not None:
+        state.runtime_config["llm_temperature"] = req.llm_temperature
+        updated_fields.append("llm_temperature")
+        logger.info("[%s] Config updated: llm_temperature → %.2f", session_id, req.llm_temperature)
+
+    if req.max_cycles is not None:
+        state.runtime_config["max_cycles"] = req.max_cycles
+        updated_fields.append("max_cycles")
+        logger.info("[%s] Config updated: max_cycles → %d", session_id, req.max_cycles)
+
+    if req.exploration_mode is not None:
+        state.runtime_config["exploration_mode"] = req.exploration_mode
+        updated_fields.append("exploration_mode")
+        logger.info("[%s] Config updated: exploration_mode → %s", session_id, req.exploration_mode)
+
+    await sm.save_session(state)
+
+    return {
+        "updated": updated_fields,
+        "session_id": session_id,
+        "message": f"已更新 {len(updated_fields)} 个参数，将在下一个 cycle 生效",
+    }
+
+
+@app.get("/session/{session_id}/config")
+async def get_session_config(session_id: str):
+    """
+    获取 session 当前配置快照，包括运行时参数和 MAB 统计信息。
+    """
+    state = await sm.load_session(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    runtime_cfg = state.runtime_config or {}
+    effective_temp = runtime_cfg.get("llm_temperature") or settings.LLM_TEMPERATURE
+    effective_max_cycles = runtime_cfg.get("max_cycles") or settings.MAX_CYCLES
+    exploration_mode = runtime_cfg.get("exploration_mode", "balanced")
+
+    mab_top_directions = []
+    algo_call_counts = {}
+
+    try:
+        from openalpha_brain.core import loop_state as _ls
+
+        if _ls._mab is not None:
+            dir_stats = _ls._mab.get_direction_stats()
+            sorted_dirs = sorted(
+                dir_stats.items(), key=lambda x: x[1].get("expectation", 0), reverse=True
+            )
+            mab_top_directions = [
+                {"direction": d, "expectation": round(s.get("expectation", 0), 4)}
+                for d, s in sorted_dirs[:3]
+            ]
+        algo_call_counts = _ls.get_algo_call_stats()
+    except Exception as exc:
+        logger.warning("Failed to fetch MAB/algorithm stats: %s", exc)
+
+    return {
+        "session_id": session_id,
+        "focus_area": state.focus_area,
+        "llm_temperature": effective_temp,
+        "max_cycles": effective_max_cycles,
+        "current_cycle": state.cycle,
+        "exploration_mode": exploration_mode,
+        "mab_top_directions": mab_top_directions,
+        "algo_call_counts": algo_call_counts,
+    }
+
+
+@app.get("/mab/status")
+async def get_mab_status():
+    """
+    获取 MAB（多臂老虎机）实时状态，用于监控探索方向、操作符、字段评分。
+    解决评分 D 问题：提供完整的 MAB 内部状态视图。
+    """
+    from openalpha_brain.core import loop_state as _ls
+
+    if _ls._mab is None:
+        return {
+            "status": "inactive",
+            "message": "MAB 未初始化，请在 config 中启用 MAB_ENABLED=true",
+        }
+
+    try:
+        mab = _ls._mab
+        directions = {}
+        operators = {}
+        fields = {}
+
+        direction_stats = mab.get_direction_stats()
+        for dir_name, stats in direction_stats.items():
+            directions[dir_name] = round(stats.get("expectation", 0.0), 4)
+
+        for dir_name, ops_bandit in mab._inner_ops.items():
+            if ops_bandit and ops_bandit.arm_count > 0:
+                op_stats = ops_bandit.get_stats()
+                for op_name, op_stat in op_stats.items():
+                    if op_name not in operators or op_stat.get("expectation", 0) > operators[op_name]:
+                        operators[op_name] = round(op_stat.get("expectation", 0.0), 4)
+
+        for dir_name, fields_bandit in mab._inner_fields.items():
+            if fields_bandit and fields_bandit.arm_count > 0:
+                field_stats = fields_bandit.get_stats()
+                for field_name, field_stat in field_stats.items():
+                    if field_name not in fields or field_stat.get("expectation", 0) > fields[field_name]:
+                        fields[field_name] = round(field_stat.get("expectation", 0.0), 4)
+
+        top_operators = sorted(operators.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_fields = sorted(fields.items(), key=lambda x: x[1], reverse=True)[:15]
+
+        return {
+            "status": "active",
+            "directions": dict(sorted(directions.items(), key=lambda x: x[1], reverse=True)),
+            "operators": dict(top_operators),
+            "fields": dict(top_fields),
+            "total_updates": mab._update_count,
+            "last_update_cycle": getattr(mab, "_last_update_cycle", None),
+            "health": mab.health_check(),
+        }
+    except Exception as exc:
+        logger.error("Failed to get MAB status: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取 MAB 状态失败: {str(exc)}")
 
 
 # ── Serve dashboard at root ────────────────────────────────────────────────────

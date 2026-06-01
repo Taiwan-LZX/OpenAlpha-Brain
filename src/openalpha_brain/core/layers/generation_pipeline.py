@@ -67,6 +67,16 @@ logger = logging.getLogger(__name__)
 
 _EPSILON = 1e-6
 
+_SAFE_FIELDS_BASE: set[str] = {
+    "close", "open", "high", "low", "volume", "returns", "vwap", "adv20",
+    "assets", "revenue", "eps", "operating_income", "enterprise_value",
+    "anl4_ebit_value", "anl4_ebitda_value",
+    "anl4_cfo_value", "anl4_cfi_value", "anl4_fcf_value",
+    "anl4_epsr_value", "anl4_epsr_mean",
+    "sales", "income", "capex", "fcf", "ebitda", "book_value",
+    "market_cap", "shares_outstanding", "dividend_yield",
+}
+
 
 @dataclass
 class GenerationResult:
@@ -148,6 +158,7 @@ class GenerationPipeline:
         hypothesis_nl: str = "",
         orchestrator=None,
         regenerate_fn: Callable[..., Awaitable[tuple[str, dict]]] | None = None,
+        mab: Any = None,
     ) -> GenerationResult:
         """执行完整的 alpha 表达式生成流水线
 
@@ -193,6 +204,45 @@ class GenerationPipeline:
         )
 
         try:
+            # ── 构建 MAB 推荐信息 ──
+            mab_recommendation = ""
+            mab_top_fields_raw: list[tuple[str, float]] = []
+            if mab is not None:
+                try:
+                    op_stats = mab.get_operator_stats()
+                    field_stats = mab.get_field_stats()
+
+                    top_ops = sorted(op_stats.items(), key=lambda x: x[1].get("expectation", 0), reverse=True)[:5]
+                    top_fields = sorted(field_stats.items(), key=lambda x: x[1].get("expectation", 0), reverse=True)[:5]
+                    mab_top_fields_raw = [(f, stats.get("expectation", 0)) for f, stats in top_fields]
+
+                    if top_ops or top_fields:
+                        op_str = ", ".join(f"{op}({stats['expectation']:.2f})" for op, stats in top_ops)
+                        field_str = ", ".join(f"{f}({stats['expectation']:.2f})" for f, stats in top_fields)
+                        mab_recommendation = (
+                            f"[MAB Recommendation] Top operators: {op_str}\n"
+                            f"[MAB Recommendation] Top fields: {field_str}"
+                        )
+                        logger.info(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE::MAB_RECOMMENDATION "
+                            "cycle=%d top_ops=%d top_fields=%d recommendation_adopted=True",
+                            cycle_num,
+                            len(top_ops),
+                            len(top_fields),
+                        )
+                    else:
+                        logger.info(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE::MAB_RECOMMENDATION "
+                            "cycle=%d no_mab_stats_available recommendation_adopted=False",
+                            cycle_num,
+                        )
+                except (OSError, ValueError, RuntimeError, AttributeError) as exc:
+                    logger.debug(
+                        "[%s] GENERATION_PIPELINE: MAB stats retrieval failed: %s",
+                        session_id,
+                        exc,
+                    )
+
             expression, source, confidence, raw_output, used_insight = await self._stage_generate(
                 direction=direction,
                 session_id=session_id,
@@ -207,6 +257,8 @@ class GenerationPipeline:
                 fields=fields,
                 orchestrator=orchestrator,
                 previous_expressions=previous_expressions,
+                mab_recommendation=mab_recommendation,
+                mab_top_fields=mab_top_fields_raw,
             )
             result.expression = expression
             result.source = source
@@ -216,6 +268,55 @@ class GenerationPipeline:
             if used_insight:
                 result.crossover_insights_used = [used_insight]
                 result.metadata["crossover_insights_used"] = [used_insight]
+
+            # ── 强制表达式合规检查（WQ Official + AlphaAgent 融合层） ──
+            if expression:
+                try:
+                    from openalpha_brain.validation.wq_format_repair import enforce_compliance
+
+                    compliance_result = enforce_compliance(expression)
+
+                    if compliance_result.repairs_applied:
+                        logger.info(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE: COMPLIANCE_REPAIRS_APPLIED "
+                            "session=%s cycle=%d original='%s' repaired='%s' repairs=%s",
+                            session_id,
+                            cycle_num,
+                            expression[:60],
+                            compliance_result.repaired[:60],
+                            compliance_result.repairs_applied,
+                        )
+                        expression = compliance_result.repaired
+                        result.expression = expression
+
+                    if not compliance_result.valid:
+                        logger.warning(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE: COMPLIANCE_FATAL_ERRORS "
+                            "session=%s cycle=%d expr='%s' errors=%s — marking as failed",
+                            session_id,
+                            cycle_num,
+                            expression[:60],
+                            compliance_result.errors,
+                        )
+                        result.validation_errors.extend(compliance_result.errors)
+                        result.expression = ""
+                        return result
+
+                    if compliance_result.warnings:
+                        logger.info(
+                            "[DEFENSIVE_LOG] GENERATION_PIPELINE: COMPLIANCE_WARNINGS "
+                            "session=%s cycle=%d warnings=%s",
+                            session_id,
+                            cycle_num,
+                            compliance_result.warnings,
+                        )
+
+                except (ImportError, OSError, ValueError, RuntimeError) as exc:
+                    logger.debug(
+                        "[%s] GENERATION_PIPELINE: compliance engine unavailable: %s",
+                        session_id,
+                        exc,
+                    )
         except Exception as exc:
             logger.error(
                 "[%s] GENERATION_PIPELINE: Stage-1 (Generate) failed: %s",
@@ -337,6 +438,8 @@ class GenerationPipeline:
         fields: list[str] | None = None,
         orchestrator=None,
         previous_expressions: list | None = None,
+        mab_recommendation: str = "",
+        mab_top_fields: list[tuple[str, float]] | None = None,
     ) -> tuple[str, str, float, str | None, dict | None]:
         """Stage 1: 表达式生成
 
@@ -350,6 +453,8 @@ class GenerationPipeline:
         Returns:
             tuple: (expression, source_label, confidence, raw_output, used_crossover_insight)
         """
+        self._check_rag_integrity(rag_context, session_id, cycle_num)
+
         if orchestrator is not None:
             _expr, _src, _conf, _raw = await self._generate_via_orchestrator(
                 direction=direction,
@@ -374,6 +479,8 @@ class GenerationPipeline:
                 rag_context=rag_context,
                 operators=operators,
                 fields=fields,
+                mab_recommendation=mab_recommendation,
+                mab_top_fields=mab_top_fields,
             )
             return _expr, _src, _conf, _raw, None
 
@@ -426,6 +533,7 @@ class GenerationPipeline:
         operators: list[str] | None = None,
         fields: list[str] | None = None,
         previous_expressions: list | None = None,
+        mab_recommendation: str = "",
     ) -> tuple[str, str, float, str | None]:
         """通过 FeedbackOrchestrator 多智能体编排生成"""
         try:
@@ -438,6 +546,7 @@ class GenerationPipeline:
                 brain_feedback=brain_feedback_data,
                 operators=operators or [],
                 fields=fields or [],
+                mab_context=mab_recommendation,
             )
 
             expression = result.expression
@@ -467,6 +576,116 @@ class GenerationPipeline:
             )
             raise
 
+    def _build_field_whitelist(
+        self,
+        direction: str = "",
+        template_id: str = "",
+        mab_top_fields: list[tuple[str, float]] | None = None,
+        top_k_dynamic: int = 15,
+    ) -> dict[str, Any]:
+        """Build hybrid field whitelist: SAFE_FIELDS baseline + FPM dynamic + MAB-ranked.
+
+        Three-layer strategy:
+          Layer 1 (BASE): 25 core SAFE_FIELDS — always present, never empty
+          Layer 2 (DYNAMIC): FieldProxyMap.recommend_fields_for_template() if available
+          Layer 3 (MAB BOOST): MAB top fields moved to front by expectation score
+
+        Returns:
+            Dict with keys:
+            - core_fields: list[str] — 25 base fields
+            - dynamic_fields: list[str] — from FPM if loaded
+            - all_fields: list[str] — deduplicated union, ready for prompt injection
+            - formatted_block: str — pre-formatted text for prompt injection
+            - source: str — "base_only", "hybrid_fpm", or "hybrid_fpm_mab"
+        """
+        core_fields = sorted(_SAFE_FIELDS_BASE)
+        dynamic_fields: list[str] = []
+        source = "base_only"
+
+        try:
+            from openalpha_brain.knowledge.field_proxy_map import get_field_proxy_map
+
+            fpm = get_field_proxy_map()
+            if fpm.is_ready and template_id:
+                fpm_fields = fpm.recommend_fields_for_template(
+                    template_id=template_id,
+                    top_k=top_k_dynamic,
+                    exclude_cold=True,
+                )
+                dynamic_fields = [f for f in fpm_fields if f not in _SAFE_FIELDS_BASE]
+                if dynamic_fields:
+                    source = "hybrid_fpm"
+                    logger.info(
+                        "[DEFENSIVE_LOG] GENERATION_PIPELINE::FIELD_WHITELIST "
+                        "FPM_loaded=True template=%s dynamic_fields=%d",
+                        template_id,
+                        len(dynamic_fields),
+                    )
+        except (OSError, ImportError, ValueError, RuntimeError) as _exc:
+            logger.debug(
+                "GENERATION_PIPELINE: FieldProxyMap unavailable, using base fields only: %s",
+                _exc,
+            )
+
+        all_fields = list(core_fields)
+
+        if mab_top_fields:
+            mab_field_names = [f for f, _ in mab_top_fields if f not in all_fields]
+            for fname in mab_field_names:
+                if fname not in dynamic_fields:
+                    all_fields.append(fname)
+            if dynamic_fields or mab_field_names:
+                source = "hybrid_fpm_mab"
+
+        for df in dynamic_fields:
+            if df not in all_fields:
+                all_fields.append(df)
+
+        lines = [
+            "╔══════════════════════════════════════════════════════════════╗",
+            "║  ALLOWED DATA FIELDS THIS CYCLE (MANDATORY — USE ONLY THESE)    ║",
+            "╚══════════════════════════════════════════════════════════════╝",
+            "",
+            f"  ▶ CORE FIELDS ({len(core_fields)} — always available, HIGH RELIABILITY):",
+            f"     {', '.join(core_fields[:13])}",
+            f"     {', '.join(core_fields[13:])}" if len(core_fields) > 13 else "",
+        ]
+        if dynamic_fields:
+            lines.extend([
+                "",
+                f"  ▶ DYNAMIC RECOMMENDATIONS ({len(dynamic_fields)} — from FieldProxyMap, template-matched):",
+                f"     {', '.join(dynamic_fields[:top_k_dynamic])}",
+            ])
+        if mab_top_fields:
+            boosted = [f for f, s in mab_top_fields if f in all_fields]
+            if boosted:
+                boost_str = ", ".join(f"{f}({s:.2f})" for f, s in boosted[:5])
+                lines.extend([
+                    "",
+                    "  ▶ MAB TOP PERFORMERS (success-rate ranked — PRIORITY USE):",
+                    f"     {boost_str}",
+                ])
+
+        lines.extend([
+            "",
+            "  ⚠️  VIOLATION WARNING: Using any field NOT listed above will cause:",
+            "     → BRAIN submission ERROR (unknown variable)",
+            "     → Compliance layer repair (may degrade expression quality)",
+            "     → Wasted compute cycle",
+            "",
+            "  ✅  CROSS-FAMILY RULE: Mix ≥2 field families (price + fundamental/sentiment)",
+            "",
+        ])
+        formatted_block = "\n".join(line for line in lines if line is not None)
+
+        return {
+            "core_fields": core_fields,
+            "dynamic_fields": dynamic_fields,
+            "all_fields": all_fields,
+            "formatted_block": formatted_block,
+            "source": source,
+        }
+
     async def _generate_via_llm_direct(
         self,
         direction: str,
@@ -478,13 +697,37 @@ class GenerationPipeline:
         rag_context: dict | None = None,
         operators: list[str] | None = None,
         fields: list[str] | None = None,
+        mab_recommendation: str = "",
+        mab_top_fields: list[tuple[str, float]] | None = None,
     ) -> tuple[str, str, float, str | None]:
-        """通过 LLM 客户端直接生成"""
+        """通过 LLM 客户端直接生成（含混合字段白名单注入）"""
         try:
+            enhanced_user_msg = user_msg or f"Generate an alpha factor for direction: {direction}"
+
+            if mab_recommendation:
+                enhanced_user_msg = f"{enhanced_user_msg}\n\n{mab_recommendation}"
+
+            fw = self._build_field_whitelist(
+                direction=direction,
+                mab_top_fields=mab_top_fields,
+            )
+            if fw["formatted_block"]:
+                enhanced_user_msg = f"{enhanced_user_msg}\n\n{fw['formatted_block']}"
+                logger.info(
+                    "[DEFENSIVE_LOG] GENERATION_PIPELINE::FIELD_WHITELIST_INJECTED "
+                    "session=%s cycle=%d source=%s total_fields=%d core=%d dynamic=%d",
+                    session_id,
+                    cycle_num,
+                    fw["source"],
+                    len(fw["all_fields"]),
+                    len(fw["core_fields"]),
+                    len(fw["dynamic_fields"]),
+                )
+
             raw_response = await llm_client.generate(
                 system_prompt="",
                 history=effective_history or [],
-                user_msg=user_msg or f"Generate an alpha factor for direction: {direction}",
+                user_msg=enhanced_user_msg,
                 session_id=session_id,
                 cycle=cycle_num,
             )
@@ -872,3 +1115,141 @@ class GenerationPipeline:
     def reset_stats(self) -> None:
         """重置统计计数器"""
         self._generation_count = 0
+
+    def _check_rag_integrity(self, rag_context: dict | None, session_id: str, cycle_num: int) -> None:
+        """检查 RAG 检索结果的完整性
+
+        如果 RAG 返回空结果或关键字段缺失，记录 [DEFENSIVE_LOG] 警告。
+        这有助于诊断 RAG-Generator 数据绑定问题。
+
+        Args:
+            rag_context: RAG 检索上下文字典
+            session_id: 当前会话 ID
+            cycle_num: 当前循环编号
+        """
+        if rag_context is None:
+            return
+
+        if not isinstance(rag_context, dict):
+            logger.warning(
+                "[DEFENSIVE_LOG] generation_pipeline: rag_context_invalid_type session=%s cycle=%d "
+                "expected=dict got=%s — RAG data may be corrupted or incorrectly passed",
+                session_id,
+                cycle_num,
+                type(rag_context).__name__,
+            )
+            return
+
+        operators = rag_context.get("operators", [])
+        fields = rag_context.get("fields", [])
+        financial_logic = rag_context.get("financial_logic", [])
+
+        if not operators and not fields and not financial_logic:
+            logger.warning(
+                "[DEFENSIVE_LOG] generation_pipeline: rag_empty_result session=%s cycle=%d "
+                "direction=%s — RAG retrieved 0 operators, 0 fields, 0 financial_logic. "
+                "Generator will operate without RAG guidance (may produce lower quality expressions)",
+                session_id,
+                cycle_num,
+                rag_context.get("direction", "unknown"),
+            )
+            return
+
+        if not operators:
+            logger.warning(
+                "[DEFENSIVE_LOG] generation_pipeline: rag_empty_ops session=%s cycle=%d "
+                "— operator store returned 0 results (store may be empty or embedding mismatch)",
+                session_id,
+                cycle_num,
+            )
+
+        if not fields:
+            logger.warning(
+                "[DEFENSIVE_LOG] generation_pipeline: rag_empty_fields session=%s cycle=%d "
+                "— field store returned 0 results (store may be empty or all fields eliminated)",
+                session_id,
+                cycle_num,
+            )
+
+        logger.info(
+            "[%s] GENERATION_PIPELINE: RAG integrity check passed | %d ops, %d fields, %d finlogic",
+            session_id,
+            cycle_num,
+            len(operators),
+            len(fields),
+            len(financial_logic),
+        )
+
+    def _validate_rag_usage(
+        self, expression: str, rag_context: dict, session_id: str, cycle_num: int
+    ) -> None:
+        """验证生成的表达式是否使用了 RAG 推荐的内容
+
+        这是一个诊断性检查，不会拒绝表达式，但会记录潜在的
+        RAG-Generator 脱节问题。
+
+        检查项：
+          1. 表达式中是否包含 RAG 推荐的 field？
+          2. 表达式中是否使用了 RAG 推荐的 operator？
+
+        Args:
+            expression: 生成的 alpha 表达式
+            rag_context: RAG 检索上下文
+            session_id: 当前会话 ID
+            cycle_num: 当前循环编号
+        """
+        if not expression or not rag_context:
+            return
+
+        rag_fields = rag_context.get("fields", [])
+        if not rag_fields:
+            return
+
+        recommended_field_ids = {f.get("id", "").lower() for f in rag_fields[:10] if f.get("id")}
+
+        if not recommended_field_ids:
+            return
+
+        expr_lower = expression.lower()
+        used_rag_fields = set()
+
+        for field_id in recommended_field_ids:
+            field_pattern = r"\b" + re.escape(field_id) + r"\b"
+            if re.search(field_pattern, expr_lower):
+                used_rag_fields.add(field_id)
+
+        rag_operators = rag_context.get("operators", [])
+        recommended_op_ids = {op.get("id", "").lower() for op in rag_operators[:8] if op.get("id")}
+        expr_operators = set(re.findall(r"\b[a-z_][a-z0-9_]*(?=\s*\()", expr_lower))
+        used_rag_ops = recommended_op_ids & expr_operators
+
+        if not used_rag_fields and not used_rag_ops:
+            logger.warning(
+                "[DEFENSIVE_LOG] generation_pipeline: rag_generator_decoupled session=%s cycle=%d "
+                "expr=%s… — Expression does NOT use any RAG-recommended fields (%d available) "
+                "or operators (%d possible). This may indicate RAG data is being ignored by generator.",
+                session_id,
+                cycle_num,
+                expression[:60],
+                len(recommended_field_ids),
+                len(recommended_op_ids),
+            )
+        elif not used_rag_fields:
+            logger.info(
+                "[%s] GENERATION_PIPELINE: RAG field usage partial | cycle=%d "
+                "used_ops=%d/%d available, used_fields=0/%d available",
+                session_id,
+                cycle_num,
+                len(used_rag_ops),
+                len(recommended_op_ids),
+                len(recommended_field_ids),
+            )
+        else:
+            logger.info(
+                "[%s] GENERATION_PIPELINE: RAG field usage confirmed | cycle=%d "
+                "used_fields=%s, used_ops=%s",
+                session_id,
+                cycle_num,
+                list(used_rag_fields)[:5],
+                list(used_rag_ops)[:5],
+            )

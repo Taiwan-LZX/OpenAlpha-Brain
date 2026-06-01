@@ -287,7 +287,10 @@ class LoopContext:
             self._experience_distiller = ExperienceDistiller(
                 embed_fn=llm_client.embed, path=settings.EXPERIENCE_DISTILLER_PATH
             )
-            logger.info("ExperienceDistiller initialized")
+            logger.info(
+                "[DEFENSIVE_LOG] init_intelligent_search: ExperienceDistiller 初始化完成 (cards=%d)",
+                len(self._experience_distiller._cards) if self._experience_distiller else 0,
+            )
         else:
             self._experience_distiller = None
 
@@ -402,6 +405,11 @@ class LoopContext:
             self._mab, self._association, wl_data, _arbiter_data, _tf_bandit, _scheduler_data = loaded
             self._whitelist_mgr = WhitelistManager.from_dict(wl_data)
             val.set_whitelist_manager(self._whitelist_mgr)
+            logger.info(
+                "[DEFENSIVE_LOG] init_intelligent_search: MAB 状态加载成功 (outer_arms=%d, association_entries=%d)",
+                self._mab._outer.arm_count if self._mab else 0,
+                len(self._association._matrix) if self._association else 0,
+            )
             if _scheduler_data is not None:
                 self._scheduler = ExplorationScheduler.from_dict(_scheduler_data)
                 self._scheduler.feature_map = self._feature_map
@@ -428,6 +436,7 @@ class LoopContext:
                 feature_map=self._feature_map,
                 field_proxy_map=_fpm,
             )
+            logger.info("[DEFENSIVE_LOG] init_intelligent_search: 使用全新初始化的 MAB 状态")
 
         self._rag_engine = RAGEngine(
             top_k_ops=settings.RAG_TOP_K_OPS,
