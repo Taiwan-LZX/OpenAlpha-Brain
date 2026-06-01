@@ -325,6 +325,63 @@ class GridArchive:
         occupied = self.get_occupied_cells()
         return [cell for cell in occupied if self._best_fitness[cell] < threshold]
 
+    @algo_log()
+    def evaluate_novelty(self, expression: str, feature_vector: list[float]) -> float:
+        """评估表达式相对于已有 archive 的新颖性 (0-1, 越高越新颖)
+
+        数据流闭环 #6: QualityDiversity → Alpha Selection (P2)
+
+        通过计算候选表达式与 archive 中所有已存储表达式的特征距离，
+        返回一个归一化的新颖性分数。这个分数可以用于 alpha 选择决策，
+        鼓励系统探索更多样化的因子空间，避免陷入局部最优。
+
+        Args:
+            expression: 候选 alpha 表达式（用于日志记录）
+            feature_vector: 特征向量 [direction_idx, time_horizon_idx, mechanism_idx]
+
+        Returns:
+            float: 新颖性分数 (0.0 ~ 1.0)
+                   - 1.0 表示完全新颖（archive 为空或距离很远）
+                   - 0.0 表示与现有内容高度重复
+        """
+        with Timer("GridArchive.evaluate_novelty"):
+            if not self.archive:
+                logger.debug("[DIVERSITY] Archive 为空 → novelty=1.0 (完全新颖)")
+                return 1.0
+
+            min_dist = float("inf")
+            comparison_count = 0
+
+            for cell in self.archive.values():
+                for item in cell.elites:
+                    try:
+                        item_features = [
+                            _DIRECTIONS.index(cell.direction) if isinstance(cell.direction, str) and cell.direction in _DIRECTIONS else 0,
+                            _TIME_HORIZONS.index(cell.time_horizon) if isinstance(cell.time_horizon, str) and cell.time_horizon in _TIME_HORIZONS else 1,
+                            _MECHANISMS.index(cell.mechanism) if isinstance(cell.mechanism, str) and cell.mechanism in _MECHANISMS else 2,
+                        ]
+                        dist = sum((a - b) ** 2 for a, b in zip(feature_vector, item_features)) ** 0.5
+                        min_dist = min(min_dist, dist)
+                        comparison_count += 1
+                    except (ValueError, TypeError):
+                        continue
+
+            if min_dist == float("inf"):
+                logger.debug("[DIVERSITY] 无法计算距离 → novelty=1.0 (默认新颖)")
+                return 1.0
+
+            novelty = 1.0 / (1.0 + min_dist)
+
+            logger.info(
+                "[DIVERSITY] Novelty evaluation | expr=%.30s… comparisons=%d min_dist=%.3f novelty=%.3f",
+                expression[:30] if expression else "unknown",
+                comparison_count,
+                min_dist,
+                novelty,
+            )
+
+            return novelty
+
 
 class FeatureMap:
     ELITE_CAPACITY: int = 3

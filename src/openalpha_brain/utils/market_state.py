@@ -7,6 +7,7 @@ import math
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -586,3 +587,76 @@ class MarketStateInferencer:
                 logger.debug("[GARCH] Volatility detector unavailable: %s", _garch_exc)
 
         return regime
+
+    @staticmethod
+    def get_regime_parameters(regime: str) -> dict[str, Any]:
+        """根据市场状态返回推荐的生成参数 (#2 数据流闭环)
+
+        将 GARCH 检测到的 regime 映射为具体的生成参数建议，
+        使得系统能够根据市场状态自动调整 decay_window、neutralize_group、turnover_limit 等关键参数。
+
+        Args:
+            regime: 市场状态字符串 (来自 infer_current_regime())
+                    可选值: 'high_volatility', 'trending', 'low_volatility', 'crash_risk', 'unknown'
+
+        Returns:
+            dict: 推荐的生成参数字典，包含:
+                - default_decay_window: int — 衰减窗口长度
+                - default_neutralize_group: str — 中性化粒度
+                - turnover_limit: float — 换手率上限
+                - complexity_target_min: int — 最小复杂度目标
+                - complexity_target_max: int — 最大复杂度目标
+                - risk_multiplier: float — 风险乘数
+        """
+        params = {
+            "default_decay_window": 20,
+            "default_neutralize_group": "sector",
+            "turnover_limit": 0.35,
+            "complexity_target_min": 3,
+            "complexity_target_max": 8,
+            "risk_multiplier": 1.0,
+        }
+
+        if regime == "high_volatility":
+            params.update({
+                "default_decay_window": 10,       # 更短衰减窗口
+                "default_neutralize_group": "subindustry",  # 更细粒度中性化
+                "turnover_limit": 0.25,           # 更低换手限制
+                "complexity_target_min": 4,
+                "complexity_target_max": 7,
+                "risk_multiplier": 1.5,
+            })
+            logger.debug("[REGIME PARAMS] High volatility regime detected → conservative params")
+        elif regime == "crash_risk":
+            params.update({
+                "default_decay_window": 5,        # 极短衰减
+                "default_neutralize_group": "industry",
+                "turnover_limit": 0.15,           # 极低换手
+                "complexity_target_min": 5,
+                "complexity_target_max": 6,
+                "risk_multiplier": 2.0,
+            })
+            logger.warning("[REGIME PARAMS] ⚠ Crash risk regime detected → ultra-conservative params")
+        elif regime == "low_volatility":
+            params.update({
+                "default_decay_window": 30,       # 更长衰减窗口
+                "default_neutralize_group": "sector",
+                "turnover_limit": 0.45,           # 放宽换手限制
+                "complexity_target_min": 2,
+                "complexity_target_max": 10,
+                "risk_multiplier": 0.8,
+            })
+            logger.debug("[REGIME PARAMS] Low volatility regime detected → aggressive params")
+        elif regime == "trending":
+            params.update({
+                "default_decay_window": 15,
+                "default_neutralize_group": "sector",
+                "turnover_limit": 0.40,
+                "complexity_target_min": 3,
+                "complexity_target_max": 9,
+                "risk_multiplier": 1.2,
+            })
+            logger.debug("[REGIME PARAMS] Trending regime detected → balanced params")
+
+        return params
+

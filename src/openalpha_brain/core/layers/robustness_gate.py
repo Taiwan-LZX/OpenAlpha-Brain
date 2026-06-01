@@ -47,6 +47,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass, field
@@ -237,6 +238,35 @@ class RobustnessGate:
             "metrics_extracted": metrics is not None,
         }
 
+        # Market Regime → 全局参数联动 (#2 数据流闭环)
+        try:
+            from openalpha_brain.utils.market_state import MarketStateInferencer, get_regime_parameters
+
+            _inferencer = None
+            try:
+                from openalpha_brain.core import loop_state as _ls_module
+
+                _inferencer = getattr(_ls_module._ls, "_market_state_inferencer", None)
+                if _inferencer is None:
+                    _inferencer = MarketStateInferencer()
+                    _ls_module._ls._market_state_inferencer = _inferencer
+            except (ImportError, AttributeError):
+                _inferencer = MarketStateInferencer()
+
+            current_regime = _inferencer.infer_current_regime()
+            regime_params = get_regime_parameters(current_regime or "unknown")
+            metadata["regime"] = current_regime
+            metadata["regime_params"] = regime_params
+
+            logger.info(
+                "[REGIME PARAMS] RobustnessGate using regime=%s | turnover_limit=%.2f risk_multiplier=%.1f",
+                current_regime,
+                regime_params["turnover_limit"],
+                regime_params["risk_multiplier"],
+            )
+        except (ImportError, AttributeError, TypeError, OSError) as _regime_exc:
+            logger.debug("[REGIME PARAMS] Failed to load regime params in RobustnessGate: %s", _regime_exc)
+
         ao_score: float | None = None
         decay_score: float | None = None
         corr_value: float | None = None
@@ -282,6 +312,34 @@ class RobustnessGate:
                     warnings.append("statistical_overfit_risk")
             except (ValueError, TypeError) as exc:
                 logger.debug("[ROBUST-GATE] Statistical overfit check failed: %s", exc)
+
+        # AntiOverfitDetector → MAB 惩罚闭环 (#4 数据流闭环)
+        if warnings and any("overfit" in w.lower() for w in warnings):
+            try:
+                from openalpha_brain.learning.reward_updater import _apply_mab_feedback
+
+                direction = ""
+                with contextlib.suppress(AttributeError, TypeError):
+                    direction = getattr(brain_result, "direction", "") or ""
+
+                asyncio.get_event_loop().create_task(
+                    _apply_mab_feedback(
+                        exploration_direction=direction,
+                        expression=expression,
+                        reward=-0.5,          # 过拟合惩罚
+                        penalty=0.7,          # 额外惩罚系数
+                        overfit_detected=True,
+                    )
+                )
+                logger.warning(
+                    "[ROBUST→L1] ⚠ Overfit detected! MAB penalty applied | "
+                    "session=%s direction=%s expr=%.50s",
+                    _sid,
+                    direction,
+                    expression,
+                )
+            except (ImportError, AttributeError, RuntimeError) as exc:
+                logger.debug("[ROBUST→L1] MAB overfit penalty failed: %s", exc)
 
         decay_score, decay_warnings, decay_meta = await self._run_decay_prescreen(
             decay_detector,

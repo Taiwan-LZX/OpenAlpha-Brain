@@ -995,6 +995,24 @@ class FeedbackLoopOrchestrator:
                     refl_early_exc,
                 )
 
+        # 反思结果 → ExplorationDirector 权重调整 (#1 数据流闭环)
+        if reflection_result and hasattr(reflection_result, 'insights') or isinstance(reflection_result, dict):
+            insights = reflection_result.get('insights', []) if isinstance(reflection_result, dict) else getattr(reflection_result, 'insights', [])
+            if insights:
+                try:
+                    from openalpha_brain.core import loop_state as _ls
+
+                    _exploration_director = getattr(_ls._ls, '_exploration_director', None)
+                    if _exploration_director is not None and hasattr(_exploration_director, 'apply_reflection_insights'):
+                        _exploration_director.apply_reflection_insights(insights)
+                        logger.info(
+                            "[REFLECTION→L1] Applied %d reflection insights to exploration weights | task=%s",
+                            len(insights),
+                            task_id,
+                        )
+                except (AttributeError, TypeError, ImportError) as exc:
+                    logger.debug("[REFLECTION→L1] Failed to apply insights: %s", exc)
+
         if self._stability_guard is not None:
             try:
                 last_stability = self._stability_guard.get_summary()

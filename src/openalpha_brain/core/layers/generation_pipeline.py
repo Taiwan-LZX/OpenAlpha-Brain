@@ -831,6 +831,56 @@ class GenerationPipeline:
             logger.debug("[GEN] ErrorPatternDB unavailable for negative constraints: %s", exc)
             return "", {}
 
+    def _get_neutralizer_recommendation(self, direction: str = "") -> str:
+        """获取 AdaptiveNeutralizer 推荐的中性化级别
+
+        数据流闭环 #5: AdaptiveNeutralizer → Generation (P1)
+
+        从 AdaptiveNeutralizer.analyze_and_recommend() 获取推荐的中性化级别，
+        并将其注入到 LLM 生成 prompt 中，影响模板的 group_neutralize 选择。
+
+        Args:
+            direction: 当前探索方向（用于确定 category）
+
+        Returns:
+            str: 推荐的中性化级别（如 "industry", "subindustry" 等），默认 "sector"
+        """
+        try:
+            from pathlib import Path
+
+            from openalpha_brain.evolution.adaptive_neutralizer import AdaptiveNeutralizer
+
+            neutralizer = AdaptiveNeutralizer(
+                experience_path=Path(".data/neutralizer_experience.json")
+            )
+
+            recommendation = neutralizer.analyze_and_recommend(
+                expression="",
+                category=direction or "momentum",
+                wq_metrics={
+                    "sharpe": 0,
+                    "sharpe_raw": 0,
+                    "sharpe_neutralized": 0,
+                    "correlation": 0.7,
+                },
+            )
+
+            level = getattr(recommendation, 'recommended_level', 'sector')
+            confidence = getattr(recommendation, 'confidence', 0)
+
+            logger.info(
+                "[NEUT→GEN] Neutralizer recommendation received | "
+                "direction=%s level=%s confidence=%.2f",
+                direction,
+                level,
+                confidence,
+            )
+            return level
+
+        except (ImportError, AttributeError, OSError, ValueError, RuntimeError) as exc:
+            logger.debug("[NEUT→GEN] Neutralizer unavailable: %s", exc)
+            return "sector"
+
     async def _generate_via_llm_direct(
         self,
         direction: str,
@@ -924,6 +974,60 @@ class GenerationPipeline:
                     "[GEN] Injected %d negative constraint types into prompt (L4→L2 feedback loop)",
                     len(constraints_dict),
                 )
+
+            # Market Regime → 全局参数联动 (#2 数据流闭环)
+            try:
+                from openalpha_brain.utils.market_state import MarketStateInferencer, get_regime_parameters
+
+                _inferencer = getattr(_ls_module._ls, "_market_state_inferencer", None)
+                if _inferencer is None:
+                    _inferencer = MarketStateInferencer()
+                    _ls_module._ls._market_state_inferencer = _inferencer
+
+                current_regime = _inferencer.infer_current_regime()
+                regime_params = get_regime_parameters(current_regime or "unknown")
+                decay_hint = regime_params["default_decay_window"]
+                neutralize_hint = regime_params["default_neutralize_group"]
+
+                enhanced_user_msg += (
+                    f"\n\n[REGIME PARAMS] Current market regime: {current_regime}\n"
+                    f"  - Recommended decay_window: {decay_hint} (use ts_decay_linear with window≈{decay_hint})\n"
+                    f"  - Recommended neutralize_group: {neutralize_hint} (use group_neutralize with group={neutralize_hint})\n"
+                    f"  - Turnover limit: {regime_params['turnover_limit']:.2f}\n"
+                    f"  - Complexity target: {regime_params['complexity_target_min']}-{regime_params['complexity_target_max']} operators\n"
+                    f"  - Risk multiplier: {regime_params['risk_multiplier']:.1f}x"
+                )
+
+                logger.info(
+                    "[REGIME PARAMS] Injected regime-based params into prompt | "
+                    "session=%s cycle=%d regime=%s decay=%d neutralize=%s turnover=%.2f",
+                    session_id,
+                    cycle_num,
+                    current_regime,
+                    decay_hint,
+                    neutralize_hint,
+                    regime_params["turnover_limit"],
+                )
+            except (ImportError, AttributeError, TypeError, OSError) as _regime_exc:
+                logger.debug("[REGIME PARAMS] Failed to inject regime params: %s", _regime_exc)
+
+            # AdaptiveNeutralizer → Generation 闭环 (#5 数据流闭环)
+            try:
+                neutralize_group = self._get_neutralizer_recommendation(direction=direction or "")
+                enhanced_user_msg += (
+                    f"\n\n[NEUTRALIZER HINT] Recommended group_neutralize group: {neutralize_group}\n"
+                    f"  - Use group_neutralize(expression, {neutralize_group}) in Block B\n"
+                    f"  - This recommendation is based on historical neutralization success rates\n"
+                )
+                logger.info(
+                    "[NEUT→GEN] Injected neutralizer hint into prompt | "
+                    "session=%s cycle=%d recommended_group=%s",
+                    session_id,
+                    cycle_num,
+                    neutralize_group,
+                )
+            except (ImportError, AttributeError, OSError) as _neut_exc:
+                logger.debug("[NEUT→GEN] Failed to inject neutralizer hint: %s", _neut_exc)
 
             raw_response = await llm_client.generate(
                 system_prompt="",

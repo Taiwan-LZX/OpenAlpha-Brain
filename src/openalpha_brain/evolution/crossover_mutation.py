@@ -1368,6 +1368,10 @@ class CrossoverMutationEngine:
         self._direction_weights: dict[str, dict[str, float]] = {k: dict(v) for k, v in self.DIRECTION_WEIGHTS.items()}
         self._direction_rejections: dict[str, list[str]] = {d: [] for d in _DIRECTION_KEYS}
         self._direction_alpha_count: dict[str, int] = dict.fromkeys(_DIRECTION_KEYS, 0)
+        self._mutation_rate: float = 0.15
+        self._crossover_prob: float = 0.6
+        self._crossover_success_count: int = 0
+        self._crossover_failure_count: int = 0
 
     def _tournament_select(self, population: list[dict], k: int | None = None) -> dict:
         k = k or self.TOURNAMENT_SIZE
@@ -1718,3 +1722,61 @@ class CrossoverMutationEngine:
             traj,
             original_id=meta.get("id", ""),
         )
+
+    def record_crossover_outcome(self, success: bool) -> None:
+        """记录交叉/变异操作的成功或失败结果"""
+        if success:
+            self._crossover_success_count += 1
+        else:
+            self._crossover_failure_count += 1
+
+    def adapt_evolution_params(self) -> None:
+        """根据历史成功率自适应调整进化参数
+
+        数据流闭环 #3: Crossover/Mutation → 进化参数自适应 (P1)
+
+        当 SemanticCrossover / GradientMutation 的成功率变化时，
+        动态调整 mutation_rate 和 crossover_prob 以优化探索-利用平衡。
+
+        调整策略:
+          - 成功率 > 70%: 增加探索强度（提高 mutation_rate 和 crossover_prob）
+          - 成功率 < 30%: 减少激进变异（降低参数以避免浪费计算资源）
+        """
+        total = self._crossover_success_count + self._crossover_failure_count
+        if total < 5:
+            logger.debug("[EVO-ADAPT] 样本不足 (%d)，跳过自适应调整", total)
+            return
+
+        success_rate = self._crossover_success_count / max(total, 1)
+
+        old_mutation_rate = self._mutation_rate
+        old_crossover_prob = self._crossover_prob
+
+        if success_rate > 0.7:
+            self._mutation_rate = min(0.4, self._mutation_rate * 1.1)
+            self._crossover_prob = min(0.8, self._crossover_prob * 1.05)
+            logger.info(
+                "[EVO-ADAPT] 成功率高 (%.2f%%) → 增加探索 | "
+                "mutation: %.3f → %.3f | crossover: %.3f → %.3f",
+                success_rate * 100,
+                old_mutation_rate, self._mutation_rate,
+                old_crossover_prob, self._crossover_prob,
+            )
+        elif success_rate < 0.3:
+            self._mutation_rate = max(0.05, self._mutation_rate * 0.9)
+            self._crossover_prob = max(0.2, self._crossover_prob * 0.95)
+            logger.info(
+                "[EVO-ADAPT] 成功率低 (%.2f%%) → 减少激进变异 | "
+                "mutation: %.3f → %.3f | crossover: %.3f → %.3f",
+                success_rate * 100,
+                old_mutation_rate, self._mutation_rate,
+                old_crossover_prob, self._crossover_prob,
+            )
+        else:
+            logger.debug(
+                "[EVO-ADAPT] 成功率正常 (%.2f%%) → 保持当前参数 | "
+                "mutation=%.3f crossover=%.3f",
+                success_rate * 100,
+                self._mutation_rate,
+                self._crossover_prob,
+            )

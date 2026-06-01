@@ -523,3 +523,95 @@ def _build_slot_info(expression: str, brain_result: Any) -> Any:
             self.expression = expr
 
     return _SlotInfoProxy(expression, brain_result)
+
+
+def compute_selection_score(sharpe: float, turnover: float | None, novelty: float = 0.0) -> float:
+    """综合 Sharpe + Turnover 惩罚 + Novelty 奖励的选择分数
+
+    数据流闭环 #6: QualityDiversity → Alpha Selection (P2)
+
+    将 diversity_score (novelty) 整合到 alpha 选择决策中，
+    使得系统不仅关注 Sharpe 比率，还会奖励探索新颖的因子空间。
+
+    选择分数公式:
+      final_score = sharpe - turnover_penalty + novelty_bonus
+
+    其中:
+      - base_score: Sharpe 比率（主要指标）
+      - turnover_penalty: 高换手率惩罚 (turnover > 0.35 时启用)
+      - novelty_bonus: 新颖性奖励 (最高 +0.3)
+
+    Args:
+        sharpe: Sharpe 比率
+        turnover: Turnover 值（可选）
+        novelty: 新颖性分数 (0.0 ~ 1.0)，来自 GridArchive.evaluate_novelty()
+
+    Returns:
+        float: 综合选择分数（越高越优）
+    """
+    base_score = max(0.0, sharpe)
+
+    turnover_value = turnover or 0.0
+    turnover_penalty = max(0.0, turnover_value - 0.35) * 2.0
+
+    novelty_bonus = min(novelty, 1.0) * 0.3
+
+    final_score = base_score - turnover_penalty + novelty_bonus
+
+    logger.debug(
+        "[DIVERSITY] Selection score | sharpe=%.3f turnover=%.2f novelty=%.3f → "
+        "base=%.3f penalty=%.3f bonus=%.3f final=%.3f",
+        sharpe,
+        turnover_value,
+        novelty,
+        base_score,
+        turnover_penalty,
+        novelty_bonus,
+        final_score,
+    )
+
+    return final_score
+
+
+def evaluate_alpha_novelty(expression: str, direction: str = "momentum") -> float:
+    """评估 alpha 表达式的新颖性（便捷包装函数）
+
+    数据流闭环 #6: QualityDiversity → Alpha Selection (P2)
+
+    从全局状态获取 FeatureMap / GridArchive 实例，
+    并调用 evaluate_novelty() 计算表达式的新颖性分数。
+
+    Args:
+        expression: alpha 表达式
+        direction: 探索方向（用于构建特征向量）
+
+    Returns:
+        float: 新颖性分数 (0.0 ~ 1.0)，如果 archive 不可用则返回默认值 0.5
+    """
+    try:
+        from openalpha_brain.core import loop_state as _ls_module
+        from openalpha_brain.evolution.quality_diversity import _DIRECTIONS, _MECHANISMS, _TIME_HORIZONS
+
+        feature_map = getattr(_ls_module._ls, "_feature_map", None)
+        if feature_map is None or feature_map.archive is None:
+            logger.debug("[DIVERSITY] FeatureMap/Archive 不可用 → novelty=0.5 (默认)")
+            return 0.5
+
+        try:
+            dir_idx = _DIRECTIONS.index(direction) if direction in _DIRECTIONS else 0
+            time_idx = _TIME_HORIZONS.index("medium")
+            mech_idx = _MECHANISMS.index("signal")
+            feature_vector = [float(dir_idx), float(time_idx), float(mech_idx)]
+        except (ValueError, TypeError):
+            feature_vector = [0.0, 1.0, 2.0]
+
+        novelty = feature_map.archive.evaluate_novelty(
+            expression=expression,
+            feature_vector=feature_vector,
+        )
+
+        return novelty
+
+    except (ImportError, AttributeError, OSError) as exc:
+        logger.debug("[DIVERSITY] Novelty evaluation failed: %s → 使用默认值 0.5", exc)
+        return 0.5

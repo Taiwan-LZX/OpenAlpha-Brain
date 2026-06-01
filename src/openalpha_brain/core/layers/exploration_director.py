@@ -661,3 +661,55 @@ class ExplorationDirector:
         self._update_count = 0
         self._method_stats.clear()
         self._last_direction = ""
+
+    def apply_reflection_insights(self, insights: list[dict]) -> None:
+        """根据反思结论调整探索方向权重 (#1 数据流闭环)
+
+        接收 ReflectionEngine 的反思输出，动态调整 _regime_weights 中的方向权重。
+        这使得系统能够从失败中学习，自动降低导致失败的方向权重，提升成功方向的权重。
+
+        Args:
+            insights: 反思结论列表，每项包含:
+                - direction: str — 探索方向 (如 'momentum', 'reversal')
+                - weight_adjustment: float — 权重调整值 (正值=提升, 负值=降低)
+                - reason: str — 调整原因说明
+        """
+        if not insights:
+            return
+
+        applied_count = 0
+        for insight in insights:
+            direction = insight.get('direction', '')
+            adjustment = insight.get('weight_adjustment')
+            reason = insight.get('reason', '')
+
+            if not direction or adjustment is None:
+                continue
+
+            try:
+                current = self._regime_weights.get(direction, {})
+                boost_key = 'reflection_boost'
+                current_boost = current.get(boost_key, 1.0)
+                adjusted_boost = max(0.1, min(3.0, current_boost * (1.0 + adjustment)))
+                current[boost_key] = adjusted_boost
+                self._regime_weights[direction] = current
+                applied_count += 1
+
+                logger.debug(
+                    "[EXPLORE] Direction %s adjusted by %.2f (boost: %.2f→%.2f): %s",
+                    direction,
+                    adjustment,
+                    current_boost,
+                    adjusted_boost,
+                    reason[:80] if reason else "no reason",
+                )
+            except (TypeError, ValueError, AttributeError) as exc:
+                logger.debug("[EXPLORE] Failed to apply reflection insight for direction=%s: %s", direction, exc)
+
+        if applied_count > 0:
+            logger.info(
+                "[REFLECTION→L1] Applied %d/%d reflection insights to exploration weights",
+                applied_count,
+                len(insights),
+            )
+

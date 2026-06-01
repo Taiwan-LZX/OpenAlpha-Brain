@@ -419,6 +419,20 @@ async def run_loop(session_id: str) -> None:
             {"session_id": session_id, "cycle": global_cycle, "max_cycles": settings.MAX_CYCLES},
         )
 
+        # ── 数据流闭环 #3: 每 10 轮自适应调整进化参数 ────
+        if global_cycle % 10 == 0 and hasattr(_ls, "_crossover_engine") and _ls._crossover_engine is not None:
+            try:
+                _ls._crossover_engine.adapt_evolution_params()
+                logger.debug(
+                    "[%s] cycle=%d [EVO-ADAPT] 进化参数自适应完成 | mutation_rate=%.3f crossover_prob=%.3f",
+                    session_id,
+                    global_cycle,
+                    getattr(_ls._crossover_engine, "_mutation_rate", 0),
+                    getattr(_ls._crossover_engine, "_crossover_prob", 0),
+                )
+            except (OSError, ValueError, RuntimeError) as _evo_adapt_exc:
+                logger.debug("[%s] cycle=%d [EVO-ADAPT] 自适应失败（非致命）: %s", session_id, global_cycle, _evo_adapt_exc)
+
         if _ls._console_stop_event and _ls._console_stop_event.is_set():
             logger.info("[%s] Console stop requested, breaking loop", session_id)
             break
