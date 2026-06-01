@@ -2051,7 +2051,7 @@ async def run_loop(session_id: str) -> None:
                         _fusion_result.disagreement_score,
                     )
                     if (
-                        _fusion_result.confidence > 0.7
+                        _fusion_result.confidence > 0.5
                         and _fusion_result.final_direction
                         and _fusion_result.final_direction != exploration_direction
                     ):
@@ -2063,6 +2063,25 @@ async def run_loop(session_id: str) -> None:
                             _fusion_result.confidence,
                         )
                         exploration_direction = _fusion_result.final_direction
+                    if _fusion_result.confidence >= 0.3:
+                        try:
+                            _ls._nav_fusion_context = {
+                                "final_direction": _fusion_result.final_direction,
+                                "confidence": _fusion_result.confidence,
+                                "strategy": _fusion_result.strategy.value if hasattr(_fusion_result.strategy, "value") else str(_fusion_result.strategy),
+                                "disagreement_score": _fusion_result.disagreement_score,
+                                "weight_distribution": getattr(_fusion_result, "weight_distribution", {}),
+                                "has_consensus": getattr(_fusion_result, "has_consensus", False),
+                                "cycle_num": global_cycle,
+                            }
+                            logger.debug(
+                                "[%s] NAV_FUSION CONTEXT: passed to L2/L4 | conf=%.2f consensus=%s",
+                                session_id,
+                                _fusion_result.confidence,
+                                _ls._nav_fusion_context.get("has_consensus"),
+                            )
+                        except (OSError, ValueError, RuntimeError):
+                            pass
                 except (OSError, ValueError, RuntimeError):
                     logger.warning("[%s] NavigationFusion failed", session_id, exc_info=True)
 
@@ -2178,13 +2197,20 @@ async def run_loop(session_id: str) -> None:
             _log_brain_result(state, brain_result, expression, attempt=0)
             await sm.save_session(state)
 
-            if (
+            _should_run_param_opt = (
                 settings.PARAM_OPTIMIZATION_ENABLED
                 and _ls._param_optimizer
-                and brain_result.status == BrainSimStatus.FAIL
                 and brain_result.real_sharpe is not None
+                and (
+                    brain_result.status == BrainSimStatus.FAIL
+                    or (
+                        brain_result.status == BrainSimStatus.PASS
+                        and brain_result.real_sharpe < brain_client.GATE_SHARPE_MIN * 1.25
+                    )
+                )
                 and _ls._param_optimizer.should_optimize(brain_result.real_sharpe, brain_client.GATE_SHARPE_MIN)
-            ):
+            )
+            if _should_run_param_opt:
                 _ls._log(
                     state,
                     "PARAM_OPT",

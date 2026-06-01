@@ -61,6 +61,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from openalpha_brain.core import loop_state as _ls_module
+
 logger = logging.getLogger(__name__)
 
 _EPSILON = 1e-6
@@ -77,6 +79,7 @@ class GenerationResult:
     prefilter_passed: bool = False
     validation_errors: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    crossover_insights_used: list[dict] = field(default_factory=list)
     raw_llm_output: str | None = None
 
     @property
@@ -190,7 +193,7 @@ class GenerationPipeline:
         )
 
         try:
-            expression, source, confidence, raw_output = await self._stage_generate(
+            expression, source, confidence, raw_output, used_insight = await self._stage_generate(
                 direction=direction,
                 session_id=session_id,
                 cycle_num=cycle_num,
@@ -210,6 +213,9 @@ class GenerationPipeline:
             result.confidence = confidence
             result.raw_llm_output = raw_output
             result.metadata["source_method"] = source
+            if used_insight:
+                result.crossover_insights_used = [used_insight]
+                result.metadata["crossover_insights_used"] = [used_insight]
         except Exception as exc:
             logger.error(
                 "[%s] GENERATION_PIPELINE: Stage-1 (Generate) failed: %s",
@@ -331,7 +337,7 @@ class GenerationPipeline:
         fields: list[str] | None = None,
         orchestrator=None,
         previous_expressions: list | None = None,
-    ) -> tuple[str, str, float, str | None]:
+    ) -> tuple[str, str, float, str | None, dict | None]:
         """Stage 1: 表达式生成
 
         按优先级尝试以下路径:
@@ -339,12 +345,13 @@ class GenerationPipeline:
           2. Direct LLM client generate_with_tools
           3. Template reasoning generator fallback
           4. Mutation/Crossover (如果有父代表达式)
+          5. Crossover insight consumption (from periodic_tasks)
 
         Returns:
-            tuple: (expression, source_label, confidence, raw_output)
+            tuple: (expression, source_label, confidence, raw_output, used_crossover_insight)
         """
         if orchestrator is not None:
-            return await self._generate_via_orchestrator(
+            _expr, _src, _conf, _raw = await self._generate_via_orchestrator(
                 direction=direction,
                 session_id=session_id,
                 cycle_num=cycle_num,
@@ -354,9 +361,10 @@ class GenerationPipeline:
                 fields=fields,
                 previous_expressions=previous_expressions,
             )
+            return _expr, _src, _conf, _raw, None
 
         if llm_client is not None and user_msg:
-            return await self._generate_via_llm_direct(
+            _expr, _src, _conf, _raw = await self._generate_via_llm_direct(
                 direction=direction,
                 session_id=session_id,
                 cycle_num=cycle_num,
@@ -367,22 +375,46 @@ class GenerationPipeline:
                 operators=operators,
                 fields=fields,
             )
+            return _expr, _src, _conf, _raw, None
 
         if alpha_generator is not None:
-            return await self._generate_via_template(
+            _expr, _src, _conf, _raw = await self._generate_via_template(
                 direction=direction,
                 session_id=session_id,
                 cycle_num=cycle_num,
                 alpha_generator=alpha_generator,
                 scheduler=scheduler,
             )
+            return _expr, _src, _conf, _raw, None
+
+        # ── Path 5: Consume CrossoverMutationEngine insights (from periodic_tasks) ──
+        _crossover_proposals = getattr(_ls_module._ls, "_crossover_exploration_proposals", None)
+        _used_insight = None
+        if _crossover_proposals and len(_crossover_proposals) > 0:
+            try:
+                _best_proposal = max(
+                    _crossover_proposals,
+                    key=lambda p: p.get("strategy", "") in ["semantic_crossover", "trajectory_level"],
+                )
+                if _best_proposal.get("direction") and _best_proposal.get("direction") != direction:
+                    logger.info(
+                        "[%s] GENERATION_PIPELINE: Using crossover insight | dir=%s→%s strategy=%s",
+                        session_id,
+                        direction,
+                        _best_proposal["direction"],
+                        _best_proposal.get("strategy", "unknown"),
+                    )
+                    _used_insight = _best_proposal
+                    direction = _best_proposal["direction"]
+            except (OSError, ValueError, RuntimeError) as exc:
+                logger.debug("[%s] GENERATION_PIPELINE: Crossover insight consumption failed: %s", session_id, exc)
 
         logger.warning(
             "[%s] GENERATION_PIPELINE: No viable generation path available "
             "(no orchestrator, no llm_client, no alpha_generator)",
             session_id,
         )
-        return "", "fallback", 0.0, None
+        return "", "fallback", 0.0, None, _used_insight
 
     async def _generate_via_orchestrator(
         self,

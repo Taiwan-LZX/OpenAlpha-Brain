@@ -79,6 +79,7 @@ class ImprovementResult:
     reflection_diagnosis: dict | None = None
     near_pass_analysis: dict | None = None
     turnover_analysis: dict | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ImprovementOrchestra:
@@ -350,6 +351,33 @@ class ImprovementOrchestra:
                     logger.debug("[IO] QD archive updated for %s/%s/%s", current_dir, current_horiz, current_mech)
             except (OSError, ValueError, RuntimeError, AttributeError) as exc:
                 logger.warning("[IO] QualityDiversity failed: %s", exc)
+
+        # ── Consume TrajectoryMutation insights (from periodic_tasks background) ──
+        try:
+            from openalpha_brain.core import loop_state as _ls_mod
+
+            _mutation_insights = getattr(_ls_mod._ls, "_trajectory_mutation_insights", None)
+            if _mutation_insights and len(_mutation_insights) > 0:
+                _relevant_mutations = [
+                    m for m in _mutation_insights
+                    if m.get("direction") == exploration_direction or m.get("mutation_type") == "segment_replacement"
+                ]
+                if _relevant_mutations:
+                    result.metadata["trajectory_mutations_available"] = len(_relevant_mutations)
+                    logger.info(
+                        "[IO] TrajectoryMutation Insights | %d relevant mutations consumed from background",
+                        len(_relevant_mutations),
+                    )
+
+            _weak_segment_alerts = getattr(_ls_mod._ls, "_weak_segment_alerts", None)
+            if _weak_segment_alerts and len(_weak_segment_alerts) > 0:
+                result.metadata["weak_segments_detected"] = len(_weak_segment_alerts)
+                logger.info(
+                    "[IO] Weak Segment Alerts | %d alerts from trajectory mutation analysis",
+                    len(_weak_segment_alerts),
+                )
+        except (OSError, ValueError, RuntimeError, ImportError) as exc:
+            logger.debug("[IO] TrajectoryMutation insight consumption skipped: %s", exc)
 
         elapsed = time.monotonic() - t_start
         total_variants = len(result.improved_expressions)
